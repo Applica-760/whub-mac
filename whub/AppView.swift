@@ -9,6 +9,7 @@ struct AppView: View {
         case vault
         case status
         case timer
+        case motion
 
         var label: String {
             switch self {
@@ -19,6 +20,7 @@ struct AppView: View {
             case .vault: "Vault"
             case .terminal: "Terminal"
             case .todo: "Todo"
+            case .motion: "Motion"
             }
         }
 
@@ -31,6 +33,7 @@ struct AppView: View {
             case .vault: "tray.full"
             case .terminal: "terminal"
             case .todo: "list.bullet.clipboard"
+            case .motion: "hand.draw"
             }
         }
 
@@ -44,6 +47,7 @@ struct AppView: View {
             case .vault: VaultExplorerView()
             case .terminal: TerminalView()
             case .todo: TodoView()
+            case .motion: MotionView()
             }
         }
     }
