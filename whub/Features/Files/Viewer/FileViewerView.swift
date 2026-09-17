@@ -7,31 +7,25 @@ struct FileViewerView: View {
     var body: some View {
         VStack(spacing: 8) {
             if !store.fileURLs.isEmpty {
-                HStack(alignment: .bottom) {
-                    ScrollView(.horizontal) {
-                        HStack {
-                            ForEach(store.fileURLs, id: \.self) { fileURL in
-                                let kind = fileKind(for: fileURL)
-                                TabBar(
-                                    title: fileURL.lastPathComponent,
-                                    systemImage: kind.systemImage,
-                                    isSelected: fileURL == store.selectedFileURL
-                                ) {
+                ScrollView(.horizontal) {
+                    HStack {
+                        ForEach(store.fileURLs, id: \.self) { fileURL in
+                            let kind = fileKind(for: fileURL)
+                            TabBar(
+                                title: fileURL.lastPathComponent,
+                                systemImage: kind.systemImage,
+                                isSelected: fileURL == store.selectedFileURL,
+                                action: {
                                     store.select(fileURL)
+                                },
+                                closeAction: {
+                                    store.close(fileURL)
                                 }
-                            }
+                            )
                         }
                     }
-                    .scrollIndicators(.hidden)
-
-                    Button("Close File", systemImage: "xmark") {
-                        if let selectedFileURL = store.selectedFileURL {
-                            store.close(selectedFileURL)
-                        }
-                    }
-                    .labelStyle(.iconOnly)
-                    .disabled(store.selectedFileURL == nil)
                 }
+                .scrollIndicators(.hidden)
             }
 
             WidgetFrame {
