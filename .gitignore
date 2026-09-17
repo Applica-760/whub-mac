@@ -1,0 +1,13 @@
+# hub:managed:start
+.codegraph/
+# hub:managed:end
+
+# macOS and Xcode local state
+.DS_Store
+xcuserdata/
+
+# Swift build output
+.build/
+DerivedData/
+build/
+Packages/WhubCore/build/
