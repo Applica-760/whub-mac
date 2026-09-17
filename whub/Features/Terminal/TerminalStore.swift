@@ -55,13 +55,14 @@ final class TerminalStore: ObservableObject {
         selectedSessionID = session.id
     }
 
-    func removeSelected() {
+    func remove(_ id: TerminalSession.ID) {
         guard sessions.count > 1,
-              let selectedIndex = sessions.firstIndex(where: { $0.id == selectedSessionID })
+              let index = sessions.firstIndex(where: { $0.id == id })
         else { return }
 
-        sessions.remove(at: selectedIndex)
-        selectedSessionID = sessions[min(selectedIndex, sessions.endIndex - 1)].id
+        sessions.remove(at: index)
+        guard selectedSessionID == id else { return }
+        selectedSessionID = sessions[min(index, sessions.endIndex - 1)].id
     }
 
     func select(_ id: TerminalSession.ID) {

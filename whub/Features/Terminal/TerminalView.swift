@@ -9,28 +9,25 @@ struct TerminalView: View {
             HStack(alignment: .bottom) {
                 ForEach(Array(store.sessions.enumerated()), id: \.element.id) { index, session in
                     TabBar(
-                        title: "Terminal \(index + 1)",
+                        title: "Term \(index + 1)",
                         systemImage: "terminal",
-                        isSelected: session.id == store.selectedSessionID
-                    ) {
-                        store.select(session.id)
-                    }
+                        isSelected: session.id == store.selectedSessionID,
+                        isCloseDisabled: store.sessions.count == 1,
+                        action: {
+                            store.select(session.id)
+                        },
+                        closeAction: {
+                            store.remove(session.id)
+                        }
+                    )
                 }
 
                 Spacer()
 
-                ControlGroup {
-                    Button("Add Terminal", systemImage: "plus") {
-                        store.add()
-                    }
-                    .keyboardShortcut("t", modifiers: .command)
-                    Button("Close Terminal", systemImage: "minus") {
-                        store.removeSelected()
-                    }
-                    .keyboardShortcut("w", modifiers: [.command, .shift])
-                    .disabled(store.sessions.count == 1)
+                Button("Add Terminal", systemImage: "plus") {
+                    store.add()
                 }
-                .controlGroupStyle(.automatic)
+                .keyboardShortcut("t", modifiers: .command)
                 .labelStyle(.iconOnly)
             }
 
