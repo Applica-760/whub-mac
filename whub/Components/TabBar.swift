@@ -34,13 +34,3 @@ struct TabBar: View {
         }
     }
 }
-
-#Preview {
-    TabBar(
-        title: "Terminal 1",
-        systemImage: "terminal",
-        isSelected: true,
-        action: {},
-        closeAction: {}
-    )
-}

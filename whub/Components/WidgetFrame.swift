@@ -13,7 +13,3 @@ struct WidgetFrame<Content: View>: View {
         }
     }
 }
-
-#Preview {
-    WidgetFrame { Text("Content") }
-}

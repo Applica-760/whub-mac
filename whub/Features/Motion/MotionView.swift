@@ -125,7 +125,3 @@ struct MotionView: View {
         }
     }
 }
-
-#Preview {
-    MotionView()
-}

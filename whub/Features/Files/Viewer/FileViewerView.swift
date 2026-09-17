@@ -60,8 +60,3 @@ private struct QuickLookPreviewView: NSViewRepresentable {
         previewView.previewItem = fileURL as NSURL
     }
 }
-
-#Preview {
-    FileViewerView()
-        .environmentObject(FileViewerStore())
-}

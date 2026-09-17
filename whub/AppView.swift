@@ -88,9 +88,3 @@ struct AppView: View {
         }
     }
 }
-
-#Preview {
-    AppView(section: .constant(.overview))
-        .environmentObject(FileViewerStore())
-        .environmentObject(TerminalStore())
-}

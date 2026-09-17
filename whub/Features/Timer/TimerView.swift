@@ -10,7 +10,3 @@ struct TimerView: View {
         .navigationTitle("Timer")
     }
 }
-
-#Preview {
-    TimerView()
-}
