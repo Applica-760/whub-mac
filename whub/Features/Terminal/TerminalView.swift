@@ -61,8 +61,3 @@ private struct LocalTerminalView: NSViewRepresentable {
 
     func updateNSView(_ terminal: LocalProcessTerminalView, context: Context) {}
 }
-
-#Preview {
-    TerminalView()
-        .environmentObject(TerminalStore())
-}

@@ -28,8 +28,3 @@ struct OverviewView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
-
-#Preview {
-    OverviewView()
-        .environmentObject(TerminalStore())
-}

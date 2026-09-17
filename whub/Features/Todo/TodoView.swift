@@ -57,7 +57,3 @@ struct TodoWidget: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
-
-#Preview {
-    TodoView()
-}

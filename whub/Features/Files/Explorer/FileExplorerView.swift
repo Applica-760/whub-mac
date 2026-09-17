@@ -51,7 +51,3 @@ struct FileExplorerView: View {
         return URL(fileURLWithPath: resource.localPath)
     }
 }
-
-#Preview {
-    FileExplorerView { _ in }
-}

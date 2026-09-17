@@ -10,7 +10,3 @@ struct VaultExplorerView: View {
         .navigationTitle("Vault")
     }
 }
-
-#Preview {
-    VaultExplorerView()
-}

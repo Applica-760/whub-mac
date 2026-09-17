@@ -40,7 +40,3 @@ struct StatusWidget: View {
         }
     }
 }
-
-#Preview {
-    StatusView()
-}
