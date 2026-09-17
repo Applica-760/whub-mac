@@ -7,6 +7,7 @@
 xcuserdata/
 
 # Swift build output
+.swiftpm/
 .build/
 DerivedData/
 build/
