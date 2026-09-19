@@ -2,45 +2,44 @@ import SwiftUI
 import WebKit
 
 struct BrowserView: View {
-    @State private var page = WebPage()
-    @State private var address = ""
+    @EnvironmentObject private var store: BrowserStore
 
     var body: some View {
         VStack(spacing: 8) {
             HStack {
                 ControlGroup {
                     Button("Back", systemImage: "chevron.left") {
-                        if let item = page.backForwardList.backList.last {
-                            page.load(item)
+                        if let item = store.page.backForwardList.backList.last {
+                            store.page.load(item)
                         }
                     }
-                    .disabled(page.backForwardList.backList.isEmpty)
+                    .disabled(store.page.backForwardList.backList.isEmpty)
 
                     Button("Forward", systemImage: "chevron.right") {
-                        if let item = page.backForwardList.forwardList.first {
-                            page.load(item)
+                        if let item = store.page.backForwardList.forwardList.first {
+                            store.page.load(item)
                         }
                     }
-                    .disabled(page.backForwardList.forwardList.isEmpty)
+                    .disabled(store.page.backForwardList.forwardList.isEmpty)
 
                     Button("Reload", systemImage: "arrow.clockwise") {
-                        page.reload()
+                        store.page.reload()
                     }
-                    .disabled(page.url == nil)
+                    .disabled(store.page.url == nil)
                 }
                 .labelStyle(.iconOnly)
 
-                TextField("URL", text: $address)
+                TextField("URL", text: $store.address)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit(loadAddress)
+                    .onSubmit(store.loadAddress)
 
-                Button("Go", systemImage: "arrow.right", action: loadAddress)
+                Button("Go", systemImage: "arrow.right", action: store.loadAddress)
                     .labelStyle(.iconOnly)
-                    .disabled(browserURL == nil)
+                    .disabled(store.browserURL == nil)
             }
 
             WidgetFrame {
-                WebView(page)
+                WebView(store.page)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -48,27 +47,10 @@ struct BrowserView: View {
         .padding(.bottom)
         .padding(.top, 8)
         .navigationTitle("Browser")
-        .onChange(of: page.url) { _, url in
+        .onChange(of: store.page.url) { _, url in
             if let url {
-                address = url.absoluteString
+                store.address = url.absoluteString
             }
         }
-    }
-
-    private var browserURL: URL? {
-        let value = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return nil }
-        let url = URL(string: value.contains("://") ? value : "https://\(value)")
-        guard let url,
-              url.host != nil,
-              ["http", "https"].contains(url.scheme?.lowercased())
-        else { return nil }
-        return url
-    }
-
-    private func loadAddress() {
-        guard let url = browserURL else { return }
-        address = url.absoluteString
-        page.load(url)
     }
 }
