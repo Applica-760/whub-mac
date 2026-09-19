@@ -14,6 +14,7 @@ import WhubCore
 struct whubApp: App {
     @StateObject private var fileViewerStore = FileViewerStore()
     @StateObject private var terminalStore = TerminalStore()
+    @StateObject private var browserStore = BrowserStore()
     @State private var section = AppView.Section.overview
     private let workspaceContainer: ModelContainer
 
@@ -30,6 +31,7 @@ struct whubApp: App {
             AppView(section: $section)
                 .environmentObject(fileViewerStore)
                 .environmentObject(terminalStore)
+                .environmentObject(browserStore)
         }
         .modelContainer(workspaceContainer)
         .commands {
