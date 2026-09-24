@@ -1,10 +1,60 @@
 import Combine
 import Foundation
+import Observation
 import WebKit
 
-final class BrowserStore: ObservableObject {
+@Observable
+final class BrowserSession: Identifiable {
+    let id = UUID()
     let page = WebPage()
-    @Published var address = ""
+    var address = ""
+    var showsBookmarks = true
+
+    var title: String {
+        page.title.isEmpty ? page.url?.host ?? "New Tab" : page.title
+    }
+
+    func loadAddress() {
+        guard let url = BrowserStore.url(from: address) else { return }
+        address = url.absoluteString
+        page.load(url)
+        showsBookmarks = false
+    }
+}
+
+final class BrowserStore: ObservableObject {
+    @Published private(set) var sessions: [BrowserSession]
+    @Published private(set) var selectedSessionID: BrowserSession.ID
+
+    init() {
+        let session = BrowserSession()
+        sessions = [session]
+        selectedSessionID = session.id
+    }
+
+    var selectedSession: BrowserSession {
+        sessions.first { $0.id == selectedSessionID } ?? sessions[0]
+    }
+
+    func add() {
+        let session = BrowserSession()
+        sessions.append(session)
+        selectedSessionID = session.id
+    }
+
+    func remove(_ id: BrowserSession.ID) {
+        guard sessions.count > 1,
+              let index = sessions.firstIndex(where: { $0.id == id })
+        else { return }
+
+        sessions.remove(at: index)
+        guard selectedSessionID == id else { return }
+        selectedSessionID = sessions[min(index, sessions.endIndex - 1)].id
+    }
+
+    func select(_ id: BrowserSession.ID) {
+        selectedSessionID = id
+    }
 
     static func url(from input: String) -> URL? {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -14,13 +64,5 @@ final class BrowserStore: ObservableObject {
               ["http", "https"].contains(url.scheme?.lowercased())
         else { return nil }
         return url
-    }
-
-    @discardableResult
-    func loadAddress() -> Bool {
-        guard let url = Self.url(from: address) else { return false }
-        address = url.absoluteString
-        page.load(url)
-        return true
     }
 }
