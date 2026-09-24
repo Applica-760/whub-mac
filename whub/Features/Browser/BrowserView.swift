@@ -44,7 +44,7 @@ struct BrowserView: View {
 
                 Button("Go", systemImage: "arrow.right", action: loadAddress)
                     .labelStyle(.iconOnly)
-                    .disabled(store.browserURL == nil)
+                    .disabled(BrowserStore.url(from: store.address) == nil)
             }
 
             WidgetFrame {
@@ -85,8 +85,7 @@ struct BrowserView: View {
     }
 
     private func loadAddress() {
-        guard store.browserURL != nil else { return }
-        store.loadAddress()
+        guard store.loadAddress() else { return }
         showsBookmarks = false
     }
 
