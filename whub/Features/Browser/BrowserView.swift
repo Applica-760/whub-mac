@@ -2,13 +2,10 @@ import LinkPresentation
 import SwiftUI
 import WebKit
 
-private let githubBookmarkTitle = "GitHub"
-private let githubBookmarkURL = URL(string: "https://github.com/Applica-760")!
-
 struct BrowserView: View {
     @EnvironmentObject private var store: BrowserStore
+    @AppStorage(BookmarkStorage.key) private var bookmarkData = BookmarkStorage.initialData
     @State private var showsBookmarks = true
-    @State private var githubIcon: Image?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -52,31 +49,23 @@ struct BrowserView: View {
 
             WidgetFrame {
                 if showsBookmarks {
-                    Button {
-                        store.address = githubBookmarkURL.absoluteString
-                        loadAddress()
-                    } label: {
-                        VStack(spacing: 8) {
-                            Group {
-                                if let githubIcon {
-                                    githubIcon.resizable().scaledToFit()
-                                } else {
-                                    Image(systemName: "globe").resizable().scaledToFit()
+                    GeometryReader { geometry in
+                        ScrollView {
+                            Grid(horizontalSpacing: 24, verticalSpacing: 24) {
+                                ForEach(bookmarkRows.indices, id: \.self) { row in
+                                    GridRow {
+                                        ForEach(bookmarkRows[row]) { bookmark in
+                                            BookmarkButton(bookmark: bookmark) {
+                                                store.address = bookmark.url.absoluteString
+                                                loadAddress()
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            .frame(width: 72, height: 72)
-                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                            Text(githubBookmarkTitle)
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: geometry.size.height)
                         }
-                    }
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .task {
-                        guard githubIcon == nil,
-                              let metadata = try? await LinkMetadata(fetching: githubBookmarkURL, timeout: .seconds(30))
-                        else { return }
-                        githubIcon = try? await metadata.media(.icon, as: Image.self)
                     }
                 } else {
                     WebView(store.page)
@@ -99,5 +88,48 @@ struct BrowserView: View {
         guard store.browserURL != nil else { return }
         store.loadAddress()
         showsBookmarks = false
+    }
+
+    private var bookmarks: [Bookmark] {
+        (try? BookmarkStorage.decode(bookmarkData)) ?? []
+    }
+
+    private var bookmarkRows: [[Bookmark]] {
+        stride(from: 0, to: bookmarks.count, by: 5).map { start in
+            Array(bookmarks[start..<min(start + 5, bookmarks.count)])
+        }
+    }
+}
+
+private struct BookmarkButton: View {
+    let bookmark: Bookmark
+    let action: () -> Void
+    @State private var icon: Image?
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Group {
+                    if let icon {
+                        icon.resizable().scaledToFit()
+                    } else {
+                        Image(systemName: "globe").resizable().scaledToFit()
+                    }
+                }
+                .frame(width: 72, height: 72)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                Text(bookmark.title)
+                    .lineLimit(1)
+                    .frame(width: 88)
+            }
+        }
+        .buttonStyle(.plain)
+        .task(id: bookmark.url) {
+            icon = nil
+            guard let metadata = try? await LinkMetadata(fetching: bookmark.url, timeout: .seconds(30))
+            else { return }
+            icon = try? await metadata.media(.icon, as: Image.self)
+        }
     }
 }
