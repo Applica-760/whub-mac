@@ -2,6 +2,7 @@ import QuickLookUI
 import SwiftUI
 
 struct FileViewerView: View {
+    var closeShortcutEnabled = true
     @EnvironmentObject private var store: FileViewerStore
 
     var body: some View {
@@ -15,6 +16,7 @@ struct FileViewerView: View {
                                 title: fileURL.lastPathComponent,
                                 systemImage: kind.systemImage,
                                 isSelected: fileURL == store.selectedFileURL,
+                                closeShortcutEnabled: closeShortcutEnabled,
                                 action: {
                                     store.select(fileURL)
                                 },

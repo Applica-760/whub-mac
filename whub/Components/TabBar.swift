@@ -5,6 +5,7 @@ struct TabBar: View {
     let systemImage: String
     let isSelected: Bool
     var isCloseDisabled = false
+    var closeShortcutEnabled = true
     let action: () -> Void
     let closeAction: () -> Void
 
@@ -26,7 +27,7 @@ struct TabBar: View {
             Button("Close \(title)", systemImage: "xmark", action: closeAction)
                 .labelStyle(.iconOnly)
                 .keyboardShortcut(
-                    isSelected
+                    isSelected && closeShortcutEnabled
                         ? KeyboardShortcut("w", modifiers: [.command, .shift])
                         : nil
                 )
