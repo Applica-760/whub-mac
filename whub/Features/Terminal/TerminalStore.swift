@@ -14,7 +14,7 @@ final class TerminalSession: Identifiable {
 
     init() {
         let terminal = FixedCursorTerminalView(frame: .zero)
-        terminal.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        terminal.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         terminal.lineSpacing = 1.1
         terminal.nativeBackgroundColor = NSColor(calibratedWhite: 0.1, alpha: 1)
         terminal.nativeForegroundColor = NSColor(calibratedWhite: 0.9, alpha: 1)
