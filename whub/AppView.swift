@@ -4,6 +4,7 @@ struct AppView: View {
     enum Section: CaseIterable, Hashable {
         case overview
         case file
+        case workspace
         case browser
         case terminal
         case todo
@@ -16,6 +17,7 @@ struct AppView: View {
             switch self {
             case .overview: "Overview"
             case .file: "File"
+            case .workspace: "Workspace"
             case .browser: "Browser"
             case .status: "Status"
             case .timer: "Timer"
@@ -30,6 +32,7 @@ struct AppView: View {
             switch self {
             case .overview: "rectangle.3.group"
             case .file: "doc.text"
+            case .workspace: "keyboard"
             case .browser: "globe"
             case .status: "tablecells"
             case .timer: "timer"
@@ -45,6 +48,7 @@ struct AppView: View {
             switch self {
             case .overview: OverviewView()
             case .file: FileViewerView()
+            case .workspace: WorkspaceView()
             case .browser: BrowserView()
             case .status: StatusView()
             case .timer: TimerView()
@@ -64,7 +68,9 @@ struct AppView: View {
         NavigationSplitView {
             FileExplorerView { fileURL in
                 fileViewerStore.open(fileURL)
-                section = .file
+                if section != .workspace {
+                    section = .file
+                }
             }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 320, max: 640)
         } detail: {

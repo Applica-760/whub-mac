@@ -2,6 +2,7 @@ import SwiftTerm
 import SwiftUI
 
 struct TerminalView: View {
+    var closeShortcutEnabled = true
     @EnvironmentObject private var store: TerminalStore
 
     var body: some View {
@@ -13,6 +14,7 @@ struct TerminalView: View {
                         systemImage: "terminal",
                         isSelected: session.id == store.selectedSessionID,
                         isCloseDisabled: store.sessions.count == 1,
+                        closeShortcutEnabled: closeShortcutEnabled,
                         action: {
                             store.select(session.id)
                         },
