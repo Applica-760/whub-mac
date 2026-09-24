@@ -4,51 +4,87 @@ import WebKit
 
 struct BrowserView: View {
     @EnvironmentObject private var store: BrowserStore
-    @AppStorage(BookmarkStorage.key) private var bookmarkData = BookmarkStorage.initialData
-    @State private var showsBookmarks = true
 
     var body: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .bottom) {
+                ScrollView(.horizontal) {
+                    HStack {
+                        ForEach(store.sessions) { session in
+                            TabBar(
+                                title: session.title,
+                                systemImage: "globe",
+                                isSelected: session.id == store.selectedSessionID,
+                                isCloseDisabled: store.sessions.count == 1,
+                                action: { store.select(session.id) },
+                                closeAction: { store.remove(session.id) }
+                            )
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+
+                Button("Add Browser Tab", systemImage: "plus") {
+                    store.add()
+                }
+                .keyboardShortcut("t", modifiers: .command)
+                .labelStyle(.iconOnly)
+            }
+
+            BrowserSessionView(session: store.selectedSession)
+                .id(store.selectedSessionID)
+        }
+        .padding(.horizontal)
+        .padding(.bottom)
+        .padding(.top, 8)
+        .navigationTitle("Browser")
+    }
+}
+
+private struct BrowserSessionView: View {
+    let session: BrowserSession
+    @AppStorage(BookmarkStorage.key) private var bookmarkData = BookmarkStorage.initialData
+
+    var body: some View {
+        @Bindable var session = session
+
         VStack(spacing: 8) {
             HStack {
                 ControlGroup {
                     Button("Bookmarks", systemImage: "house") {
-                        showsBookmarks = true
+                        session.showsBookmarks = true
                     }
 
                     Button("Back", systemImage: "chevron.left") {
-                        if let item = store.page.backForwardList.backList.last {
-                            store.page.load(item)
-                            showsBookmarks = false
+                        if let item = session.page.backForwardList.backList.last {
+                            session.page.load(item)
+                            session.showsBookmarks = false
                         }
                     }
-                    .disabled(store.page.backForwardList.backList.isEmpty)
+                    .disabled(session.page.backForwardList.backList.isEmpty)
 
                     Button("Forward", systemImage: "chevron.right") {
-                        if let item = store.page.backForwardList.forwardList.first {
-                            store.page.load(item)
-                            showsBookmarks = false
+                        if let item = session.page.backForwardList.forwardList.first {
+                            session.page.load(item)
+                            session.showsBookmarks = false
                         }
                     }
-                    .disabled(store.page.backForwardList.forwardList.isEmpty)
+                    .disabled(session.page.backForwardList.forwardList.isEmpty)
 
                     Button("Reload", systemImage: "arrow.clockwise") {
-                        store.page.reload()
+                        session.page.reload()
                     }
-                    .disabled(store.page.url == nil)
+                    .disabled(session.page.url == nil)
                 }
                 .labelStyle(.iconOnly)
 
-                TextField("URL", text: $store.address)
+                TextField("URL", text: $session.address)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit(loadAddress)
-
-                Button("Go", systemImage: "arrow.right", action: loadAddress)
-                    .labelStyle(.iconOnly)
-                    .disabled(BrowserStore.url(from: store.address) == nil)
+                    .onSubmit(session.loadAddress)
             }
 
             WidgetFrame {
-                if showsBookmarks {
+                if session.showsBookmarks {
                     GeometryReader { geometry in
                         ScrollView {
                             Grid(horizontalSpacing: 24, verticalSpacing: 24) {
@@ -56,8 +92,8 @@ struct BrowserView: View {
                                     GridRow {
                                         ForEach(bookmarkRows[row]) { bookmark in
                                             BookmarkButton(bookmark: bookmark) {
-                                                store.address = bookmark.url.absoluteString
-                                                loadAddress()
+                                                session.address = bookmark.url.absoluteString
+                                                session.loadAddress()
                                             }
                                         }
                                     }
@@ -68,25 +104,16 @@ struct BrowserView: View {
                         }
                     }
                 } else {
-                    WebView(store.page)
+                    WebView(session.page)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
-        .padding(.horizontal)
-        .padding(.bottom)
-        .padding(.top, 8)
-        .navigationTitle("Browser")
-        .onChange(of: store.page.url) { _, url in
+        .onChange(of: session.page.url) { _, url in
             if let url {
-                store.address = url.absoluteString
+                session.address = url.absoluteString
             }
         }
-    }
-
-    private func loadAddress() {
-        guard store.loadAddress() else { return }
-        showsBookmarks = false
     }
 
     private var bookmarks: [Bookmark] {
