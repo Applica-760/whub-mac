@@ -4,7 +4,6 @@ import SwiftData
 public enum ProjectStoreError: LocalizedError {
     case nameRequired
     case duplicateName(String)
-    case duplicateWorkspacePath(String)
 
     public var errorDescription: String? {
         switch self {
@@ -12,8 +11,6 @@ public enum ProjectStoreError: LocalizedError {
             "Project name is required."
         case let .duplicateName(name):
             "A project named \(name) already exists."
-        case let .duplicateWorkspacePath(path):
-            "A resource with workspace path \(path) already exists."
         }
     }
 }
@@ -37,9 +34,6 @@ public struct ProjectStore {
         let projects = try fetchProjects()
         guard !projects.contains(where: { $0.name == name }) else {
             throw ProjectStoreError.duplicateName(name)
-        }
-        guard !projects.contains(where: { $0.resource.workspacePath == resource.workspacePath }) else {
-            throw ProjectStoreError.duplicateWorkspacePath(resource.workspacePath)
         }
 
         let project = Project(name: name, resource: resource)
