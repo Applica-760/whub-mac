@@ -52,6 +52,7 @@ public struct HostStore {
         identityFile: String
     ) throws -> RemoteHost {
         let name = try validate(name: name, basePath: basePath)
+        try SSH.validate(hostname: hostname, user: user, port: port)
         let host = RemoteHost(
             name: name,
             basePath: basePath,
@@ -81,6 +82,7 @@ public struct HostStore {
         identityFile: String
     ) throws {
         let name = try validate(name: name, basePath: basePath, excluding: host)
+        try SSH.validate(hostname: hostname, user: user, port: port)
         host.name = name
         host.basePath = basePath
         host.hostname = hostname

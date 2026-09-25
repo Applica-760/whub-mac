@@ -54,32 +54,11 @@ public struct ProjectStore {
     }
 
     public func resolvePath(for project: Project) async throws -> String {
-        let path = (project.host.basePath as NSString)
-            .appendingPathComponent("projects")
-            .appending("/" + project.name)
+        let projectsPath = (project.host.basePath as NSString).appendingPathComponent("projects")
+        let path = (projectsPath as NSString).appendingPathComponent(project.name)
 
         if let remote = project.host as? RemoteHost {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            let quotedPath = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-            var arguments = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-p", String(remote.port)]
-            if !remote.identityFile.isEmpty {
-                arguments += ["-i", remote.identityFile]
-            }
-            arguments += ["\(remote.user)@\(remote.hostname)", "test -d \(quotedPath)"]
-            process.arguments = arguments
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            let status = try await withCheckedThrowingContinuation { continuation in
-                process.terminationHandler = { process in
-                    continuation.resume(returning: process.terminationStatus)
-                }
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+            let status = try await SSH.run(["test", "-d", path], on: remote)
             guard status == 0 else {
                 if status == 1 { throw ProjectStoreError.directoryNotFound(path) }
                 throw ProjectStoreError.remoteCheckFailed(remote.name)
