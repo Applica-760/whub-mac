@@ -1,9 +1,13 @@
 import QuickLookUI
 import SwiftUI
+import WhubCore
 
 struct FileViewerView: View {
     var closeShortcutEnabled = true
     @EnvironmentObject private var store: FileViewerStore
+    @State private var diffURL: URL?
+    @State private var diffHunks: [GitDiffHunk] = []
+    @State private var diffErrorMessage: String?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -30,10 +34,19 @@ struct FileViewerView: View {
                 .scrollIndicators(.hidden)
             }
 
+            if let diffErrorMessage {
+                Text(diffErrorMessage)
+                    .foregroundStyle(.secondary)
+            }
+
             WidgetFrame {
                 if let selectedFileURL = store.selectedFileURL {
                     if let language = fileKind(for: selectedFileURL).language {
-                        CodeViewerView(fileURL: selectedFileURL, language: language)
+                        CodeViewerView(
+                            fileURL: selectedFileURL,
+                            language: language,
+                            hunks: diffURL == selectedFileURL ? diffHunks : []
+                        )
                     } else {
                         QuickLookPreviewView(fileURL: selectedFileURL)
                     }
@@ -46,6 +59,23 @@ struct FileViewerView: View {
         .padding(.horizontal)
         .padding(.bottom)
         .padding(.top, 8)
+        .task(id: store.selectedFileURL) {
+            diffURL = nil
+            diffHunks = []
+            diffErrorMessage = nil
+            guard let fileURL = store.selectedFileURL, fileKind(for: fileURL).language != nil else { return }
+            do {
+                let hunks = try await Git.diff(at: fileURL)
+                guard !Task.isCancelled else { return }
+                diffHunks = hunks
+                diffURL = fileURL
+            } catch GitError.notRepository {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                diffErrorMessage = error.localizedDescription
+            }
+        }
     }
 }
 
