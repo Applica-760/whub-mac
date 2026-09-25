@@ -5,16 +5,19 @@ import WhubCore
 struct FileExplorerView: View {
     let onFileSelect: (URL) -> Void
     @Query(sort: \Project.name) private var projects: [Project]
-    @State private var selectedProject: String?
+    @Environment(\.modelContext) private var context
+    @State private var selectedProjectID: PersistentIdentifier?
+    @State private var rootURL: URL?
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Picker("Project", selection: $selectedProject) {
+            Picker("Project", selection: $selectedProjectID) {
                 if projects.isEmpty {
-                    Text("---").tag(nil as String?)
+                    Text("---").tag(PersistentIdentifier?.none)
                 } else {
-                    ForEach(projects, id: \.name) { project in
-                        Text(project.name).tag(Optional(project.name))
+                    ForEach(projects) { project in
+                        Text(project.name).tag(Optional(project.persistentModelID))
                     }
                 }
             }
@@ -26,30 +29,45 @@ struct FileExplorerView: View {
             Divider()
                 .padding(.horizontal)
 
-            FileOutlineView(rootURL: rootURL, onFileSelect: onFileSelect)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding()
+            } else {
+                FileOutlineView(rootURL: rootURL, onFileSelect: onFileSelect)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            selectedProject = projects.first?.name
+            selectedProjectID = projects.first?.persistentModelID
         }
-        .onChange(of: projects.map(\.name)) { _, names in
-            if !names.contains(selectedProject ?? "") {
-                selectedProject = names.first
+        .onChange(of: projects.map(\.persistentModelID)) { _, ids in
+            if !ids.contains(where: { $0 == selectedProjectID }) {
+                selectedProjectID = ids.first
+            }
+        }
+        .task(id: selectedProjectID) {
+            rootURL = nil
+            errorMessage = nil
+            guard let project = selectedProject else { return }
+            guard project.host is LocalHost else {
+                errorMessage = "Remote project files are not available yet."
+                return
+            }
+            do {
+                let path = try await ProjectStore(context: context).resolvePath(for: project)
+                guard !Task.isCancelled else { return }
+                rootURL = URL(fileURLWithPath: path)
+            } catch {
+                guard !Task.isCancelled else { return }
+                errorMessage = error.localizedDescription
             }
         }
     }
 
-    private var rootURL: URL? {
-        guard
-            let selectedProject,
-            let project = projects.first(where: { $0.name == selectedProject }),
-            project.host is LocalHost
-        else {
-            return nil
-        }
-        return URL(fileURLWithPath: project.host.basePath)
-            .appending(path: "projects")
-            .appending(path: project.name)
+    private var selectedProject: Project? {
+        projects.first { $0.persistentModelID == selectedProjectID }
     }
 }
