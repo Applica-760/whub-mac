@@ -40,7 +40,7 @@ public enum Git {
         }.value
     }
 
-    private static func run(_ arguments: [String], at directory: URL) throws -> (data: Data, status: Int32) {
+    static func run(_ arguments: [String], at directory: URL) throws -> (data: Data, status: Int32) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = ["-C", directory.path] + arguments
