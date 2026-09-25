@@ -1,10 +1,3 @@
-//
-//  whubApp.swift
-//  whub
-//
-//  Created by 村上匠 on 2026/09/10.
-//
-
 import AppKit
 import SwiftData
 import SwiftUI

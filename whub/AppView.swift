@@ -8,8 +8,6 @@ struct AppView: View {
         case browser
         case terminal
         case todo
-        case vault
-        case status
         case timer
         case motion
 
@@ -19,9 +17,7 @@ struct AppView: View {
             case .file: "File"
             case .workspace: "Workspace"
             case .browser: "Browser"
-            case .status: "Status"
             case .timer: "Timer"
-            case .vault: "Vault"
             case .terminal: "Terminal"
             case .todo: "Todo"
             case .motion: "Motion"
@@ -34,9 +30,7 @@ struct AppView: View {
             case .file: "doc.text"
             case .workspace: "keyboard"
             case .browser: "globe"
-            case .status: "tablecells"
             case .timer: "timer"
-            case .vault: "tray.full"
             case .terminal: "terminal"
             case .todo: "list.bullet.clipboard"
             case .motion: "hand.draw"
@@ -50,9 +44,7 @@ struct AppView: View {
             case .file: FileViewerView()
             case .workspace: WorkspaceView()
             case .browser: BrowserView()
-            case .status: StatusView()
             case .timer: TimerView()
-            case .vault: VaultExplorerView()
             case .terminal: TerminalView()
             case .todo: TodoView()
             case .motion: MotionView()
