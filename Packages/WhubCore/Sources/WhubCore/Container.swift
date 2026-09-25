@@ -25,10 +25,8 @@ public enum Container {
 
         return try ModelContainer(
             for: Host.self,
-            BasePaths.self,
-            Resource.self,
-            LocalResource.self,
-            RemoteResource.self,
+            LocalHost.self,
+            RemoteHost.self,
             Project.self,
             configurations: configuration
         )

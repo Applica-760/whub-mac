@@ -4,6 +4,8 @@ import SwiftData
 public enum HostStoreError: LocalizedError {
     case nameRequired
     case duplicateName(String)
+    case invalidBasePath
+    case hasProjects(String)
 
     public var errorDescription: String? {
         switch self {
@@ -11,6 +13,10 @@ public enum HostStoreError: LocalizedError {
             "Host name is required."
         case let .duplicateName(name):
             "A host named \(name) already exists."
+        case .invalidBasePath:
+            "Base path must be absolute."
+        case let .hasProjects(name):
+            "Host \(name) has projects."
         }
     }
 }
@@ -28,30 +34,86 @@ public struct HostStore {
     }
 
     @discardableResult
-    public func add(
+    public func addLocal(basePath: String) throws -> LocalHost {
+        try validate(name: "local", basePath: basePath, allowLocal: true)
+        let host = LocalHost(basePath: basePath)
+        context.insert(host)
+        try context.save()
+        return host
+    }
+
+    @discardableResult
+    public func addRemote(
         name: String,
+        basePath: String,
         hostname: String,
         user: String,
         port: Int = 22,
-        identityFile: String,
-        mountRoot: String
-    ) throws -> Host {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { throw HostStoreError.nameRequired }
-        guard try !fetchHosts().contains(where: { $0.name == name }) else {
-            throw HostStoreError.duplicateName(name)
-        }
-
-        let host = Host(
+        identityFile: String
+    ) throws -> RemoteHost {
+        let name = try validate(name: name, basePath: basePath)
+        let host = RemoteHost(
             name: name,
+            basePath: basePath,
             hostname: hostname,
             user: user,
             port: port,
-            identityFile: identityFile,
-            mountRoot: mountRoot
+            identityFile: identityFile
         )
         context.insert(host)
         try context.save()
         return host
+    }
+
+    public func editLocal(_ host: LocalHost, basePath: String) throws {
+        try validate(name: "local", basePath: basePath, excluding: host, allowLocal: true)
+        host.basePath = basePath
+        try context.save()
+    }
+
+    public func editRemote(
+        _ host: RemoteHost,
+        name: String,
+        basePath: String,
+        hostname: String,
+        user: String,
+        port: Int,
+        identityFile: String
+    ) throws {
+        let name = try validate(name: name, basePath: basePath, excluding: host)
+        host.name = name
+        host.basePath = basePath
+        host.hostname = hostname
+        host.user = user
+        host.port = port
+        host.identityFile = identityFile
+        try context.save()
+    }
+
+    @discardableResult
+    private func validate(
+        name rawName: String,
+        basePath: String,
+        excluding host: Host? = nil,
+        allowLocal: Bool = false
+    ) throws -> String {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw HostStoreError.nameRequired }
+        guard (basePath as NSString).isAbsolutePath else { throw HostStoreError.invalidBasePath }
+        guard (allowLocal || name != "local"), try !fetchHosts().contains(where: {
+            $0.name == name && $0.persistentModelID != host?.persistentModelID
+        }) else {
+            throw HostStoreError.duplicateName(name)
+        }
+        return name
+    }
+
+    public func delete(_ host: Host) throws {
+        let projects = try context.fetch(FetchDescriptor<Project>())
+        guard !projects.contains(where: { $0.host.persistentModelID == host.persistentModelID }) else {
+            throw HostStoreError.hasProjects(host.name)
+        }
+        context.delete(host)
+        try context.save()
     }
 }
