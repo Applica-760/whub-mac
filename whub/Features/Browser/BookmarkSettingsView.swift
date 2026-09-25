@@ -14,6 +14,7 @@ struct BookmarkSettingsView: View {
             Table(rows, selection: $selection) {
                 TableColumn("Name") { row in cell(row, column: .name) }
                 TableColumn("URL") { row in cell(row, column: .url) }
+                    .width(min: 180, ideal: 400, max: 600)
             }
             .onChange(of: focusedCell) { previous, current in
                 if let previous, previous.id != current?.id, editing?.id == previous.id {
@@ -60,8 +61,9 @@ struct BookmarkSettingsView: View {
     private func cell(_ row: BookmarkRow, column: Column) -> some View {
         let target = Cell(id: row.id, column: column)
         if editing?.id == row.id && (editing?.isNew == true || editingColumn == column) {
-            TextField(column == .name ? "Name" : "URL", text: text(column))
+            TextField(column == .name ? "Name" : "URL", text: text(column), axis: .horizontal)
                 .textFieldStyle(.plain)
+                .frame(maxWidth: .infinity)
                 .focused($focusedCell, equals: target)
                 .onSubmit {
                     focusedCell = editing?.isNew == true && column == .name
@@ -70,6 +72,8 @@ struct BookmarkSettingsView: View {
                 .onExitCommand { cancel() }
         } else {
             Text(column == .name ? row.title : row.address)
+                .lineLimit(1)
+                .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { startEdit(row, column: column) }

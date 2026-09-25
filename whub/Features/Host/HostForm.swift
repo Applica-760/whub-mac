@@ -1,9 +1,11 @@
+import SwiftData
 import SwiftUI
 import WhubCore
 
 struct HostForm: View {
     let host: WhubCore.Host?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
     @State private var type: HostType
     @State private var name: String
     @State private var basePath: String
@@ -11,12 +13,13 @@ struct HostForm: View {
     @State private var user: String
     @State private var port: Int
     @State private var identityFile: String
+    @State private var errorMessage: String?
 
     init(host: WhubCore.Host? = nil) {
         self.host = host
         let remote = host as? RemoteHost
         _type = State(initialValue: remote == nil ? .local : .remote)
-        _name = State(initialValue: remote?.name ?? "")
+        _name = State(initialValue: host?.name ?? "")
         _basePath = State(initialValue: host?.basePath ?? "")
         _hostname = State(initialValue: remote?.hostname ?? "")
         _user = State(initialValue: remote?.user ?? "")
@@ -37,10 +40,8 @@ struct HostForm: View {
                 }
                 .disabled(host != nil)
 
-                if type == .local {
-                    LabeledContent("Name", value: "local")
-                } else {
-                    TextField("Name", text: $name)
+                TextField("Name", text: $name)
+                if type == .remote {
                     TextField("Hostname", text: $hostname)
                     TextField("User", text: $user)
                     TextField("Port", value: $port, format: .number)
@@ -54,12 +55,52 @@ struct HostForm: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
-                Button("Save") {}
-                    .disabled(true)
+                Button("Save", action: save)
             }
         }
         .padding(24)
         .frame(width: 480)
+        .alert("Unable to Save Host", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private func save() {
+        let store = HostStore(context: context)
+        do {
+            if let local = host as? LocalHost {
+                try store.editLocal(local, name: name, basePath: basePath)
+            } else if let remote = host as? RemoteHost {
+                try store.editRemote(
+                    remote,
+                    name: name,
+                    basePath: basePath,
+                    hostname: hostname,
+                    user: user,
+                    port: port,
+                    identityFile: identityFile
+                )
+            } else if type == .local {
+                try store.addLocal(name: name, basePath: basePath)
+            } else {
+                try store.addRemote(
+                    name: name,
+                    basePath: basePath,
+                    hostname: hostname,
+                    user: user,
+                    port: port,
+                    identityFile: identityFile
+                )
+            }
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 

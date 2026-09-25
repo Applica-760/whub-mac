@@ -18,6 +18,7 @@ struct ProjectTable: View {
             Table(rows, selection: $selection) {
                 TableColumn("Name") { row in cell(row, column: .name) }
                 TableColumn("Git URL") { row in cell(row, column: .gitURL) }
+                    .width(min: 160, ideal: 320, max: 500)
                 TableColumn("Host") { row in
                     Picker("Host", selection: hostSelection(for: row)) {
                         ForEach(hosts) { host in
@@ -73,8 +74,9 @@ struct ProjectTable: View {
     private func cell(_ row: ProjectRow, column: Column) -> some View {
         let target = Cell(id: row.id, column: column)
         if editing?.id == row.id && (editing?.isNew == true || editingColumn == column) {
-            TextField(column == .name ? "Name" : "Git URL", text: text(column))
+            TextField(column == .name ? "Name" : "Git URL", text: text(column), axis: .horizontal)
                 .textFieldStyle(.plain)
+                .frame(maxWidth: .infinity)
                 .focused($focusedCell, equals: target)
                 .onSubmit {
                     focusedCell = editing?.isNew == true && column == .name
@@ -83,6 +85,8 @@ struct ProjectTable: View {
                 .onExitCommand { cancel() }
         } else {
             Text(column == .name ? row.name : row.gitURL)
+                .lineLimit(1)
+                .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { startEdit(row, column: column) }
