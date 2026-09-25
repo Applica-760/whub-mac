@@ -44,10 +44,12 @@ struct FileExplorerView: View {
         guard
             let selectedProject,
             let project = projects.first(where: { $0.name == selectedProject }),
-            let resource = project.resource as? LocalResource
+            project.host is LocalHost
         else {
             return nil
         }
-        return URL(fileURLWithPath: resource.localPath)
+        return URL(fileURLWithPath: project.host.basePath)
+            .appending(path: "projects")
+            .appending(path: project.name)
     }
 }
