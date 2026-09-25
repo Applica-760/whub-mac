@@ -14,8 +14,8 @@ public class Host {
 @available(macOS 26.0, *)
 @Model
 public final class LocalHost: Host {
-    init(basePath: String) {
-        super.init(name: "local", basePath: basePath)
+    override init(name: String, basePath: String) {
+        super.init(name: name, basePath: basePath)
     }
 }
 

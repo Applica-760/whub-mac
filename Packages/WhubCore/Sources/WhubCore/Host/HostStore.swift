@@ -4,6 +4,7 @@ import SwiftData
 public enum HostStoreError: LocalizedError {
     case nameRequired
     case duplicateName(String)
+    case localHostExists
     case invalidBasePath
     case hasProjects(String)
 
@@ -13,6 +14,8 @@ public enum HostStoreError: LocalizedError {
             "Host name is required."
         case let .duplicateName(name):
             "A host named \(name) already exists."
+        case .localHostExists:
+            "A local host already exists."
         case .invalidBasePath:
             "Base path must be absolute."
         case let .hasProjects(name):
@@ -34,9 +37,12 @@ public struct HostStore {
     }
 
     @discardableResult
-    public func addLocal(basePath: String) throws -> LocalHost {
-        try validate(name: "local", basePath: basePath, allowLocal: true)
-        let host = LocalHost(basePath: basePath)
+    public func addLocal(name: String, basePath: String) throws -> LocalHost {
+        let name = try validate(name: name, basePath: basePath, allowLocal: true)
+        guard try !fetchHosts().contains(where: { $0 is LocalHost }) else {
+            throw HostStoreError.localHostExists
+        }
+        let host = LocalHost(name: name, basePath: basePath)
         context.insert(host)
         try context.save()
         return host
@@ -66,8 +72,9 @@ public struct HostStore {
         return host
     }
 
-    public func editLocal(_ host: LocalHost, basePath: String) throws {
-        try validate(name: "local", basePath: basePath, excluding: host, allowLocal: true)
+    public func editLocal(_ host: LocalHost, name: String, basePath: String) throws {
+        let name = try validate(name: name, basePath: basePath, excluding: host, allowLocal: true)
+        host.name = name
         host.basePath = basePath
         try context.save()
     }
