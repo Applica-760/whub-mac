@@ -1,3 +1,4 @@
+import Foundation
 import SwiftData
 
 @Model
@@ -8,6 +9,14 @@ public class Host {
     init(name: String, basePath: String) {
         self.name = name
         self.basePath = basePath
+    }
+
+    public var projectsPath: String {
+        (basePath as NSString).appendingPathComponent("projects")
+    }
+
+    public var worktreesPath: String {
+        (basePath as NSString).appendingPathComponent("worktrees")
     }
 }
 

@@ -54,8 +54,7 @@ public struct ProjectStore {
     }
 
     public func resolvePath(for project: Project) async throws -> String {
-        let projectsPath = (project.host.basePath as NSString).appendingPathComponent("projects")
-        let path = (projectsPath as NSString).appendingPathComponent(project.name)
+        let path = project.path
 
         if let remote = project.host as? RemoteHost {
             let status = try await SSH.run(["test", "-d", path], on: remote)
