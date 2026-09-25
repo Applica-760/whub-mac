@@ -1,10 +1,13 @@
 import AppKit
 import SwiftUI
+import WhubCore
 
 private let hiddenFileNames = [".git", ".DS_Store"]
 
-struct FileOutlineView: NSViewRepresentable {
+struct FileTreeView: NSViewRepresentable {
     let rootURL: URL?
+    let gitChanges: [URL: GitChange]
+    let refreshID: Int
     let onFileSelect: (URL) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -24,7 +27,7 @@ struct FileOutlineView: NSViewRepresentable {
         outlineView.dataSource = context.coordinator
         outlineView.delegate = context.coordinator
         context.coordinator.outlineView = outlineView
-        context.coordinator.update(rootURL: rootURL)
+        context.coordinator.update(rootURL: rootURL, gitChanges: gitChanges, refreshID: refreshID)
 
         let scrollView = NSScrollView()
         scrollView.documentView = outlineView
@@ -35,7 +38,7 @@ struct FileOutlineView: NSViewRepresentable {
 
     func updateNSView(_: NSScrollView, context: Context) {
         context.coordinator.onFileSelect = onFileSelect
-        context.coordinator.update(rootURL: rootURL)
+        context.coordinator.update(rootURL: rootURL, gitChanges: gitChanges, refreshID: refreshID)
     }
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
@@ -43,16 +46,44 @@ struct FileOutlineView: NSViewRepresentable {
         var onFileSelect: (URL) -> Void
         private var rootURL: URL?
         private var rootItems: [FileItem] = []
+        private var itemsByURL: [URL: FileItem] = [:]
+        private var decorations: [URL: GitChange] = [:]
+        private var refreshID = -1
 
         init(onFileSelect: @escaping (URL) -> Void) {
             self.onFileSelect = onFileSelect
         }
 
-        func update(rootURL: URL?) {
-            guard self.rootURL != rootURL else { return }
+        func update(rootURL: URL?, gitChanges: [URL: GitChange], refreshID: Int) {
+            let rootChanged = self.rootURL != rootURL
+            let refreshed = self.refreshID != refreshID
+            let nextDecorations = Self.decorations(for: gitChanges, under: rootURL)
+            guard rootChanged || refreshed || decorations != nextDecorations else { return }
+            if rootChanged { itemsByURL.removeAll() }
             self.rootURL = rootURL
-            rootItems = rootURL.map(directoryContents) ?? []
+            self.refreshID = refreshID
+            decorations = nextDecorations
+            if rootChanged || refreshed {
+                for item in itemsByURL.values { item.children = nil }
+                rootItems = rootURL.map(directoryContents) ?? []
+            }
             outlineView?.reloadData()
+        }
+
+        private static func decorations(for gitChanges: [URL: GitChange], under rootURL: URL?) -> [URL: GitChange] {
+            guard let rootURL else { return [:] }
+            let root = rootURL.standardizedFileURL
+            var result = gitChanges
+            for (url, change) in gitChanges {
+                var parent = url.deletingLastPathComponent()
+                while parent == root || parent.path.hasPrefix(root.path + "/") {
+                    let current = result[parent]
+                    result[parent] = (current == nil || current == .added) && change == .added ? .added : .modified
+                    if parent == root { break }
+                    parent = parent.deletingLastPathComponent()
+                }
+            }
+            return result
         }
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -87,7 +118,11 @@ struct FileOutlineView: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("file")
             let cell = (outlineView.makeView(withIdentifier: identifier, owner: nil) as? NSTableCellView) ?? makeCell(identifier: identifier)
             cell.textField?.stringValue = item.url.lastPathComponent
-            cell.textField?.textColor = item.url.lastPathComponent.hasPrefix(".") ? .secondaryLabelColor : .labelColor
+            cell.textField?.textColor = switch decorations[item.url.standardizedFileURL] {
+            case .added: .systemGreen
+            case .modified, .deleted: .systemOrange
+            case nil: item.url.lastPathComponent.hasPrefix(".") ? .secondaryLabelColor : .labelColor
+            }
             cell.imageView?.image = NSWorkspace.shared.icon(forFile: item.url.path)
             return cell
         }
@@ -109,7 +144,15 @@ struct FileOutlineView: NSViewRepresentable {
             )) ?? []
             return urls
                 .filter { !hiddenFileNames.contains($0.lastPathComponent) }
-                .map(FileItem.init)
+                .map { url in
+                    let key = url.standardizedFileURL
+                    let item = FileItem(url: url)
+                    if let existing = itemsByURL[key], existing.isDirectory == item.isDirectory {
+                        return existing
+                    }
+                    itemsByURL[key] = item
+                    return item
+                }
                 .sorted {
                     if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
                     return $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending
