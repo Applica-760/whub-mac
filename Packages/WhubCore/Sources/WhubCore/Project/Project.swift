@@ -12,4 +12,12 @@ public final class Project {
         self.gitURL = gitURL
         self.host = host
     }
+
+    public var path: String {
+        (host.projectsPath as NSString).appendingPathComponent(name)
+    }
+
+    public func worktreePath(issueNumber: Int) -> String {
+        (host.worktreesPath as NSString).appendingPathComponent("\(name)-\(issueNumber)")
+    }
 }
