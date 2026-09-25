@@ -2,8 +2,8 @@ import SwiftData
 
 @Model
 public class Host {
-    @Attribute(.unique) public var name: String
-    public var basePath: String
+    @Attribute(.unique) public internal(set) var name: String
+    public internal(set) var basePath: String
 
     init(name: String, basePath: String) {
         self.name = name
@@ -14,7 +14,7 @@ public class Host {
 @available(macOS 26.0, *)
 @Model
 public final class LocalHost: Host {
-    public init(basePath: String) {
+    init(basePath: String) {
         super.init(name: "local", basePath: basePath)
     }
 }
@@ -22,12 +22,12 @@ public final class LocalHost: Host {
 @available(macOS 26.0, *)
 @Model
 public final class RemoteHost: Host {
-    public var hostname: String
-    public var user: String
-    public var port: Int
-    public var identityFile: String
+    public internal(set) var hostname: String
+    public internal(set) var user: String
+    public internal(set) var port: Int
+    public internal(set) var identityFile: String
 
-    public init(
+    init(
         name: String,
         basePath: String,
         hostname: String,

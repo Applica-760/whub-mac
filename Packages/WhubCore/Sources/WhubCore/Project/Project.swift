@@ -3,11 +3,11 @@ import SwiftData
 
 @Model
 public final class Project {
-    @Attribute(.unique) public var name: String
-    public var gitURL: String?
-    public var host: Host
+    @Attribute(.unique) public internal(set) var name: String
+    public internal(set) var gitURL: String?
+    public internal(set) var host: Host
 
-    public init(name: String, gitURL: String?, host: Host) {
+    init(name: String, gitURL: String?, host: Host) {
         self.name = name
         self.gitURL = gitURL
         self.host = host
