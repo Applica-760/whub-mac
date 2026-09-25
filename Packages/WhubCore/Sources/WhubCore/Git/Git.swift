@@ -54,7 +54,7 @@ public enum Git {
     }
 
     private static func parse(_ data: Data, rootURL: URL) throws -> [URL: GitChange] {
-        let entries = data.split(separator: 0)
+        let entries = data.split(separator: 0).map { Array($0) }
         var changes: [URL: GitChange] = [:]
         var index = 0
         while index < entries.count {
