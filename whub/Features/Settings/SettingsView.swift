@@ -8,6 +8,10 @@ struct SettingsView: View {
                 .padding()
                 .tabItem { Label("Projects", systemImage: "folder") }
 
+            HostTable()
+                .padding()
+                .tabItem { Label("Hosts", systemImage: "desktopcomputer") }
+
             BookmarkSettingsView()
                 .padding()
                 .tabItem { Label("Bookmarks", systemImage: "bookmark") }
