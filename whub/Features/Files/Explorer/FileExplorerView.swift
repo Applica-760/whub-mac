@@ -10,7 +10,6 @@ struct FileExplorerView: View {
     @State private var selectedProjectID: PersistentIdentifier?
     @State private var displayedProjectID: PersistentIdentifier?
     @State private var rootURL: URL?
-    @State private var gitChanges: [URL: GitChange] = [:]
     @State private var errorMessage: String?
     @State private var gitErrorMessage: String?
 
@@ -56,7 +55,7 @@ struct FileExplorerView: View {
                 }
                 FileTreeView(
                     rootURL: rootURL,
-                    gitChanges: gitChanges,
+                    gitChanges: fileViewerStore.gitChanges,
                     refreshID: fileViewerStore.refreshID,
                     onFileSelect: onFileSelect
                 )
@@ -76,8 +75,8 @@ struct FileExplorerView: View {
             if displayedProjectID != selectedProjectID {
                 displayedProjectID = selectedProjectID
                 rootURL = nil
-                gitChanges = [:]
             }
+            fileViewerStore.gitChanges = [:]
             errorMessage = nil
             gitErrorMessage = nil
             guard let project = selectedProject else { return }
@@ -93,13 +92,13 @@ struct FileExplorerView: View {
                 do {
                     let changes = try await Git.changes(at: url)
                     guard !Task.isCancelled else { return }
-                    gitChanges = changes
+                    fileViewerStore.gitChanges = changes
                 } catch GitError.notRepository {
                     guard !Task.isCancelled else { return }
-                    gitChanges = [:]
+                    fileViewerStore.gitChanges = [:]
                 } catch {
                     guard !Task.isCancelled else { return }
-                    gitChanges = [:]
+                    fileViewerStore.gitChanges = [:]
                     gitErrorMessage = error.localizedDescription
                 }
             } catch {
