@@ -16,10 +16,16 @@ struct FileViewerView: View {
                     HStack {
                         ForEach(store.fileURLs, id: \.self) { fileURL in
                             let kind = fileKind(for: fileURL)
-                            TabBar(
+                            let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
+                            case .added: Color(nsColor: .systemGreen)
+                            case .modified, .deleted: Color(nsColor: .systemOrange)
+                            case nil: nil
+                            }
+                            FileTab(
                                 title: fileURL.lastPathComponent,
                                 systemImage: kind.systemImage,
                                 isSelected: fileURL == store.selectedFileURL,
+                                titleColor: titleColor,
                                 closeShortcutEnabled: closeShortcutEnabled,
                                 action: {
                                     store.select(fileURL)
@@ -82,6 +88,55 @@ struct FileViewerView: View {
 private struct ViewerLoadID: Equatable {
     let fileURL: URL?
     let refreshID: Int
+}
+
+private struct FileTab: View {
+    let title: String
+    let systemImage: String
+    let isSelected: Bool
+    let titleColor: Color?
+    let closeShortcutEnabled: Bool
+    let action: () -> Void
+    let closeAction: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: action) {
+                HStack(spacing: 4) {
+                    Image(systemName: systemImage)
+                        .accessibilityHidden(true)
+                    Text(title).foregroundStyle(titleColor ?? .primary)
+                }
+                .padding(.leading, 8)
+                .padding(.trailing, 4)
+                .padding(.vertical, 5)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
+
+            Button(action: closeAction) {
+                Image(systemName: "xmark")
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close \(title)")
+            .keyboardShortcut(
+                isSelected && closeShortcutEnabled
+                    ? KeyboardShortcut("w", modifiers: [.command, .shift])
+                    : nil
+            )
+        }
+        .background(
+            isSelected ? Color.accentColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor),
+            in: RoundedRectangle(cornerRadius: 6)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(isSelected ? Color.accentColor : Color.secondary.opacity(0.25))
+        }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
 }
 
 private struct QuickLookPreviewView: NSViewRepresentable {

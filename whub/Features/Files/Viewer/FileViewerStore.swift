@@ -1,10 +1,12 @@
 import Combine
 import Foundation
+import WhubCore
 
 final class FileViewerStore: ObservableObject {
     @Published private(set) var fileURLs: [URL] = []
     @Published private(set) var selectedFileURL: URL?
     @Published private(set) var refreshID = 0
+    @Published var gitChanges: [URL: GitChange] = [:]
 
     func refresh() {
         refreshID += 1
