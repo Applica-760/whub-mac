@@ -19,10 +19,8 @@ struct CodeViewerView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = true
         textView.isHorizontallyResizable = true
         textView.autoresizingMask = [.width, .height]
-        textView.textContainer?.size = NSSize(
-            width: CGFloat(Float.greatestFiniteMagnitude),
-            height: CGFloat(Float.greatestFiniteMagnitude)
-        )
+        textView.maxSize = NSSize(width: CGFloat(Float.greatestFiniteMagnitude), height: CGFloat(Float.greatestFiniteMagnitude))
+        textView.textContainer?.size = textView.maxSize
         textView.textContainer?.widthTracksTextView = false
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.textContainerInset = NSSize(width: 12, height: 12)
