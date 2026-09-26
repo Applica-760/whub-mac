@@ -16,6 +16,14 @@ struct CodeViewerView: NSViewRepresentable {
             fatalError("Expected NSTextView")
         }
         textView.isEditable = false
+        scrollView.hasHorizontalScroller = true
+        textView.isHorizontallyResizable = true
+        textView.autoresizingMask = [.width, .height]
+        textView.textContainer?.size = NSSize(
+            width: CGFloat(Float.greatestFiniteMagnitude),
+            height: CGFloat(Float.greatestFiniteMagnitude)
+        )
+        textView.textContainer?.widthTracksTextView = false
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.textContainerInset = NSSize(width: 12, height: 12)
         let ruler = GitDiffRulerView(scrollView: scrollView, orientation: .verticalRuler)
