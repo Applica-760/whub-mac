@@ -6,11 +6,11 @@ struct FileExplorerView: View {
     let onFileSelect: (URL) -> Void
     @Query(sort: \Project.name) private var projects: [Project]
     @Environment(\.modelContext) private var context
+    @EnvironmentObject private var fileViewerStore: FileViewerStore
     @State private var selectedProjectID: PersistentIdentifier?
     @State private var displayedProjectID: PersistentIdentifier?
     @State private var rootURL: URL?
     @State private var gitChanges: [URL: GitChange] = [:]
-    @State private var refreshID = 0
     @State private var errorMessage: String?
     @State private var gitErrorMessage: String?
 
@@ -30,7 +30,7 @@ struct FileExplorerView: View {
                 .labelsHidden()
 
                 Button {
-                    refreshID += 1
+                    fileViewerStore.refresh()
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
@@ -57,7 +57,7 @@ struct FileExplorerView: View {
                 FileTreeView(
                     rootURL: rootURL,
                     gitChanges: gitChanges,
-                    refreshID: refreshID,
+                    refreshID: fileViewerStore.refreshID,
                     onFileSelect: onFileSelect
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -72,7 +72,7 @@ struct FileExplorerView: View {
                 selectedProjectID = ids.first
             }
         }
-        .task(id: ExplorerLoadID(projectID: selectedProjectID, refreshID: refreshID)) {
+        .task(id: ExplorerLoadID(projectID: selectedProjectID, refreshID: fileViewerStore.refreshID)) {
             if displayedProjectID != selectedProjectID {
                 displayedProjectID = selectedProjectID
                 rootURL = nil

@@ -4,6 +4,11 @@ import Foundation
 final class FileViewerStore: ObservableObject {
     @Published private(set) var fileURLs: [URL] = []
     @Published private(set) var selectedFileURL: URL?
+    @Published private(set) var refreshID = 0
+
+    func refresh() {
+        refreshID += 1
+    }
 
     func open(_ fileURL: URL) {
         if !fileURLs.contains(fileURL) {
