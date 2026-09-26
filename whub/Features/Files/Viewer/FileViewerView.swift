@@ -59,7 +59,7 @@ struct FileViewerView: View {
         .padding(.horizontal)
         .padding(.bottom)
         .padding(.top, 8)
-        .task(id: store.selectedFileURL) {
+        .task(id: ViewerLoadID(fileURL: store.selectedFileURL, refreshID: store.refreshID)) {
             diffURL = nil
             diffHunks = []
             diffErrorMessage = nil
@@ -77,6 +77,11 @@ struct FileViewerView: View {
             }
         }
     }
+}
+
+private struct ViewerLoadID: Equatable {
+    let fileURL: URL?
+    let refreshID: Int
 }
 
 private struct QuickLookPreviewView: NSViewRepresentable {
