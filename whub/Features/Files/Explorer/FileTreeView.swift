@@ -6,6 +6,7 @@ private let hiddenFileNames = [".git", ".DS_Store"]
 
 struct FileTreeView: NSViewRepresentable {
     let rootURL: URL?
+    let basePath: String?
     let gitChanges: [URL: GitChange]
     let refreshID: Int
     let onFilePreview: (URL) -> Void
@@ -30,7 +31,7 @@ struct FileTreeView: NSViewRepresentable {
         outlineView.target = context.coordinator
         outlineView.doubleAction = #selector(Coordinator.openSelectedFile(_:))
         context.coordinator.outlineView = outlineView
-        context.coordinator.update(rootURL: rootURL, gitChanges: gitChanges, refreshID: refreshID)
+        context.coordinator.update(rootURL: rootURL, basePath: basePath, gitChanges: gitChanges, refreshID: refreshID)
 
         let scrollView = NSScrollView()
         scrollView.documentView = outlineView
@@ -42,7 +43,7 @@ struct FileTreeView: NSViewRepresentable {
     func updateNSView(_: NSScrollView, context: Context) {
         context.coordinator.onFilePreview = onFilePreview
         context.coordinator.onFileOpen = onFileOpen
-        context.coordinator.update(rootURL: rootURL, gitChanges: gitChanges, refreshID: refreshID)
+        context.coordinator.update(rootURL: rootURL, basePath: basePath, gitChanges: gitChanges, refreshID: refreshID)
     }
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
@@ -60,7 +61,8 @@ struct FileTreeView: NSViewRepresentable {
             self.onFileOpen = onFileOpen
         }
 
-        func update(rootURL: URL?, gitChanges: [URL: GitChange], refreshID: Int) {
+        func update(rootURL: URL?, basePath: String?, gitChanges: [URL: GitChange], refreshID: Int) {
+            (outlineView as? FileOutlineControl)?.basePath = basePath
             let rootChanged = self.rootURL != rootURL
             let refreshed = self.refreshID != refreshID
             let nextDecorations = Self.decorations(for: gitChanges, under: rootURL)
@@ -74,6 +76,16 @@ struct FileTreeView: NSViewRepresentable {
                 rootItems = rootURL.map(directoryContents) ?? []
             }
             outlineView?.reloadData()
+            if let outlineView {
+                expandChangedDirectories(in: rootItems, outlineView: outlineView)
+            }
+        }
+
+        private func expandChangedDirectories(in items: [FileItem], outlineView: NSOutlineView) {
+            for item in items where item.isDirectory && decorations[item.url.standardizedFileURL] != nil {
+                outlineView.expandItem(item)
+                expandChangedDirectories(in: children(for: item), outlineView: outlineView)
+            }
         }
 
         private static func decorations(for gitChanges: [URL: GitChange], under rootURL: URL?) -> [URL: GitChange] {
@@ -203,6 +215,37 @@ struct FileTreeView: NSViewRepresentable {
 }
 
 private final class FileOutlineControl: NSOutlineView {
+    var basePath: String?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let row = self.row(at: convert(event.locationInWindow, from: nil))
+        guard row >= 0, let item = item(atRow: row) as? FileItem else { return nil }
+
+        let path = item.url.standardizedFileURL.path
+        let menu = NSMenu()
+        let absolute = NSMenuItem(title: "Copy path", action: #selector(copyPath(_:)), keyEquivalent: "")
+        absolute.target = self
+        absolute.representedObject = path
+        menu.addItem(absolute)
+
+        let relative = NSMenuItem(title: "Copy relative path", action: #selector(copyPath(_:)), keyEquivalent: "")
+        relative.target = self
+        if let basePath {
+            let base = URL(fileURLWithPath: basePath, isDirectory: true).standardizedFileURL.path
+            let prefix = base == "/" ? "/" : base + "/"
+            relative.representedObject = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : nil
+        }
+        relative.isEnabled = relative.representedObject != nil
+        menu.addItem(relative)
+        return menu
+    }
+
+    @objc private func copyPath(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(path, forType: .string)
+    }
+
     override func mouseDown(with event: NSEvent) {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
         guard
