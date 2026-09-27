@@ -3,7 +3,7 @@ import SwiftUI
 import WhubCore
 
 struct FileExplorerView: View {
-    let onFileSelect: (URL) -> Void
+    let onFileSelect: () -> Void
     @Query(sort: \Project.name) private var projects: [Project]
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var fileViewerStore: FileViewerStore
@@ -64,7 +64,14 @@ struct FileExplorerView: View {
                     }?.host.basePath,
                     gitChanges: fileViewerStore.gitChanges,
                     refreshID: fileViewerStore.refreshID,
-                    onFileSelect: onFileSelect
+                    onFilePreview: { fileURL in
+                        fileViewerStore.preview(fileURL)
+                        onFileSelect()
+                    },
+                    onFileOpen: { fileURL in
+                        fileViewerStore.open(fileURL)
+                        onFileSelect()
+                    }
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
