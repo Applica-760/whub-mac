@@ -22,10 +22,14 @@ struct FileViewerView: View {
                                 title: fileURL.lastPathComponent,
                                 icon: IconList.image(for: fileURL),
                                 isSelected: fileURL == store.selectedFileURL,
+                                isPreview: fileURL == store.previewFileURL,
                                 titleColor: titleColor,
                                 closeShortcutEnabled: closeShortcutEnabled,
                                 action: {
                                     store.select(fileURL)
+                                },
+                                openAction: {
+                                    store.open(fileURL)
                                 },
                                 closeAction: {
                                     store.close(fileURL)
@@ -110,9 +114,11 @@ private struct FileTab: View {
     let title: String
     let icon: Image
     let isSelected: Bool
+    let isPreview: Bool
     let titleColor: Color?
     let closeShortcutEnabled: Bool
     let action: () -> Void
+    let openAction: () -> Void
     let closeAction: () -> Void
 
     var body: some View {
@@ -123,7 +129,11 @@ private struct FileTab: View {
                         .resizable()
                         .frame(width: 16, height: 16)
                         .accessibilityHidden(true)
-                    Text(title).foregroundStyle(titleColor ?? .primary)
+                    Group {
+                        if isPreview { Text(title).italic() }
+                        else { Text(title) }
+                    }
+                    .foregroundStyle(titleColor ?? .primary)
                 }
                 .padding(.leading, 8)
                 .padding(.trailing, 4)
@@ -131,6 +141,7 @@ private struct FileTab: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(title)
+            .simultaneousGesture(TapGesture(count: 2).onEnded(openAction))
 
             Button(action: closeAction) {
                 Image(systemName: "xmark")
@@ -154,5 +165,38 @@ private struct FileTab: View {
                 .strokeBorder(isSelected ? Color.accentColor : Color.secondary.opacity(0.25))
         }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .background(MiddleClickCloseView(action: closeAction))
+    }
+}
+
+private struct MiddleClickCloseView: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [weak view, weak coordinator = context.coordinator] event in
+            guard let view,
+                  event.buttonNumber == 2,
+                  event.window === view.window,
+                  view.bounds.contains(view.convert(event.locationInWindow, from: nil)) else { return event }
+            coordinator?.action?()
+            return nil
+        }
+        return view
+    }
+
+    func updateNSView(_: NSView, context: Context) {
+        context.coordinator.action = action
+    }
+
+    static func dismantleNSView(_: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor { NSEvent.removeMonitor(monitor) }
+    }
+
+    final class Coordinator {
+        var action: (() -> Void)?
+        var monitor: Any?
     }
 }
