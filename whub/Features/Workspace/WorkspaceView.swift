@@ -1,7 +1,9 @@
+import AppKit
 import SwiftUI
 
 struct WorkspaceView: View {
-    @State private var activePane: Pane = .file
+    @EnvironmentObject private var terminalStore: TerminalStore
+    @State private var activePane: Pane = .terminal
 
     private enum Pane { case file, terminal }
 
@@ -13,6 +15,13 @@ struct WorkspaceView: View {
             TerminalView(closeShortcutEnabled: activePane == .terminal)
                 .frame(minWidth: 300)
                 .simultaneousGesture(TapGesture().onEnded { activePane = .terminal })
+        }
+        .onAppear {
+            activePane = .terminal
+            DispatchQueue.main.async {
+                let terminal = terminalStore.selectedSession.terminal
+                terminal.window?.makeFirstResponder(terminal)
+            }
         }
     }
 }
