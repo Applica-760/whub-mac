@@ -7,8 +7,8 @@ struct FileExplorerView: View {
     @Query(sort: \Project.name) private var projects: [Project]
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var fileViewerStore: FileViewerStore
-    @State private var selectedProjectID: PersistentIdentifier?
-    @State private var displayedProjectID: PersistentIdentifier?
+    @State private var selectedRootURL: URL?
+    @State private var worktreeURLs: [URL] = []
     @State private var rootURL: URL?
     @State private var errorMessage: String?
     @State private var gitErrorMessage: String?
@@ -16,13 +16,15 @@ struct FileExplorerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Picker("Project", selection: $selectedProjectID) {
-                    if projects.isEmpty {
-                        Text("---").tag(PersistentIdentifier?.none)
-                    } else {
-                        ForEach(projects) { project in
-                            Text(project.name).tag(Optional(project.persistentModelID))
-                        }
+                Picker("Project or Worktree", selection: $selectedRootURL) {
+                    if availableURLs.isEmpty {
+                        Text("---").tag(URL?.none)
+                    }
+                    ForEach(projects) { project in
+                        Text(project.name).tag(Optional(URL(fileURLWithPath: project.path)))
+                    }
+                    ForEach(worktreeURLs, id: \.self) { url in
+                        Text(url.lastPathComponent).tag(Optional(url))
                     }
                 }
                 .pickerStyle(.menu)
@@ -34,7 +36,7 @@ struct FileExplorerView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Refresh files and Git status")
-                .disabled(selectedProjectID == nil)
+                .disabled(selectedRootURL == nil)
             }
             .padding(.horizontal)
             .padding(.top)
@@ -64,28 +66,39 @@ struct FileExplorerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            selectedProjectID = projects.first?.persistentModelID
+            selectedRootURL = availableURLs.first
         }
-        .onChange(of: projects.map(\.persistentModelID)) { _, ids in
-            if !ids.contains(where: { $0 == selectedProjectID }) {
-                selectedProjectID = ids.first
+        .onChange(of: availableURLs) { _, urls in
+            if !urls.contains(where: { $0 == selectedRootURL }) {
+                selectedRootURL = urls.first
             }
         }
-        .task(id: ExplorerLoadID(projectID: selectedProjectID, refreshID: fileViewerStore.refreshID)) {
-            if displayedProjectID != selectedProjectID {
-                displayedProjectID = selectedProjectID
-                rootURL = nil
-            }
+        .task(id: WorktreeLoadID(
+            projectPaths: projects.compactMap { $0.host is LocalHost ? $0.path : nil },
+            refreshID: fileViewerStore.refreshID
+        )) {
+            loadWorktrees()
+        }
+        .task(id: ExplorerLoadID(
+            rootURL: selectedRootURL,
+            refreshID: fileViewerStore.refreshID
+        )) {
+            rootURL = nil
             fileViewerStore.gitChanges = [:]
             errorMessage = nil
             gitErrorMessage = nil
-            guard let project = selectedProject else { return }
-            guard project.host is LocalHost else {
-                errorMessage = "Remote project files are not available yet."
-                return
-            }
+            guard let selectedRootURL else { return }
             do {
-                let path = try await ProjectStore(context: context).resolvePath(for: project)
+                let path: String
+                if let project = projects.first(where: { $0.path == selectedRootURL.path }) {
+                    guard project.host is LocalHost else {
+                        errorMessage = "Remote project files are not available yet."
+                        return
+                    }
+                    path = try await ProjectStore(context: context).resolvePath(for: project)
+                } else {
+                    path = selectedRootURL.path
+                }
                 guard !Task.isCancelled else { return }
                 let url = URL(fileURLWithPath: path)
                 rootURL = url
@@ -108,12 +121,39 @@ struct FileExplorerView: View {
         }
     }
 
-    private var selectedProject: Project? {
-        projects.first { $0.persistentModelID == selectedProjectID }
+    private var availableURLs: [URL] {
+        projects.map { URL(fileURLWithPath: $0.path) } + worktreeURLs
     }
+
+    private func loadWorktrees() {
+        let localProjects = projects.filter { $0.host is LocalHost }
+        worktreeURLs = Set(localProjects.map { $0.host.worktreesPath }).flatMap { path in
+            let urls = (try? FileManager.default.contentsOfDirectory(
+                at: URL(fileURLWithPath: path),
+                includingPropertiesForKeys: [.isDirectoryKey]
+            )) ?? []
+            return urls.filter { url in
+                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { return false }
+                return localProjects.contains { project in
+                    let prefix = project.name + "-"
+                    guard url.lastPathComponent.hasPrefix(prefix),
+                          let number = Int(url.lastPathComponent.dropFirst(prefix.count)),
+                          number > 0 else { return false }
+                    return url.path == project.worktreePath(issueNumber: number)
+                }
+            }
+        }
+        .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
 }
 
 private struct ExplorerLoadID: Equatable {
-    let projectID: PersistentIdentifier?
+    let rootURL: URL?
+    let refreshID: Int
+}
+
+private struct WorktreeLoadID: Equatable {
+    let projectPaths: [String]
     let refreshID: Int
 }
