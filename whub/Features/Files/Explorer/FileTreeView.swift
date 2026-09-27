@@ -9,10 +9,11 @@ struct FileTreeView: NSViewRepresentable {
     let basePath: String?
     let gitChanges: [URL: GitChange]
     let refreshID: Int
-    let onFileSelect: (URL) -> Void
+    let onFilePreview: (URL) -> Void
+    let onFileOpen: (URL) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onFileSelect: onFileSelect)
+        Coordinator(onFilePreview: onFilePreview, onFileOpen: onFileOpen)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -27,6 +28,8 @@ struct FileTreeView: NSViewRepresentable {
         outlineView.intercellSpacing = .zero
         outlineView.dataSource = context.coordinator
         outlineView.delegate = context.coordinator
+        outlineView.target = context.coordinator
+        outlineView.doubleAction = #selector(Coordinator.openSelectedFile(_:))
         context.coordinator.outlineView = outlineView
         context.coordinator.update(rootURL: rootURL, basePath: basePath, gitChanges: gitChanges, refreshID: refreshID)
 
@@ -38,21 +41,24 @@ struct FileTreeView: NSViewRepresentable {
     }
 
     func updateNSView(_: NSScrollView, context: Context) {
-        context.coordinator.onFileSelect = onFileSelect
+        context.coordinator.onFilePreview = onFilePreview
+        context.coordinator.onFileOpen = onFileOpen
         context.coordinator.update(rootURL: rootURL, basePath: basePath, gitChanges: gitChanges, refreshID: refreshID)
     }
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         weak var outlineView: NSOutlineView?
-        var onFileSelect: (URL) -> Void
+        var onFilePreview: (URL) -> Void
+        var onFileOpen: (URL) -> Void
         private var rootURL: URL?
         private var rootItems: [FileItem] = []
         private var itemsByURL: [URL: FileItem] = [:]
         private var decorations: [URL: GitChange] = [:]
         private var refreshID = -1
 
-        init(onFileSelect: @escaping (URL) -> Void) {
-            self.onFileSelect = onFileSelect
+        init(onFilePreview: @escaping (URL) -> Void, onFileOpen: @escaping (URL) -> Void) {
+            self.onFilePreview = onFilePreview
+            self.onFileOpen = onFileOpen
         }
 
         func update(rootURL: URL?, basePath: String?, gitChanges: [URL: GitChange], refreshID: Int) {
@@ -118,7 +124,12 @@ struct FileTreeView: NSViewRepresentable {
             else {
                 return
             }
-            onFileSelect(item.url)
+            onFilePreview(item.url)
+        }
+
+        @objc func openSelectedFile(_ sender: NSOutlineView) {
+            guard let item = sender.item(atRow: sender.clickedRow) as? FileItem, !item.isDirectory else { return }
+            onFileOpen(item.url)
         }
 
         func outlineView(
