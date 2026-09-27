@@ -1,13 +1,11 @@
-import QuickLookUI
+import AppKit
 import SwiftUI
 import WhubCore
 
 struct FileViewerView: View {
     var closeShortcutEnabled = true
     @EnvironmentObject private var store: FileViewerStore
-    @State private var diffURL: URL?
-    @State private var diffHunks: [GitDiffHunk] = []
-    @State private var diffErrorMessage: String?
+    @State private var loadedFile: LoadedFile?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -15,7 +13,6 @@ struct FileViewerView: View {
                 ScrollView(.horizontal) {
                     HStack {
                         ForEach(store.fileURLs, id: \.self) { fileURL in
-                            let kind = fileKind(for: fileURL)
                             let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
                             case .added: Color(nsColor: .systemGreen)
                             case .modified, .deleted: Color(nsColor: .systemOrange)
@@ -23,7 +20,7 @@ struct FileViewerView: View {
                             }
                             FileTab(
                                 title: fileURL.lastPathComponent,
-                                systemImage: kind.systemImage,
+                                icon: IconList.image(for: fileURL),
                                 isSelected: fileURL == store.selectedFileURL,
                                 titleColor: titleColor,
                                 closeShortcutEnabled: closeShortcutEnabled,
@@ -40,46 +37,24 @@ struct FileViewerView: View {
                 .scrollIndicators(.hidden)
             }
 
-            if let diffErrorMessage {
-                Text(diffErrorMessage)
-                    .foregroundStyle(.secondary)
-            }
-
             WidgetFrame {
-                if let selectedFileURL = store.selectedFileURL {
-                    if let language = fileKind(for: selectedFileURL).language {
-                        CodeViewerView(
-                            fileURL: selectedFileURL,
-                            language: language,
-                            hunks: diffURL == selectedFileURL ? diffHunks : []
-                        )
-                    } else {
-                        QuickLookPreviewView(fileURL: selectedFileURL)
-                    }
-                } else {
-                    Text("Select a file")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                FileContent(fileURL: store.selectedFileURL, loadedFile: loadedFile, refreshID: store.refreshID)
             }
         }
         .padding(.horizontal)
         .padding(.bottom)
         .padding(.top, 8)
         .task(id: ViewerLoadID(fileURL: store.selectedFileURL, refreshID: store.refreshID)) {
-            diffURL = nil
-            diffHunks = []
-            diffErrorMessage = nil
-            guard let fileURL = store.selectedFileURL, fileKind(for: fileURL).language != nil else { return }
+            loadedFile = nil
+            guard let fileURL = store.selectedFileURL else { return }
             do {
-                let hunks = try await Git.diff(at: fileURL)
+                let data = try Data(contentsOf: fileURL)
                 guard !Task.isCancelled else { return }
-                diffHunks = hunks
-                diffURL = fileURL
-            } catch GitError.notRepository {
-                return
+                let content = String(data: data, encoding: .utf8).map(LoadedContent.text) ?? .binary
+                loadedFile = LoadedFile(fileURL: fileURL, refreshID: store.refreshID, content: content)
             } catch {
                 guard !Task.isCancelled else { return }
-                diffErrorMessage = error.localizedDescription
+                loadedFile = LoadedFile(fileURL: fileURL, refreshID: store.refreshID, content: .error(error.localizedDescription))
             }
         }
     }
@@ -90,9 +65,49 @@ private struct ViewerLoadID: Equatable {
     let refreshID: Int
 }
 
+private struct LoadedFile {
+    let fileURL: URL
+    let refreshID: Int
+    let content: LoadedContent
+}
+
+private enum LoadedContent {
+    case text(String)
+    case binary
+    case error(String)
+}
+
+private struct FileContent: View {
+    let fileURL: URL?
+    let loadedFile: LoadedFile?
+    let refreshID: Int
+
+    var body: some View {
+        if let fileURL {
+            if let loadedFile,
+               loadedFile.fileURL == fileURL,
+               loadedFile.refreshID == refreshID {
+                switch loadedFile.content {
+                case let .text(source):
+                    CodeViewerView(fileURL: fileURL, source: source, refreshID: refreshID)
+                case .binary:
+                    BinaryViewerView(fileURL: fileURL)
+                case let .error(message):
+                    Text(message).foregroundStyle(.secondary)
+                }
+            } else {
+                ProgressView()
+            }
+        } else {
+            Text("Select a file")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
 private struct FileTab: View {
     let title: String
-    let systemImage: String
+    let icon: Image
     let isSelected: Bool
     let titleColor: Color?
     let closeShortcutEnabled: Bool
@@ -103,7 +118,9 @@ private struct FileTab: View {
         HStack(spacing: 0) {
             Button(action: action) {
                 HStack(spacing: 4) {
-                    Image(systemName: systemImage)
+                    icon
+                        .resizable()
+                        .frame(width: 16, height: 16)
                         .accessibilityHidden(true)
                     Text(title).foregroundStyle(titleColor ?? .primary)
                 }
@@ -136,19 +153,5 @@ private struct FileTab: View {
                 .strokeBorder(isSelected ? Color.accentColor : Color.secondary.opacity(0.25))
         }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-}
-
-private struct QuickLookPreviewView: NSViewRepresentable {
-    let fileURL: URL
-
-    func makeNSView(context: Context) -> QLPreviewView {
-        let previewView = QLPreviewView(frame: .zero, style: .normal)!
-        previewView.previewItem = fileURL as NSURL
-        return previewView
-    }
-
-    func updateNSView(_ previewView: QLPreviewView, context: Context) {
-        previewView.previewItem = fileURL as NSURL
     }
 }
