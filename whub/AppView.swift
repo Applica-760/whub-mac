@@ -2,24 +2,16 @@ import SwiftUI
 
 struct AppView: View {
     enum Section: CaseIterable, Hashable {
-        case overview
-        case file
         case workspace
         case browser
-        case terminal
-        case todo
-        case timer
+        case overview
         case motion
 
         var label: String {
             switch self {
             case .overview: "Overview"
-            case .file: "File"
             case .workspace: "Workspace"
             case .browser: "Browser"
-            case .timer: "Timer"
-            case .terminal: "Terminal"
-            case .todo: "Todo"
             case .motion: "Motion"
             }
         }
@@ -27,12 +19,8 @@ struct AppView: View {
         var systemImage: String {
             switch self {
             case .overview: "rectangle.3.group"
-            case .file: "doc.text"
-            case .workspace: "keyboard"
+            case .workspace: "chevron.left.forwardslash.chevron.right"
             case .browser: "globe"
-            case .timer: "timer"
-            case .terminal: "terminal"
-            case .todo: "list.bullet.clipboard"
             case .motion: "hand.draw"
             }
         }
@@ -41,12 +29,8 @@ struct AppView: View {
         func content() -> some View {
             switch self {
             case .overview: OverviewView()
-            case .file: FileViewerView()
             case .workspace: WorkspaceView()
             case .browser: BrowserView()
-            case .timer: TimerView()
-            case .terminal: TerminalView()
-            case .todo: TodoView()
             case .motion: MotionView()
             }
         }
@@ -60,9 +44,7 @@ struct AppView: View {
         NavigationSplitView {
             FileExplorerView { fileURL in
                 fileViewerStore.open(fileURL)
-                if section != .workspace {
-                    section = .file
-                }
+                section = .workspace
             }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 320, max: 640)
         } detail: {

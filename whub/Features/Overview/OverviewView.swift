@@ -1,12 +1,13 @@
 import SwiftUI
 
 struct OverviewView: View {
-    @EnvironmentObject private var terminalStore: TerminalStore
-
     var body: some View {
         ScrollView {
-            TerminalWidget(session: terminalStore.selectedSession)
-                .padding()
+            VStack(spacing: 16) {
+                TodoWidget()
+                TimerView()
+            }
+            .padding()
         }
         .navigationTitle("Overview")
     }

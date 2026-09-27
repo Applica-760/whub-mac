@@ -8,7 +8,7 @@ struct whubApp: App {
     @StateObject private var fileViewerStore = FileViewerStore()
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
-    @State private var section = AppView.Section.overview
+    @State private var section = AppView.Section.workspace
     private let workspaceContainer: ModelContainer
 
     init() {
