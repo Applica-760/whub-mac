@@ -179,7 +179,7 @@ private final class GitDiffRulerView: NSRulerView {
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
         for line in first...last {
-            guard let lineRect = lineRect(line, textView: textView, layoutManager: layoutManager, textContainer: textContainer) else { continue }
+            guard let lineRect = lineRect(line, textView: textView, layoutManager: layoutManager) else { continue }
             let rulerRect = convert(lineRect, from: textView)
             let number = String(line + 1) as NSString
             let size = number.size(withAttributes: attributes)
@@ -194,10 +194,10 @@ private final class GitDiffRulerView: NSRulerView {
                 let line = hunk.newLines.lowerBound
                 guard line >= 0, line <= lineCount else { continue }
                 let y: CGFloat
-                if line < lineCount, let lineRect = lineRect(line, textView: textView, layoutManager: layoutManager, textContainer: textContainer) {
+                if line < lineCount, let lineRect = lineRect(line, textView: textView, layoutManager: layoutManager) {
                     y = lineRect.minY
                 } else if lineCount > 0,
-                          let lastRect = lineRect(lineCount - 1, textView: textView, layoutManager: layoutManager, textContainer: textContainer) {
+                          let lastRect = lineRect(lineCount - 1, textView: textView, layoutManager: layoutManager) {
                     y = lastRect.maxY
                 } else {
                     y = textView.textContainerOrigin.y
@@ -208,8 +208,8 @@ private final class GitDiffRulerView: NSRulerView {
             } else {
                 guard hunk.newLines.lowerBound >= 0,
                       hunk.newLines.upperBound <= lineCount,
-                      let first = lineRect(hunk.newLines.lowerBound, textView: textView, layoutManager: layoutManager, textContainer: textContainer),
-                      let last = lineRect(hunk.newLines.upperBound - 1, textView: textView, layoutManager: layoutManager, textContainer: textContainer) else { continue }
+                      let first = lineRect(hunk.newLines.lowerBound, textView: textView, layoutManager: layoutManager),
+                      let last = lineRect(hunk.newLines.upperBound - 1, textView: textView, layoutManager: layoutManager) else { continue }
                 let firstInRuler = convert(first, from: textView)
                 let lastInRuler = convert(last, from: textView)
                 let top = min(firstInRuler.minY, lastInRuler.minY)
@@ -234,8 +234,7 @@ private final class GitDiffRulerView: NSRulerView {
     private func lineRect(
         _ line: Int,
         textView: NSTextView,
-        layoutManager: NSLayoutManager,
-        textContainer: NSTextContainer
+        layoutManager: NSLayoutManager
     ) -> NSRect? {
         guard line >= 0, line < lineStarts.count else { return nil }
         if line == lineStarts.count - 1 && (textView.string.isEmpty || textView.string.hasSuffix("\n")) {
@@ -245,12 +244,8 @@ private final class GitDiffRulerView: NSRulerView {
             )
         }
         let start = lineStarts[line]
-        let end = line + 1 < lineStarts.count ? lineStarts[line + 1] : (textView.string as NSString).length
-        let glyphs = layoutManager.glyphRange(
-            forCharacterRange: NSRange(location: start, length: end - start),
-            actualCharacterRange: nil
-        )
-        let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+        let glyph = layoutManager.glyphIndexForCharacter(at: start)
+        let rect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
         return rect.offsetBy(dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y)
     }
 }
