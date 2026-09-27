@@ -30,6 +30,7 @@ struct whubApp: App {
         }
         .modelContainer(workspaceContainer)
         .commands {
+            CommandGroup(replacing: .saveItem) {}
             CommandGroup(replacing: .sidebar) {
                 Button("Toggle Full Screen") {
                     NSApp.sendAction(#selector(NSWindow.toggleFullScreen(_:)), to: nil, from: nil)
