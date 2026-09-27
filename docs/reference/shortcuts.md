@@ -9,6 +9,7 @@
 | ⇧⌘B | Browser に移動する | [whub/whubApp.swift:43](../../whub/whubApp.swift#L43) |
 | ⌘R | Browser の選択中ページを再読み込みする | [BrowserView.swift:77](../../whub/Features/Browser/BrowserView.swift#L77) |
 | ⌘T | Browser でタブを追加する | [whub/Features/Browser/BrowserView.swift:30](../../whub/Features/Browser/BrowserView.swift#L30) |
-| ⌘T | Terminal でセッションを追加する | [whub/Features/Terminal/TerminalView.swift:32](../../whub/Features/Terminal/TerminalView.swift#L32) |
+| ⌘T | Terminal でセッションを追加し、入力先を新しいターミナルに移す | [whub/Features/Terminal/TerminalView.swift](../../whub/Features/Terminal/TerminalView.swift) |
+| ⌘1〜⌘9 | ターミナルに入力先があるとき、番号に対応するタブへ移動する | [TerminalStore.swift](../../whub/Features/Terminal/TerminalStore.swift) |
 | ⇧⌘X | Browser / Terminal の選択中タブを閉じる。Workspace では表示直後または最後にクリックした Terminal ペインに作用 | [TabBar.swift:29](../../whub/Components/TabBar.swift#L29)、[WorkspaceView.swift:15](../../whub/Features/Workspace/WorkspaceView.swift#L15) |
 | ⇧⌘X | File の選択中タブを閉じる。Workspace では最後にクリックした File ペインに作用 | [FileViewerView.swift:142](../../whub/Features/Files/Viewer/FileViewerView.swift#L142)、[WorkspaceView.swift:12](../../whub/Features/Workspace/WorkspaceView.swift#L12) |

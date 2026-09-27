@@ -42,12 +42,27 @@ final class TerminalStore: ObservableObject {
     @Published private(set) var sessions: [TerminalSession]
     @Published private(set) var selectedSessionID: TerminalSession.ID
     private let context: ModelContext
+    private var tabShortcutMonitor: Any?
 
     init(context: ModelContext) {
         self.context = context
         let session = TerminalSession(currentDirectory: Self.currentDirectory(in: context))
         sessions = [session]
         selectedSessionID = session.id
+        tabShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  event.window?.firstResponder === self.selectedSession.terminal,
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  let digit = event.charactersIgnoringModifiers?.first?.wholeNumberValue,
+                  (1...9).contains(digit)
+            else { return event }
+            self.select(index: digit - 1)
+            return nil
+        }
+    }
+
+    deinit {
+        if let tabShortcutMonitor { NSEvent.removeMonitor(tabShortcutMonitor) }
     }
 
     var selectedSession: TerminalSession {
@@ -72,6 +87,11 @@ final class TerminalStore: ObservableObject {
 
     func select(_ id: TerminalSession.ID) {
         selectedSessionID = id
+    }
+
+    private func select(index: Int) {
+        guard sessions.indices.contains(index) else { return }
+        selectedSessionID = sessions[index].id
     }
 
     private static func currentDirectory(in context: ModelContext) -> String {
