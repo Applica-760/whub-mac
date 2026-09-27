@@ -6,14 +6,16 @@ import WhubCore
 @main
 struct whubApp: App {
     @StateObject private var fileViewerStore = FileViewerStore()
-    @StateObject private var terminalStore = TerminalStore()
+    @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
     @State private var section = AppView.Section.overview
     private let workspaceContainer: ModelContainer
 
     init() {
         do {
-            workspaceContainer = try Container.make()
+            let container = try Container.make()
+            workspaceContainer = container
+            _terminalStore = StateObject(wrappedValue: TerminalStore(context: container.mainContext))
         } catch {
             fatalError("Unable to open workspace store: \(error)")
         }

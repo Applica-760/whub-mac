@@ -1,6 +1,8 @@
 import AppKit
 import Combine
+import SwiftData
 import SwiftTerm
+import WhubCore
 
 private final class FixedCursorTerminalView: LocalProcessTerminalView {
     override func cursorStyleChanged(source: Terminal, newStyle: CursorStyle) {
@@ -12,7 +14,7 @@ final class TerminalSession: Identifiable {
     let id = UUID()
     let terminal: LocalProcessTerminalView
 
-    init() {
+    init(currentDirectory: String) {
         let terminal = FixedCursorTerminalView(frame: .zero)
         terminal.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         terminal.lineSpacing = 1.1
@@ -25,7 +27,7 @@ final class TerminalSession: Identifiable {
         terminal.startProcess(
             executable: "/bin/zsh",
             args: ["-l"],
-            currentDirectory: "\(NSHomeDirectory())/workspace-hub"
+            currentDirectory: currentDirectory
         )
         self.terminal = terminal
     }
@@ -35,12 +37,15 @@ final class TerminalSession: Identifiable {
     }
 }
 
+@MainActor
 final class TerminalStore: ObservableObject {
     @Published private(set) var sessions: [TerminalSession]
     @Published private(set) var selectedSessionID: TerminalSession.ID
+    private let context: ModelContext
 
-    init() {
-        let session = TerminalSession()
+    init(context: ModelContext) {
+        self.context = context
+        let session = TerminalSession(currentDirectory: Self.currentDirectory(in: context))
         sessions = [session]
         selectedSessionID = session.id
     }
@@ -50,7 +55,7 @@ final class TerminalStore: ObservableObject {
     }
 
     func add() {
-        let session = TerminalSession()
+        let session = TerminalSession(currentDirectory: Self.currentDirectory(in: context))
         sessions.append(session)
         selectedSessionID = session.id
     }
@@ -67,5 +72,10 @@ final class TerminalStore: ObservableObject {
 
     func select(_ id: TerminalSession.ID) {
         selectedSessionID = id
+    }
+
+    private static func currentDirectory(in context: ModelContext) -> String {
+        (try? HostStore(context: context).fetchHosts().first { $0 is LocalHost }?.basePath)
+            ?? NSHomeDirectory()
     }
 }
