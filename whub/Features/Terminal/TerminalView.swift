@@ -13,6 +13,7 @@ struct TerminalView: View {
                         title: "Term \(index + 1)",
                         systemImage: "terminal",
                         isSelected: session.id == store.selectedSessionID,
+                        showsSelectionBorder: true,
                         isCloseDisabled: store.sessions.count == 1,
                         closeShortcutEnabled: closeShortcutEnabled,
                         action: {
@@ -39,6 +40,12 @@ struct TerminalView: View {
         .padding(.bottom)
         .padding(.top, 8)
         .navigationTitle("Terminal")
+        .onChange(of: store.selectedSessionID) { _, _ in
+            DispatchQueue.main.async {
+                let terminal = store.selectedSession.terminal
+                terminal.window?.makeFirstResponder(terminal)
+            }
+        }
     }
 }
 
