@@ -57,6 +57,11 @@ struct FileExplorerView: View {
                 }
                 FileTreeView(
                     rootURL: rootURL,
+                    basePath: projects.first { project in
+                        guard let selectedRootURL else { return false }
+                        return selectedRootURL.path == project.path
+                            || selectedRootURL.path.hasPrefix(project.host.worktreesPath + "/")
+                    }?.host.basePath,
                     gitChanges: fileViewerStore.gitChanges,
                     refreshID: fileViewerStore.refreshID,
                     onFilePreview: { fileURL in
@@ -73,11 +78,11 @@ struct FileExplorerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            selectedRootURL = availableURLs.first
+            selectedRootURL = defaultRootURL
         }
         .onChange(of: availableURLs) { _, urls in
             if !urls.contains(where: { $0 == selectedRootURL }) {
-                selectedRootURL = urls.first
+                selectedRootURL = defaultRootURL
             }
         }
         .task(id: WorktreeLoadID(
@@ -130,6 +135,10 @@ struct FileExplorerView: View {
 
     private var availableURLs: [URL] {
         projects.map { URL(fileURLWithPath: $0.path) } + worktreeURLs
+    }
+
+    private var defaultRootURL: URL? {
+        projects.first { $0.name == "whub-mac" }.map { URL(fileURLWithPath: $0.path) } ?? availableURLs.first
     }
 
     private func loadWorktrees() {
