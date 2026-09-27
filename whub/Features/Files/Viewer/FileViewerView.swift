@@ -39,6 +39,7 @@ struct FileViewerView: View {
 
             WidgetFrame {
                 FileContent(fileURL: store.selectedFileURL, loadedFile: loadedFile, refreshID: store.refreshID)
+                    .id(store.refreshID)
             }
         }
         .padding(.horizontal)
