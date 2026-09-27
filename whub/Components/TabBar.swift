@@ -7,6 +7,7 @@ struct TabBar: View {
     var showsSelectionBorder = false
     var isCloseDisabled = false
     var closeShortcutEnabled = true
+    var notificationDots: [(Color, String)] = []
     let action: () -> Void
     let closeAction: () -> Void
 
@@ -36,6 +37,18 @@ struct TabBar: View {
         ControlGroup {
             Button(title, systemImage: systemImage, action: action)
                 .labelStyle(.titleAndIcon)
+                .overlay(alignment: .topTrailing) {
+                    HStack(spacing: 2) {
+                        ForEach(notificationDots.indices, id: \.self) { index in
+                            Circle()
+                                .fill(notificationDots[index].0)
+                                .frame(width: 7, height: 7)
+                        }
+                    }
+                    .offset(x: 3, y: -3)
+                    .allowsHitTesting(false)
+                }
+                .accessibilityValue(notificationDots.map(\.1).joined(separator: "、"))
             Button("Close \(title)", systemImage: "xmark", action: closeAction)
                 .labelStyle(.iconOnly)
                 .keyboardShortcut(

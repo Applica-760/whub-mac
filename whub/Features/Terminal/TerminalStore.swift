@@ -1,8 +1,18 @@
 import AppKit
 import Combine
+import CoreFoundation
 import SwiftData
 import SwiftTerm
 import WhubCore
+
+enum TerminalAttention: String, CaseIterable, Hashable {
+    case permission
+    case completed
+
+    var sound: NSSound.Name {
+        self == .permission ? NSSound.Name("Ping") : NSSound.Name("Glass")
+    }
+}
 
 private final class FixedCursorTerminalView: LocalProcessTerminalView {
     override func cursorStyleChanged(source: Terminal, newStyle: CursorStyle) {
@@ -27,6 +37,8 @@ final class TerminalSession: Identifiable {
         terminal.startProcess(
             executable: "/bin/zsh",
             args: ["-l"],
+            environment: Terminal.getEnvironmentVariables(termName: "xterm-256color")
+                + ["WHUB_MAC_TAB_ID=\(id.uuidString)"],
             currentDirectory: currentDirectory
         )
         self.terminal = terminal
@@ -41,14 +53,17 @@ final class TerminalSession: Identifiable {
 final class TerminalStore: ObservableObject {
     @Published private(set) var sessions: [TerminalSession]
     @Published private(set) var selectedSessionID: TerminalSession.ID
+    @Published private(set) var attention: [TerminalSession.ID: Set<TerminalAttention>] = [:]
     private let context: ModelContext
     private var tabShortcutMonitor: Any?
+    private var notificationNames: [TerminalSession.ID: [String]] = [:]
 
     init(context: ModelContext) {
         self.context = context
         let session = TerminalSession(currentDirectory: Self.currentDirectory(in: context))
         sessions = [session]
         selectedSessionID = session.id
+        observe(session)
         tabShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self,
                   event.window?.firstResponder === self.selectedSession.terminal,
@@ -63,6 +78,9 @@ final class TerminalStore: ObservableObject {
 
     deinit {
         if let tabShortcutMonitor { NSEvent.removeMonitor(tabShortcutMonitor) }
+        for names in notificationNames.values {
+            for name in names { unobserve(name) }
+        }
     }
 
     var selectedSession: TerminalSession {
@@ -71,6 +89,7 @@ final class TerminalStore: ObservableObject {
 
     func add() {
         let session = TerminalSession(currentDirectory: Self.currentDirectory(in: context))
+        observe(session)
         sessions.append(session)
         selectedSessionID = session.id
     }
@@ -81,17 +100,59 @@ final class TerminalStore: ObservableObject {
         else { return }
 
         sessions.remove(at: index)
+        for name in notificationNames.removeValue(forKey: id) ?? [] { unobserve(name) }
+        attention.removeValue(forKey: id)
         guard selectedSessionID == id else { return }
         selectedSessionID = sessions[min(index, sessions.endIndex - 1)].id
     }
 
     func select(_ id: TerminalSession.ID) {
         selectedSessionID = id
+        attention.removeValue(forKey: id)
     }
 
     private func select(index: Int) {
         guard sessions.indices.contains(index) else { return }
-        selectedSessionID = sessions[index].id
+        select(sessions[index].id)
+    }
+
+    private func observe(_ session: TerminalSession) {
+        for event in TerminalAttention.allCases {
+            let name = "app.whub.terminal.\(session.id.uuidString).\(event.rawValue)"
+            CFNotificationCenterAddObserver(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                Unmanaged.passUnretained(self).toOpaque(),
+                { _, observer, name, _, _ in
+                    guard let observer, let name else { return }
+                    let store = Unmanaged<TerminalStore>.fromOpaque(observer).takeUnretainedValue()
+                    Task { @MainActor in store.receive(name.rawValue as String) }
+                },
+                name as CFString,
+                nil,
+                .deliverImmediately
+            )
+            notificationNames[session.id, default: []].append(name)
+        }
+    }
+
+    nonisolated private func unobserve(_ name: String) {
+        CFNotificationCenterRemoveObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque(),
+            CFNotificationName(name as CFString),
+            nil
+        )
+    }
+
+    private func receive(_ name: String) {
+        for session in sessions {
+            for event in TerminalAttention.allCases {
+                guard name == "app.whub.terminal.\(session.id.uuidString).\(event.rawValue)" else { continue }
+                attention[session.id, default: []].insert(event)
+                NSSound(named: event.sound)?.play()
+                return
+            }
+        }
     }
 
     private static func currentDirectory(in context: ModelContext) -> String {

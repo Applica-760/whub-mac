@@ -16,12 +16,14 @@ struct TerminalView: View {
                         showsSelectionBorder: true,
                         isCloseDisabled: store.sessions.count == 1,
                         closeShortcutEnabled: closeShortcutEnabled,
-                        action: {
-                            store.select(session.id)
-                        },
-                        closeAction: {
-                            store.remove(session.id)
-                        }
+                        notificationDots: [
+                            store.attention[session.id]?.contains(.permission) == true
+                                ? (Color.orange, "権限待ち") : nil,
+                            store.attention[session.id]?.contains(.completed) == true
+                                ? (Color.green, "完了") : nil,
+                        ].compactMap { $0 },
+                        action: { store.select(session.id) },
+                        closeAction: { store.remove(session.id) }
                     )
                 }
 
