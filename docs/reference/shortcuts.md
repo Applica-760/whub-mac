@@ -11,5 +11,5 @@
 | ⌘T | Browser でタブを追加する | [whub/Features/Browser/BrowserView.swift:30](../../whub/Features/Browser/BrowserView.swift#L30) |
 | ⌘T | Terminal でセッションを追加し、入力先を新しいターミナルに移す | [whub/Features/Terminal/TerminalView.swift](../../whub/Features/Terminal/TerminalView.swift) |
 | ⌘1〜⌘9 | ターミナルに入力先があるとき、番号に対応するタブへ移動する | [TerminalStore.swift](../../whub/Features/Terminal/TerminalStore.swift) |
-| ⇧⌘X | Browser / Terminal の選択中タブを閉じる。Workspace では表示直後または最後にクリックした Terminal ペインに作用 | [TabBar.swift:29](../../whub/Components/TabBar.swift#L29)、[WorkspaceView.swift:15](../../whub/Features/Workspace/WorkspaceView.swift#L15) |
-| ⇧⌘X | File の選択中タブを閉じる。Workspace では最後にクリックした File ペインに作用 | [FileViewerView.swift:142](../../whub/Features/Files/Viewer/FileViewerView.swift#L142)、[WorkspaceView.swift:12](../../whub/Features/Workspace/WorkspaceView.swift#L12) |
+| ⌘W | Browser / Terminal の選択中タブを閉じる。Workspace では表示直後または最後にクリックした Terminal ペインに作用。Terminal でコマンド実行中は確認する | [TabBar.swift](../../whub/Components/TabBar.swift)、[TerminalView.swift](../../whub/Features/Terminal/TerminalView.swift)、[WorkspaceView.swift](../../whub/Features/Workspace/WorkspaceView.swift) |
+| ⌘W | File の選択中タブを閉じる。Workspace では最後にクリックした File ペインに作用。ウィンドウ終了には使用しない | [FileViewerView.swift](../../whub/Features/Files/Viewer/FileViewerView.swift)、[whubApp.swift](../../whub/whubApp.swift) |

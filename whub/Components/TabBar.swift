@@ -53,7 +53,7 @@ struct TabBar: View {
                 .labelStyle(.iconOnly)
                 .keyboardShortcut(
                     isSelected && closeShortcutEnabled
-                        ? KeyboardShortcut("x", modifiers: [.command, .shift])
+                        ? KeyboardShortcut("w", modifiers: .command)
                         : nil
                 )
                 .disabled(isCloseDisabled)

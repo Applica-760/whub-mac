@@ -4,6 +4,7 @@ import SwiftUI
 struct TerminalView: View {
     var closeShortcutEnabled = true
     @EnvironmentObject private var store: TerminalStore
+    @State private var pendingCloseID: TerminalSession.ID?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -23,7 +24,13 @@ struct TerminalView: View {
                                 ? (Color.green, "完了") : nil,
                         ].compactMap { $0 },
                         action: { store.select(session.id) },
-                        closeAction: { store.remove(session.id) }
+                        closeAction: {
+                            if session.hasRunningCommand {
+                                pendingCloseID = session.id
+                            } else {
+                                store.remove(session.id)
+                            }
+                        }
                     )
                 }
 
@@ -42,6 +49,19 @@ struct TerminalView: View {
         .padding(.bottom)
         .padding(.top, 8)
         .navigationTitle("Terminal")
+        .alert("実行中のコマンドがあります", isPresented: Binding(
+            get: { pendingCloseID != nil },
+            set: { if !$0 { pendingCloseID = nil } }
+        )) {
+            Button("タブを閉じる", role: .destructive) {
+                if let pendingCloseID { store.remove(pendingCloseID) }
+                pendingCloseID = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("キャンセル", role: .cancel) { pendingCloseID = nil }
+        } message: {
+            Text("このターミナルタブを閉じると、実行中のコマンドが中断されます。")
+        }
         .onChange(of: store.selectedSessionID) { _, _ in
             DispatchQueue.main.async {
                 let terminal = store.selectedSession.terminal

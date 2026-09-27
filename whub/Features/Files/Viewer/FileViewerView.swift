@@ -152,7 +152,7 @@ private struct FileTab: View {
             .accessibilityLabel("Close \(title)")
             .keyboardShortcut(
                 isSelected && closeShortcutEnabled
-                    ? KeyboardShortcut("x", modifiers: [.command, .shift])
+                    ? KeyboardShortcut("w", modifiers: .command)
                     : nil
             )
         }

@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CoreFoundation
+import Darwin
 import SwiftData
 import SwiftTerm
 import WhubCore
@@ -23,6 +24,13 @@ private final class FixedCursorTerminalView: LocalProcessTerminalView {
 final class TerminalSession: Identifiable {
     let id = UUID()
     let terminal: LocalProcessTerminalView
+
+    var hasRunningCommand: Bool {
+        let shellPID = terminal.process?.shellPid ?? 0
+        var childPID: pid_t = 0
+        return shellPID > 0
+            && proc_listchildpids(shellPID, &childPID, Int32(MemoryLayout<pid_t>.size)) != 0
+    }
 
     init(currentDirectory: String) {
         let terminal = FixedCursorTerminalView(frame: .zero)
