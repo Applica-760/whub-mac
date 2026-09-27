@@ -38,9 +38,9 @@ struct whubApp: App {
             }
             CommandMenu("Navigate") {
                 Button("Workspace") { section = .workspace }
-                    .keyboardShortcut("w", modifiers: [.command, .control])
+                    .keyboardShortcut("w", modifiers: [.command, .shift])
                 Button("Browser") { section = .browser }
-                    .keyboardShortcut("b", modifiers: [.command, .control])
+                    .keyboardShortcut("b", modifiers: [.command, .shift])
             }
         }
 

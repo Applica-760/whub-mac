@@ -74,6 +74,7 @@ private struct BrowserSessionView: View {
                     Button("Reload", systemImage: "arrow.clockwise") {
                         session.page.reload()
                     }
+                    .keyboardShortcut("r", modifiers: .command)
                     .disabled(session.page.url == nil)
                 }
                 .labelStyle(.iconOnly)
