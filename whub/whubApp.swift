@@ -9,6 +9,7 @@ struct whubApp: App {
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
     @State private var section = AppView.Section.workspace
+    @FocusedValue(\.projectNavigation) private var projectNavigation
     private let workspaceContainer: ModelContainer
 
     init() {
@@ -30,7 +31,10 @@ struct whubApp: App {
         }
         .modelContainer(workspaceContainer)
         .commands {
-            CommandGroup(replacing: .saveItem) {}
+            CommandGroup(replacing: .saveItem) {
+                Button("Close Window") { NSApp.keyWindow?.performClose(nil) }
+                    .keyboardShortcut("w", modifiers: [.command, .shift])
+            }
             CommandGroup(replacing: .sidebar) {
                 Button("Toggle Full Screen") {
                     NSApp.sendAction(#selector(NSWindow.toggleFullScreen(_:)), to: nil, from: nil)
@@ -39,9 +43,16 @@ struct whubApp: App {
             }
             CommandMenu("Navigate") {
                 Button("Workspace") { section = .workspace }
-                    .keyboardShortcut("w", modifiers: [.command, .shift])
                 Button("Browser") { section = .browser }
                     .keyboardShortcut("b", modifiers: [.command, .shift])
+                Button("Reload Files") { fileViewerStore.refresh() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                Button("Previous Project or Worktree") { projectNavigation?.move(by: -1) }
+                    .keyboardShortcut(.upArrow, modifiers: [.command, .shift])
+                    .disabled(projectNavigation == nil)
+                Button("Next Project or Worktree") { projectNavigation?.move(by: 1) }
+                    .keyboardShortcut(.downArrow, modifiers: [.command, .shift])
+                    .disabled(projectNavigation == nil)
             }
         }
 
