@@ -5,7 +5,7 @@
 | ショートカット | 操作 | 実装のパスと位置 |
 | --- | --- | --- |
 | ⌃⌘F | フルスクリーンを切り替える | [whub/whubApp.swift](../../whub/whubApp.swift) |
-| ⇧⌘W | 現在のウィンドウを閉じる | [whubApp.swift](../../whub/whubApp.swift) |
+| ⇧⌘W | Workspace に移動する | [whubApp.swift](../../whub/whubApp.swift) |
 | ⇧⌘B | Browser に移動する | [whub/whubApp.swift](../../whub/whubApp.swift) |
 | ⇧⌘R | 左ナビゲーションのファイル一覧・Git状態とファイル表示を再読み込みする | [whub/whubApp.swift](../../whub/whubApp.swift) |
 | ⇧⌘↑ | 選択中のProject / Worktreeから一覧の一つ上へ移動する（先頭で停止） | [whubApp.swift](../../whub/whubApp.swift)、[ProjectNavigation.swift](../../whub/Features/Files/Explorer/ProjectNavigation.swift) |
