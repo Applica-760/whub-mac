@@ -13,28 +13,29 @@ struct FileViewerView: View {
                 ScrollView(.horizontal) {
                     HStack {
                         ForEach(store.fileURLs, id: \.self) { fileURL in
-                            let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
-                            case .added: Color(nsColor: .systemGreen)
-                            case .modified, .deleted: Color(nsColor: .systemOrange)
-                            case nil: nil
-                            }
-                            FileTab(
-                                title: fileURL.lastPathComponent,
-                                icon: IconList.image(for: fileURL),
-                                isSelected: fileURL == store.selectedFileURL,
-                                isPreview: fileURL == store.previewFileURL,
-                                titleColor: titleColor,
-                                closeShortcutEnabled: closeShortcutEnabled,
-                                action: {
-                                    store.select(fileURL)
-                                },
-                                openAction: {
-                                    store.open(fileURL)
-                                },
-                                closeAction: {
-                                    store.close(fileURL)
+                            if let fileStore = store.fileStores[fileURL] {
+                                let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
+                                case .added: Color(nsColor: .systemGreen)
+                                case .modified, .deleted: Color(nsColor: .systemOrange)
+                                case nil: nil
                                 }
-                            )
+                                FileTab(
+                                    fileStore: fileStore,
+                                    isSelected: fileURL == store.selectedFileURL,
+                                    isPreview: fileURL == store.previewFileURL,
+                                    titleColor: titleColor,
+                                    closeShortcutEnabled: closeShortcutEnabled,
+                                    action: {
+                                        store.select(fileURL)
+                                    },
+                                    openAction: {
+                                        store.open(fileURL)
+                                    },
+                                    closeAction: {
+                                        store.close(fileURL)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
