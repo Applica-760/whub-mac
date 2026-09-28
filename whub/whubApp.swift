@@ -31,10 +31,7 @@ struct whubApp: App {
         }
         .modelContainer(workspaceContainer)
         .commands {
-            CommandGroup(replacing: .saveItem) {
-                Button("Close Window") { NSApp.keyWindow?.performClose(nil) }
-                    .keyboardShortcut("w", modifiers: [.command, .shift])
-            }
+            CommandGroup(replacing: .saveItem) {}
             CommandGroup(replacing: .sidebar) {
                 Button("Toggle Full Screen") {
                     NSApp.sendAction(#selector(NSWindow.toggleFullScreen(_:)), to: nil, from: nil)
@@ -43,6 +40,7 @@ struct whubApp: App {
             }
             CommandMenu("Navigate") {
                 Button("Workspace") { section = .workspace }
+                    .keyboardShortcut("w", modifiers: [.command, .shift])
                 Button("Browser") { section = .browser }
                     .keyboardShortcut("b", modifiers: [.command, .shift])
                 Button("Reload Files") { fileViewerStore.refresh() }
