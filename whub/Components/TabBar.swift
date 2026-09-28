@@ -12,51 +12,55 @@ struct TabBar: View {
     let closeAction: () -> Void
 
     var body: some View {
-        Group {
-            if isSelected && !showsSelectionBorder {
-                controls.buttonStyle(.borderedProminent)
-            } else {
-                controls.buttonStyle(.bordered)
-            }
-        }
-        .background(
-            isSelected && showsSelectionBorder ? Color.accentColor.opacity(0.12) : .clear,
-            in: RoundedRectangle(cornerRadius: 6)
-        )
-        .overlay {
-            if isSelected && showsSelectionBorder {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(Color.accentColor, lineWidth: 2)
-                    .allowsHitTesting(false)
-            }
-        }
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private var controls: some View {
-        ControlGroup {
-            Button(title, systemImage: systemImage, action: action)
-                .labelStyle(.titleAndIcon)
-                .overlay(alignment: .topTrailing) {
-                    HStack(spacing: 2) {
-                        ForEach(notificationDots.indices, id: \.self) { index in
+        HStack(spacing: 0) {
+            Button(action: action) {
+                HStack(spacing: 8) {
+                    Label(title, systemImage: systemImage)
+                        .labelStyle(.titleAndIcon)
+                    ForEach(notificationDots.indices, id: \.self) { index in
+                        HStack(spacing: 4) {
                             Circle()
                                 .fill(notificationDots[index].0)
-                                .frame(width: 7, height: 7)
+                                .frame(width: 6, height: 6)
+                            Text(notificationDots[index].1)
+                                .font(.caption.weight(.semibold))
                         }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(notificationDots[index].0.opacity(0.2), in: Capsule())
+                        .accessibilityHidden(true)
                     }
-                    .offset(x: 3, y: -3)
-                    .allowsHitTesting(false)
                 }
-                .accessibilityValue(notificationDots.map(\.1).joined(separator: "、"))
+                .padding(.leading, 10)
+                .padding(.trailing, 6)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(notificationDots.map(\.1).joined(separator: "、"))
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+
             Button("Close \(title)", systemImage: "xmark", action: closeAction)
                 .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .padding(.horizontal, 6)
                 .keyboardShortcut(
                     isSelected && closeShortcutEnabled
                         ? KeyboardShortcut("w", modifiers: .command)
                         : nil
                 )
                 .disabled(isCloseDisabled)
+        }
+        .glassEffect(
+            .regular.interactive(),
+            in: .capsule
+        )
+        .overlay {
+            if isSelected {
+                Capsule()
+                    .strokeBorder(Color.accentColor, lineWidth: showsSelectionBorder ? 2 : 1)
+                    .allowsHitTesting(false)
+            }
         }
     }
 }
