@@ -7,7 +7,6 @@ struct TabBar: View {
     let isSelected: Bool
     var isPreview = false
     var titleColor: Color?
-    var showsSelectionBorder = false
     var isCloseDisabled = false
     var closeShortcutEnabled = true
     var status: (color: Color, label: String)?
@@ -15,6 +14,7 @@ struct TabBar: View {
     let action: () -> Void
     let closeAction: () -> Void
     @State private var isHovered = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 0) {
@@ -24,9 +24,11 @@ struct TabBar: View {
                         .resizable()
                         .scaledToFit()
                         .frame(width: 16, height: 16)
+                        .foregroundStyle(isSelected ? Color.primary : .secondary)
                         .accessibilityHidden(true)
                     Text(title)
                         .italic(isPreview)
+                        .fontWeight(isSelected ? .medium : .regular)
                         .foregroundStyle(titleColor ?? .primary)
                 }
                 .padding(.leading, 10)
@@ -58,14 +60,25 @@ struct TabBar: View {
             .disabled(isCloseDisabled)
         }
         .onHover { isHovered = $0 }
-        .glassEffect(
-            .regular.interactive(),
-            in: .capsule
-        )
+        .background {
+            Color.clear
+                .glassEffect(
+                    .regular
+                        .tint(isSelected
+                            ? .white.opacity(colorScheme == .dark ? 0.12 : 0.50)
+                            : .black.opacity(colorScheme == .dark ? 0.20 : 0.08))
+                        .interactive(),
+                    in: .capsule
+                )
+                .allowsHitTesting(false)
+        }
         .overlay {
             if isSelected {
                 Capsule()
-                    .strokeBorder(Color.accentColor, lineWidth: showsSelectionBorder ? 2 : 1)
+                    .strokeBorder(
+                        colorScheme == .dark ? .white.opacity(0.35) : .black.opacity(0.15),
+                        lineWidth: 1
+                    )
                     .allowsHitTesting(false)
             }
         }
