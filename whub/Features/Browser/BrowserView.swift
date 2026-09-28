@@ -13,7 +13,7 @@ struct BrowserView: View {
                         ForEach(store.sessions) { session in
                             TabBar(
                                 title: session.title,
-                                systemImage: "globe",
+                                icon: Image(systemName: "globe"),
                                 isSelected: session.id == store.selectedSessionID,
                                 isCloseDisabled: store.sessions.count == 1,
                                 action: { store.select(session.id) },

@@ -39,6 +39,11 @@ final class FileStore: ObservableObject {
         }
     }
 
+    var hasUnsavedChanges: Bool {
+        guard case let .text(source) = content else { return false }
+        return source != savedSource
+    }
+
     enum SaveError: LocalizedError {
         case changedOnDisk(Data)
         case unsupportedText
