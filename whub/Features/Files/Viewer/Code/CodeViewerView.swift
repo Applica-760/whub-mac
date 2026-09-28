@@ -11,7 +11,8 @@ struct CodeViewerView: View {
     let editorID: String
     let onEdit: () -> Void
     @EnvironmentObject private var store: FileViewerStore
-    @State private var diffURL: URL?
+    @State private var baseline: CodeDiffBaseline?
+    @State private var diffSource: String?
     @State private var hunks: [GitDiffHunk] = []
     @State private var diffErrorMessage: String?
 
@@ -27,19 +28,19 @@ struct CodeViewerView: View {
                 onEdit: onEdit,
                 source: source,
                 language: codeLanguages[fileURL.pathExtension.lowercased()],
-                hunks: diffURL == fileURL && source == state.savedSource ? hunks : []
+                hunks: baseline?.fileURL == fileURL && diffSource == source ? hunks : []
             )
         }
         .task(id: CodeLoadID(fileURL: fileURL, refreshID: refreshID, diskRevision: state.diskRevision)) {
-            diffURL = nil
+            baseline = nil
+            diffSource = nil
             hunks = []
             diffErrorMessage = nil
             do {
-                let loaded = try await Git.diff(at: fileURL)
+                let loaded = try await Git.baselineText(at: fileURL)
                 let changes = try await Git.changes(at: fileURL.deletingLastPathComponent())
                 guard !Task.isCancelled else { return }
-                hunks = loaded
-                diffURL = fileURL
+                if let loaded { baseline = CodeDiffBaseline(fileURL: fileURL, source: loaded) }
                 store.gitChanges[fileURL.standardizedFileURL] = changes[fileURL.standardizedFileURL]
             } catch GitError.notRepository {
                 guard !Task.isCancelled else { return }
@@ -50,7 +51,28 @@ struct CodeViewerView: View {
                 diffErrorMessage = error.localizedDescription
             }
         }
+        .task(id: CodeDiffID(baseline: baseline, source: source)) {
+            guard let baseline, baseline.fileURL == fileURL else { return }
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+            let calculation = Task.detached(priority: .utility) {
+                Git.diff(from: baseline.source, to: source)
+            }
+            let loaded = await calculation.value
+            guard !Task.isCancelled else { return }
+            hunks = loaded
+            diffSource = source
+        }
     }
+}
+
+private struct CodeDiffBaseline: Equatable {
+    let fileURL: URL
+    let source: String
+}
+
+private struct CodeDiffID: Equatable {
+    let baseline: CodeDiffBaseline?
+    let source: String
 }
 
 private struct CodeLoadID: Equatable {
@@ -91,6 +113,7 @@ private struct Content: NSViewRepresentable {
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
+        textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
         textView.autoresizingMask = [.width, .height]
         textView.maxSize = NSSize(width: CGFloat(Float.greatestFiniteMagnitude), height: CGFloat(Float.greatestFiniteMagnitude))
