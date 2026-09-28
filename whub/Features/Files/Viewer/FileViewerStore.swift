@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import WhubCore
@@ -69,14 +70,28 @@ final class FileState: ObservableObject {
 
     let fileURL: URL
     @Published var content: Content
+    let loadedSource: String?
+    let textStorage: NSTextStorage
+    let undoManager = UndoManager()
+    // ponytail: retain editors until the file closes; evict closed scenes if window churn matters.
+    var editorViews: [String: NSScrollView] = [:]
 
     init(fileURL: URL) {
         self.fileURL = fileURL
+        let loadedContent: Content
         do {
             let data = try Data(contentsOf: fileURL)
-            content = String(data: data, encoding: .utf8).map(Content.text) ?? .binary
+            loadedContent = String(data: data, encoding: .utf8).map(Content.text) ?? .binary
         } catch {
-            content = .error(error.localizedDescription)
+            loadedContent = .error(error.localizedDescription)
+        }
+        content = loadedContent
+        if case let .text(source) = loadedContent {
+            loadedSource = source
+            textStorage = NSTextStorage(string: source)
+        } else {
+            loadedSource = nil
+            textStorage = NSTextStorage()
         }
     }
 }
