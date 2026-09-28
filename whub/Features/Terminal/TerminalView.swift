@@ -14,7 +14,6 @@ struct TerminalView: View {
                         title: "Term \(index + 1)",
                         icon: Image(systemName: "terminal"),
                         isSelected: session.id == store.selectedSessionID,
-                        showsSelectionBorder: true,
                         isCloseDisabled: store.sessions.count == 1,
                         closeShortcutEnabled: closeShortcutEnabled,
                         status: store.attention[session.id]?.contains(.permission) == true

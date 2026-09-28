@@ -17,7 +17,6 @@ struct FileTab: View {
             isSelected: isSelected,
             isPreview: isPreview,
             titleColor: titleColor,
-            showsSelectionBorder: true,
             closeShortcutEnabled: closeShortcutEnabled,
             status: fileStore.hasUnsavedChanges ? (.primary, "未保存") : nil,
             openAction: openAction,
