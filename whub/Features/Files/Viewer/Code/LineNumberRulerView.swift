@@ -27,6 +27,10 @@ final class LineNumberRulerView: NSRulerView {
     }
 
     override func drawHashMarksAndLabels(in rect: NSRect) {
+        NSColor.controlBackgroundColor.setFill()
+        bounds.fill()
+        NSColor.separatorColor.setFill()
+        NSRect(x: bounds.maxX - 1, y: bounds.minY, width: 1, height: bounds.height).fill()
         guard let textView = clientView as? NSTextView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }

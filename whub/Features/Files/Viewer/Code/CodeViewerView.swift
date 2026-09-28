@@ -7,9 +7,10 @@ struct CodeViewerView: View {
     let fileURL: URL
     let source: String
     let refreshID: Int
-    let state: FileState
+    let state: FileStore
     let editorID: String
     let onEdit: () -> Void
+    @EnvironmentObject private var store: FileViewerStore
     @State private var diffURL: URL?
     @State private var hunks: [GitDiffHunk] = []
     @State private var diffErrorMessage: String?
@@ -26,19 +27,23 @@ struct CodeViewerView: View {
                 onEdit: onEdit,
                 source: source,
                 language: codeLanguages[fileURL.pathExtension.lowercased()],
-                hunks: diffURL == fileURL && source == state.loadedSource ? hunks : []
+                hunks: diffURL == fileURL && source == state.savedSource ? hunks : []
             )
         }
-        .task(id: CodeLoadID(fileURL: fileURL, refreshID: refreshID)) {
+        .task(id: CodeLoadID(fileURL: fileURL, refreshID: refreshID, diskRevision: state.diskRevision)) {
             diffURL = nil
             hunks = []
             diffErrorMessage = nil
             do {
                 let loaded = try await Git.diff(at: fileURL)
+                let changes = try await Git.changes(at: fileURL.deletingLastPathComponent())
                 guard !Task.isCancelled else { return }
                 hunks = loaded
                 diffURL = fileURL
+                store.gitChanges[fileURL.standardizedFileURL] = changes[fileURL.standardizedFileURL]
             } catch GitError.notRepository {
+                guard !Task.isCancelled else { return }
+                store.gitChanges.removeValue(forKey: fileURL.standardizedFileURL)
                 return
             } catch {
                 guard !Task.isCancelled else { return }
@@ -51,12 +56,13 @@ struct CodeViewerView: View {
 private struct CodeLoadID: Equatable {
     let fileURL: URL
     let refreshID: Int
+    let diskRevision: Int
 }
 
 @MainActor private let codeHighlighter = Highlighter()
 
 private struct Content: NSViewRepresentable {
-    let state: FileState
+    let state: FileStore
     let editorID: String
     let onEdit: () -> Void
     let source: String
@@ -70,7 +76,7 @@ private struct Content: NSViewRepresentable {
         let container = NSTextContainer(size: .zero)
         layoutManager.addTextContainer(container)
         let textView = CodeTextView(frame: .zero, textContainer: container)
-        textView.fileState = state
+        textView.fileStore = state
         textView.onEdit = onEdit
         textView.isEditable = true
         textView.isRichText = false
@@ -81,7 +87,7 @@ private struct Content: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticTextCompletionEnabled = false
-        let scrollView = NSScrollView()
+        let scrollView = CodeScrollView()
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -93,12 +99,13 @@ private struct Content: NSViewRepresentable {
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.textContainerInset = NSSize(width: 12, height: 12)
         let ruler = LineNumberRulerView(scrollView: scrollView, orientation: .verticalRuler)
-        ruler.ruleThickness = 30
         ruler.reservedThicknessForMarkers = 0
         ruler.clientView = textView
         scrollView.verticalRulerView = ruler
+        ruler.update(source: source, hunks: hunks)
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = true
+        scrollView.tile()
         state.editorViews[editorID] = scrollView
         return scrollView
     }
@@ -141,11 +148,60 @@ private struct Content: NSViewRepresentable {
     }
 }
 
-private final class CodeTextView: NSTextView {
-    weak var fileState: FileState?
-    var onEdit: (() -> Void)?
+private final class CodeScrollView: NSScrollView {
+    override func tile() {
+        super.tile()
+        guard rulersVisible, let ruler = verticalRulerView,
+              let textView = documentView as? NSTextView else { return }
+        let rulerEdge = convert(ruler.bounds, from: ruler).maxX
+        let contentEdge = convert(contentView.bounds, from: contentView).minX
+        let inset = 12 + max(0, rulerEdge - contentEdge)
+        if textView.textContainerInset.width != inset {
+            textView.textContainerInset.width = inset
+        }
+    }
+}
 
-    override var undoManager: UndoManager? { fileState?.undoManager }
+final class CodeTextView: NSTextView {
+    weak var fileStore: FileStore?
+    var onEdit: (() -> Void)?
+    private var isSaving = false
+
+    override var undoManager: UndoManager? { fileStore?.undoManager }
+
+    @objc func saveDocument(_ sender: Any?) {
+        guard let fileStore, !isSaving else { return }
+        guard !fileStore.editorViews.values.contains(where: {
+            ($0.documentView as? NSTextView)?.hasMarkedText() == true
+        }) else { NSSound.beep(); return }
+        isSaving = true
+        defer { isSaving = false }
+        var overwriteData: Data?
+        do {
+            while true {
+                do {
+                    try fileStore.save(overwriting: overwriteData)
+                    return
+                } catch let FileStore.SaveError.changedOnDisk(data) {
+                    let alert = NSAlert()
+                    alert.messageText = "ファイルが外部で変更されています"
+                    alert.informativeText = "\(fileStore.fileURL.lastPathComponent)の編集内容を上書き保存するか、ディスクの最新内容を採用してください。"
+                    alert.addButton(withTitle: "上書き")
+                    alert.addButton(withTitle: "最新内容を採用")
+                    alert.addButton(withTitle: "キャンセル")
+                    switch alert.runModal() {
+                    case .alertFirstButtonReturn: overwriteData = data
+                    case .alertSecondButtonReturn:
+                        try fileStore.adoptLatest()
+                        return
+                    default: return
+                    }
+                }
+            }
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
 
     @objc func undo(_ sender: Any?) { undoManager?.undo() }
     @objc func redo(_ sender: Any?) { undoManager?.redo() }
@@ -154,18 +210,19 @@ private final class CodeTextView: NSTextView {
         switch menuItem.action {
         case #selector(undo(_:)): return undoManager?.canUndo == true
         case #selector(redo(_:)): return undoManager?.canRedo == true
+        case #selector(saveDocument(_:)): return fileStore?.savedSource != nil && !isSaving
         default: return super.validateMenuItem(menuItem)
         }
     }
 
     override func didChangeText() {
         super.didChangeText()
-        fileState?.content = .text(string)
+        fileStore?.content = .text(string)
         onEdit?()
     }
 
     override func unmarkText() {
         super.unmarkText()
-        fileState?.content = .text(string)
+        fileStore?.content = .text(string)
     }
 }
