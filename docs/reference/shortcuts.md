@@ -4,9 +4,12 @@
 
 | ショートカット | 操作 | 実装のパスと位置 |
 | --- | --- | --- |
-| ⌃⌘F | フルスクリーンを切り替える | [whub/whubApp.swift:37](../../whub/whubApp.swift#L37) |
-| ⇧⌘W | Workspace に移動する | [whub/whubApp.swift:41](../../whub/whubApp.swift#L41) |
-| ⇧⌘B | Browser に移動する | [whub/whubApp.swift:43](../../whub/whubApp.swift#L43) |
+| ⌃⌘F | フルスクリーンを切り替える | [whub/whubApp.swift](../../whub/whubApp.swift) |
+| ⇧⌘W | 現在のウィンドウを閉じる | [whubApp.swift](../../whub/whubApp.swift) |
+| ⇧⌘B | Browser に移動する | [whub/whubApp.swift](../../whub/whubApp.swift) |
+| ⇧⌘R | 左ナビゲーションのファイル一覧・Git状態とファイル表示を再読み込みする | [whub/whubApp.swift](../../whub/whubApp.swift) |
+| ⇧⌘↑ | 選択中のProject / Worktreeから一覧の一つ上へ移動する（先頭で停止） | [whubApp.swift](../../whub/whubApp.swift)、[ProjectNavigation.swift](../../whub/Features/Files/Explorer/ProjectNavigation.swift) |
+| ⇧⌘↓ | 選択中のProject / Worktreeから一覧の一つ下へ移動する（末尾で停止） | [whubApp.swift](../../whub/whubApp.swift)、[ProjectNavigation.swift](../../whub/Features/Files/Explorer/ProjectNavigation.swift) |
 | ⌘R | Browser の選択中ページを再読み込みする | [BrowserView.swift:77](../../whub/Features/Browser/BrowserView.swift#L77) |
 | ⌘T | Browser でタブを追加する | [whub/Features/Browser/BrowserView.swift:30](../../whub/Features/Browser/BrowserView.swift#L30) |
 | ⌘T | Terminal でセッションを追加し、入力先を新しいターミナルに移す | [whub/Features/Terminal/TerminalView.swift](../../whub/Features/Terminal/TerminalView.swift) |

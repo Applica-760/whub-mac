@@ -77,6 +77,10 @@ struct FileExplorerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .focusedSceneValue(
+            \.projectNavigation,
+            ProjectNavigation(urls: availableURLs, selection: $selectedRootURL)
+        )
         .onAppear {
             selectedRootURL = defaultRootURL
         }
