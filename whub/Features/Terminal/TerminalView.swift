@@ -12,17 +12,14 @@ struct TerminalView: View {
                 ForEach(Array(store.sessions.enumerated()), id: \.element.id) { index, session in
                     TabBar(
                         title: "Term \(index + 1)",
-                        systemImage: "terminal",
+                        icon: Image(systemName: "terminal"),
                         isSelected: session.id == store.selectedSessionID,
-                        showsSelectionBorder: true,
                         isCloseDisabled: store.sessions.count == 1,
                         closeShortcutEnabled: closeShortcutEnabled,
-                        notificationDots: [
-                            store.attention[session.id]?.contains(.permission) == true
-                                ? (Color.orange, "権限待ち") : nil,
-                            store.attention[session.id]?.contains(.completed) == true
-                                ? (Color.green, "完了") : nil,
-                        ].compactMap { $0 },
+                        status: store.attention[session.id]?.contains(.permission) == true
+                            ? (.orange, "権限待ち")
+                            : store.attention[session.id]?.contains(.completed) == true
+                                ? (.green, "完了") : nil,
                         action: { store.select(session.id) },
                         closeAction: {
                             if session.hasRunningCommand {

@@ -5,7 +5,7 @@ import WhubCore
 struct FileViewerView: View {
     var closeShortcutEnabled = true
     @EnvironmentObject private var store: FileViewerStore
-    @State private var loadedFile: LoadedFile?
+    @SceneStorage("fileEditorID") private var editorID = UUID().uuidString
 
     var body: some View {
         VStack(spacing: 8) {
@@ -13,28 +13,29 @@ struct FileViewerView: View {
                 ScrollView(.horizontal) {
                     HStack {
                         ForEach(store.fileURLs, id: \.self) { fileURL in
-                            let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
-                            case .added: Color(nsColor: .systemGreen)
-                            case .modified, .deleted: Color(nsColor: .systemOrange)
-                            case nil: nil
-                            }
-                            FileTab(
-                                title: fileURL.lastPathComponent,
-                                icon: IconList.image(for: fileURL),
-                                isSelected: fileURL == store.selectedFileURL,
-                                isPreview: fileURL == store.previewFileURL,
-                                titleColor: titleColor,
-                                closeShortcutEnabled: closeShortcutEnabled,
-                                action: {
-                                    store.select(fileURL)
-                                },
-                                openAction: {
-                                    store.open(fileURL)
-                                },
-                                closeAction: {
-                                    store.close(fileURL)
+                            if let fileStore = store.fileStores[fileURL] {
+                                let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
+                                case .added: Color(nsColor: .systemGreen)
+                                case .modified, .deleted: Color(nsColor: .systemOrange)
+                                case nil: nil
                                 }
-                            )
+                                FileTab(
+                                    fileStore: fileStore,
+                                    isSelected: fileURL == store.selectedFileURL,
+                                    isPreview: fileURL == store.previewFileURL,
+                                    titleColor: titleColor,
+                                    closeShortcutEnabled: closeShortcutEnabled,
+                                    action: {
+                                        store.select(fileURL)
+                                    },
+                                    openAction: {
+                                        store.open(fileURL)
+                                    },
+                                    closeAction: {
+                                        store.close(fileURL)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -42,161 +43,39 @@ struct FileViewerView: View {
             }
 
             WidgetFrame {
-                FileContent(fileURL: store.selectedFileURL, loadedFile: loadedFile, refreshID: store.refreshID)
-                    .id(store.refreshID)
+                if let fileURL = store.selectedFileURL, let state = store.fileStores[fileURL] {
+                    FileContent(state: state, editorID: editorID) { [weak store] in
+                        if store?.previewFileURL == fileURL { store?.open(fileURL) }
+                    }
+                    .id(fileURL)
+                } else {
+                    Text("Select a file")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
         .padding(.horizontal)
         .padding(.bottom)
         .padding(.top, 8)
-        .task(id: ViewerLoadID(fileURL: store.selectedFileURL, refreshID: store.refreshID)) {
-            loadedFile = nil
-            guard let fileURL = store.selectedFileURL else { return }
-            do {
-                let data = try Data(contentsOf: fileURL)
-                guard !Task.isCancelled else { return }
-                let content = String(data: data, encoding: .utf8).map(LoadedContent.text) ?? .binary
-                loadedFile = LoadedFile(fileURL: fileURL, refreshID: store.refreshID, content: content)
-            } catch {
-                guard !Task.isCancelled else { return }
-                loadedFile = LoadedFile(fileURL: fileURL, refreshID: store.refreshID, content: .error(error.localizedDescription))
-            }
-        }
     }
-}
-
-private struct ViewerLoadID: Equatable {
-    let fileURL: URL?
-    let refreshID: Int
-}
-
-private struct LoadedFile {
-    let fileURL: URL
-    let refreshID: Int
-    let content: LoadedContent
-}
-
-private enum LoadedContent {
-    case text(String)
-    case binary
-    case error(String)
 }
 
 private struct FileContent: View {
-    let fileURL: URL?
-    let loadedFile: LoadedFile?
-    let refreshID: Int
+    @ObservedObject var state: FileStore
+    let editorID: String
+    let onEdit: () -> Void
 
     var body: some View {
-        if let fileURL {
-            if let loadedFile,
-               loadedFile.fileURL == fileURL,
-               loadedFile.refreshID == refreshID {
-                switch loadedFile.content {
-                case let .text(source):
-                    CodeViewerView(fileURL: fileURL, source: source, refreshID: refreshID)
-                case .binary:
-                    BinaryViewerView(fileURL: fileURL)
-                case let .error(message):
-                    Text(message).foregroundStyle(.secondary)
-                }
-            } else {
-                ProgressView()
-            }
-        } else {
-            Text("Select a file")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-}
-
-private struct FileTab: View {
-    let title: String
-    let icon: Image
-    let isSelected: Bool
-    let isPreview: Bool
-    let titleColor: Color?
-    let closeShortcutEnabled: Bool
-    let action: () -> Void
-    let openAction: () -> Void
-    let closeAction: () -> Void
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Button(action: action) {
-                HStack(spacing: 4) {
-                    icon
-                        .resizable()
-                        .frame(width: 16, height: 16)
-                        .accessibilityHidden(true)
-                    Group {
-                        if isPreview { Text(title).italic() }
-                        else { Text(title) }
-                    }
-                    .foregroundStyle(titleColor ?? .primary)
-                }
-                .padding(.leading, 8)
-                .padding(.trailing, 4)
-                .padding(.vertical, 5)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(title)
-            .simultaneousGesture(TapGesture(count: 2).onEnded(openAction))
-
-            Button(action: closeAction) {
-                Image(systemName: "xmark")
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close \(title)")
-            .keyboardShortcut(
-                isSelected && closeShortcutEnabled
-                    ? KeyboardShortcut("w", modifiers: .command)
-                    : nil
+        switch state.content {
+        case let .text(source):
+            CodeViewerView(
+                fileURL: state.fileURL, source: source, refreshID: 0,
+                state: state, editorID: editorID, onEdit: onEdit
             )
+        case .binary:
+            BinaryViewerView(fileURL: state.fileURL)
+        case let .error(message):
+            Text(message).foregroundStyle(.secondary)
         }
-        .background(
-            isSelected ? Color.accentColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor),
-            in: RoundedRectangle(cornerRadius: 6)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(isSelected ? Color.accentColor : Color.secondary.opacity(0.25))
-        }
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .background(MiddleClickCloseView(action: closeAction))
-    }
-}
-
-private struct MiddleClickCloseView: NSViewRepresentable {
-    let action: () -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [weak view, weak coordinator = context.coordinator] event in
-            guard let view,
-                  event.buttonNumber == 2,
-                  event.window === view.window,
-                  view.bounds.contains(view.convert(event.locationInWindow, from: nil)) else { return event }
-            coordinator?.action?()
-            return nil
-        }
-        return view
-    }
-
-    func updateNSView(_: NSView, context: Context) {
-        context.coordinator.action = action
-    }
-
-    static func dismantleNSView(_: NSView, coordinator: Coordinator) {
-        if let monitor = coordinator.monitor { NSEvent.removeMonitor(monitor) }
-    }
-
-    final class Coordinator {
-        var action: (() -> Void)?
-        var monitor: Any?
     }
 }
