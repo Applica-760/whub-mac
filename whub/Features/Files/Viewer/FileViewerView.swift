@@ -42,7 +42,7 @@ struct FileViewerView: View {
             }
 
             WidgetFrame {
-                if let fileURL = store.selectedFileURL, let state = store.fileStates[fileURL] {
+                if let fileURL = store.selectedFileURL, let state = store.fileStores[fileURL] {
                     FileContent(state: state, editorID: editorID) { [weak store] in
                         if store?.previewFileURL == fileURL { store?.open(fileURL) }
                     }
@@ -60,7 +60,7 @@ struct FileViewerView: View {
 }
 
 private struct FileContent: View {
-    @ObservedObject var state: FileState
+    @ObservedObject var state: FileStore
     let editorID: String
     let onEdit: () -> Void
 

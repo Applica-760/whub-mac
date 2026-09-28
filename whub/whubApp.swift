@@ -31,7 +31,13 @@ struct whubApp: App {
         }
         .modelContainer(workspaceContainer)
         .commands {
-            CommandGroup(replacing: .saveItem) {}
+            CommandGroup(replacing: .saveItem) {
+                Button("Save") {
+                    guard NSApp.keyWindow?.firstResponder is CodeTextView else { return }
+                    NSApp.sendAction(#selector(CodeTextView.saveDocument(_:)), to: nil, from: nil)
+                }
+                .keyboardShortcut("s", modifiers: .command)
+            }
             CommandGroup(replacing: .sidebar) {
                 Button("Toggle Full Screen") {
                     NSApp.sendAction(#selector(NSWindow.toggleFullScreen(_:)), to: nil, from: nil)
