@@ -17,8 +17,8 @@ enum SSHError: LocalizedError {
 }
 
 @MainActor
-enum SSH {
-    static func validate(hostname: String, user: String, port: Int) throws {
+public enum SSH {
+    public static func validate(hostname: String, user: String, port: Int) throws {
         let forbidden = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)
         guard !hostname.isEmpty, !hostname.hasPrefix("-"), !hostname.contains("@"),
               hostname.rangeOfCharacter(from: forbidden) == nil else {

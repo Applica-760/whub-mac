@@ -3,7 +3,12 @@ import WhubCore
 
 @MainActor
 func run() throws {
-    guard CommandLine.arguments.dropFirst().elementsEqual(["projects", "--json"]) else {
+    let arguments = Array(CommandLine.arguments.dropFirst())
+    if arguments.count == 2, arguments[0] == "host" {
+        try HostCommand.run(name: arguments[1])
+        return
+    }
+    guard arguments == ["projects", "--json"] else {
         throw CLIError.usage
     }
 
@@ -21,7 +26,7 @@ enum CLIError: Error {
 do {
     try run()
 } catch CLIError.usage {
-    FileHandle.standardError.write(Data("usage: whub-mac projects --json\n".utf8))
+    FileHandle.standardError.write(Data("usage: whub-mac projects --json\n       whub-mac host <Host.name>\n".utf8))
     exit(2)
 } catch {
     FileHandle.standardError.write(Data("whub-mac: \(error.localizedDescription)\n".utf8))
