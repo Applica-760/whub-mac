@@ -5,6 +5,7 @@ import WhubCore
 struct FileViewerView: View {
     var closeShortcutEnabled = true
     @EnvironmentObject private var store: FileViewerStore
+    @SceneStorage("fileEditorID") private var editorID = UUID().uuidString
 
     var body: some View {
         VStack(spacing: 8) {
@@ -42,7 +43,10 @@ struct FileViewerView: View {
 
             WidgetFrame {
                 if let fileURL = store.selectedFileURL, let state = store.fileStates[fileURL] {
-                    FileContent(state: state)
+                    FileContent(state: state, editorID: editorID) { [weak store] in
+                        if store?.previewFileURL == fileURL { store?.open(fileURL) }
+                    }
+                    .id(fileURL)
                 } else {
                     Text("Select a file")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -57,11 +61,16 @@ struct FileViewerView: View {
 
 private struct FileContent: View {
     @ObservedObject var state: FileState
+    let editorID: String
+    let onEdit: () -> Void
 
     var body: some View {
         switch state.content {
         case let .text(source):
-            CodeViewerView(fileURL: state.fileURL, source: source, refreshID: 0)
+            CodeViewerView(
+                fileURL: state.fileURL, source: source, refreshID: 0,
+                state: state, editorID: editorID, onEdit: onEdit
+            )
         case .binary:
             BinaryViewerView(fileURL: state.fileURL)
         case let .error(message):
