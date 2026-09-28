@@ -7,7 +7,7 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .library(name: "WhubCore", targets: ["WhubCore"]),
-        .executable(name: "whub", targets: ["WhubCLI"]),
+        .executable(name: "whub-mac", targets: ["WhubCLI"]),
     ],
     targets: [
         .target(name: "WhubCore"),

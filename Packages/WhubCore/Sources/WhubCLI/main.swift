@@ -21,9 +21,9 @@ enum CLIError: Error {
 do {
     try run()
 } catch CLIError.usage {
-    FileHandle.standardError.write(Data("usage: whub projects --json\n".utf8))
+    FileHandle.standardError.write(Data("usage: whub-mac projects --json\n".utf8))
     exit(2)
 } catch {
-    FileHandle.standardError.write(Data("whub: \(error.localizedDescription)\n".utf8))
+    FileHandle.standardError.write(Data("whub-mac: \(error.localizedDescription)\n".utf8))
     exit(1)
 }
