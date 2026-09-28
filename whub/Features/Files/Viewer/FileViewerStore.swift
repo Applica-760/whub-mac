@@ -8,12 +8,14 @@ final class FileViewerStore: ObservableObject {
     @Published private(set) var previewFileURL: URL?
     @Published private(set) var refreshID = 0
     @Published var gitChanges: [URL: GitChange] = [:]
+    @Published private(set) var fileStores: [URL: FileStore] = [:]
 
     func refresh() {
         refreshID += 1
     }
 
     func open(_ fileURL: URL) {
+        loadIfNeeded(fileURL)
         if !fileURLs.contains(fileURL) {
             fileURLs.append(fileURL)
         }
@@ -27,10 +29,12 @@ final class FileViewerStore: ObservableObject {
             return
         }
         if let previewFileURL, let index = fileURLs.firstIndex(of: previewFileURL) {
+            if previewFileURL != fileURL { fileStores.removeValue(forKey: previewFileURL) }
             fileURLs[index] = fileURL
         } else if !fileURLs.contains(fileURL) {
             fileURLs.append(fileURL)
         }
+        loadIfNeeded(fileURL)
         previewFileURL = fileURL
         selectedFileURL = fileURL
     }
@@ -38,9 +42,15 @@ final class FileViewerStore: ObservableObject {
     func close(_ fileURL: URL) {
         guard let index = fileURLs.firstIndex(of: fileURL) else { return }
         fileURLs.remove(at: index)
+        fileStores.removeValue(forKey: fileURL)
         if previewFileURL == fileURL { previewFileURL = nil }
         guard selectedFileURL == fileURL else { return }
         selectedFileURL = index < fileURLs.count ? fileURLs[index] : fileURLs.last
+    }
+
+    private func loadIfNeeded(_ fileURL: URL) {
+        guard fileStores[fileURL] == nil else { return }
+        fileStores[fileURL] = FileStore(fileURL: fileURL)
     }
 
     func select(_ fileURL: URL) {

@@ -7,6 +7,70 @@ public struct GitDiffHunk: Sendable, Equatable {
 }
 
 public extension Git {
+    static func baselineText(at fileURL: URL) async throws -> String? {
+        try await Task.detached(priority: .utility) {
+            let fileURL = fileURL.standardizedFileURL
+            let directory = fileURL.deletingLastPathComponent()
+            let repository = try run(["rev-parse", "--show-toplevel"], at: directory)
+            guard repository.status == 0 else { throw GitError.notRepository }
+            let pathspec = ":(literal)\(fileURL.lastPathComponent)"
+            let files = try run(["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", pathspec], at: directory)
+            guard files.status == 0 else { throw GitError.commandFailed(files.status) }
+            guard !files.data.isEmpty else { return nil }
+            let head = try run(["rev-parse", "--verify", "HEAD"], at: directory)
+            if head.status != 0 { return "" }
+            let added = try run(["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "--diff-filter=A", "-z", "HEAD", "--", pathspec], at: directory)
+            guard added.status == 0 else { throw GitError.commandFailed(added.status) }
+            if !added.data.isEmpty { return "" }
+            let untracked = try run(["ls-files", "--others", "--exclude-standard", "-z", "--", pathspec], at: directory)
+            guard untracked.status == 0 else { throw GitError.commandFailed(untracked.status) }
+            if !untracked.data.isEmpty { return "" }
+            let output = try run(["show", "HEAD:./\(fileURL.lastPathComponent)"], at: directory)
+            guard output.status == 0 else { throw GitError.commandFailed(output.status) }
+            guard let text = String(data: output.data, encoding: .utf8) else { throw GitError.invalidOutput }
+            return text
+        }.value
+    }
+
+    static func diff(from original: String, to source: String) -> [GitDiffHunk] {
+        func lines(_ text: String) -> [String] {
+            guard !text.isEmpty else { return [] }
+            var lines = text.components(separatedBy: "\n")
+            for index in 0..<(lines.count - 1) { lines[index] += "\n" }
+            if lines.last == "" { lines.removeLast() }
+            return lines
+        }
+        let old = lines(original)
+        let new = lines(source)
+        let changes = new.difference(from: old)
+        var removed = Set<Int>()
+        var inserted = Set<Int>()
+        for change in changes {
+            switch change {
+            case let .remove(offset, _, _): removed.insert(offset)
+            case let .insert(offset, _, _): inserted.insert(offset)
+            }
+        }
+        var hunks: [GitDiffHunk] = []
+        var oldIndex = 0
+        var newIndex = 0
+        while oldIndex < old.count || newIndex < new.count {
+            if removed.contains(oldIndex) || inserted.contains(newIndex) {
+                let oldStart = oldIndex
+                let newStart = newIndex
+                repeat {
+                    if removed.contains(oldIndex) { oldIndex += 1 }
+                    if inserted.contains(newIndex) { newIndex += 1 }
+                } while removed.contains(oldIndex) || inserted.contains(newIndex)
+                hunks.append(GitDiffHunk(oldLines: oldStart..<oldIndex, newLines: newStart..<newIndex))
+            } else {
+                oldIndex += 1
+                newIndex += 1
+            }
+        }
+        return hunks
+    }
+
     static func diff(at fileURL: URL) async throws -> [GitDiffHunk] {
         try await Task.detached(priority: .utility) {
             let fileURL = fileURL.standardizedFileURL

@@ -1,157 +1,24 @@
 import AppKit
-import Highlighter
-import SwiftUI
 import WhubCore
 
-struct CodeViewerView: View {
-    let fileURL: URL
-    let source: String
-    let refreshID: Int
-    @State private var diffURL: URL?
-    @State private var hunks: [GitDiffHunk] = []
-    @State private var diffErrorMessage: String?
+final class LineNumberRulerView: NSRulerView {
+    private var hunks: [GitDiffHunk] = []
+    private var lineStarts = [0]
+    private var lineCount = 0
 
-    private static let languages: [String: String] = [
-        "c": "c",
-        "cc": "cpp",
-        "cpp": "cpp",
-        "css": "css",
-        "go": "go",
-        "h": "c",
-        "hpp": "cpp",
-        "html": "xml",
-        "java": "java",
-        "js": "javascript",
-        "json": "json",
-        "jsx": "javascript",
-        "kt": "kotlin",
-        "kts": "kotlin",
-        "m": "objectivec",
-        "md": "markdown",
-        "mm": "objectivec",
-        "py": "python",
-        "rb": "ruby",
-        "rs": "rust",
-        "scss": "scss",
-        "sh": "bash",
-        "sql": "sql",
-        "swift": "swift",
-        "toml": "ini",
-        "ts": "typescript",
-        "tsx": "typescript",
-        "xml": "xml",
-        "yaml": "yaml",
-        "yml": "yaml",
-        "zsh": "bash",
-    ]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if let diffErrorMessage {
-                Text(diffErrorMessage)
-                    .foregroundStyle(.secondary)
-            }
-            Content(
-                source: source,
-                language: Self.languages[fileURL.pathExtension.lowercased()],
-                hunks: diffURL == fileURL ? hunks : []
-            )
-        }
-        .task(id: CodeLoadID(fileURL: fileURL, refreshID: refreshID)) {
-            diffURL = nil
-            hunks = []
-            diffErrorMessage = nil
-            do {
-                let loaded = try await Git.diff(at: fileURL)
-                guard !Task.isCancelled else { return }
-                hunks = loaded
-                diffURL = fileURL
-            } catch GitError.notRepository {
-                return
-            } catch {
-                guard !Task.isCancelled else { return }
-                diffErrorMessage = error.localizedDescription
-            }
-        }
-    }
-}
-
-private struct CodeLoadID: Equatable {
-    let fileURL: URL
-    let refreshID: Int
-}
-
-@MainActor private let codeHighlighter = Highlighter()
-
-private struct Content: NSViewRepresentable {
-    let source: String
-    let language: String?
-    let hunks: [GitDiffHunk]
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
-        guard let textView = scrollView.documentView as? NSTextView else {
-            fatalError("Expected NSTextView")
-        }
-        textView.isEditable = false
-        scrollView.hasHorizontalScroller = true
-        textView.isHorizontallyResizable = true
-        textView.autoresizingMask = [.width, .height]
-        textView.maxSize = NSSize(width: CGFloat(Float.greatestFiniteMagnitude), height: CGFloat(Float.greatestFiniteMagnitude))
-        textView.textContainer?.size = textView.maxSize
-        textView.textContainer?.widthTracksTextView = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.textContainerInset = NSSize(width: 12, height: 12)
-        let ruler = GitDiffRulerView(scrollView: scrollView, orientation: .verticalRuler)
-        ruler.ruleThickness = 30
-        ruler.reservedThicknessForMarkers = 0
-        ruler.clientView = textView
-        scrollView.verticalRulerView = ruler
-        scrollView.hasVerticalRuler = true
-        scrollView.rulersVisible = true
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-        let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        codeHighlighter?.setTheme(
-            dark ? "xcode-dusk" : "xcode",
-            withFont: "Menlo-Regular",
-            ofSize: 13
-        )
-        let highlighted = language.flatMap { codeHighlighter?.highlight(source, as: $0) }
-            ?? NSAttributedString(
-                string: source,
-                attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-                    .foregroundColor: NSColor.labelColor,
-                ]
-            )
-        textView.textStorage?.setAttributedString(highlighted)
+    func update(source: String, hunks: [GitDiffHunk]) {
         var lineStarts = [0]
         for (offset, character) in source.utf16.enumerated() where character == 10 {
             lineStarts.append(offset + 1)
         }
         let lineCount = source.isEmpty ? 0 : lineStarts.count - (source.hasSuffix("\n") ? 1 : 0)
-        guard let ruler = scrollView.verticalRulerView as? GitDiffRulerView else { return }
         let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        let numberWidth = (String(lineStarts.count) as NSString).size(withAttributes: [.font: font]).width + 16
+        let numberWidth = (String(max(999, lineStarts.count)) as NSString).size(withAttributes: [.font: font]).width + 16
         let thickness = numberWidth + 5
-        if ruler.ruleThickness != thickness {
-            ruler.ruleThickness = thickness
-            scrollView.tile()
+        if ruleThickness != thickness {
+            ruleThickness = thickness
+            scrollView?.tile()
         }
-        ruler.update(hunks: hunks, lineStarts: lineStarts, lineCount: lineCount)
-    }
-}
-
-private final class GitDiffRulerView: NSRulerView {
-    private var hunks: [GitDiffHunk] = []
-    private var lineStarts = [0]
-    private var lineCount = 0
-
-    func update(hunks: [GitDiffHunk], lineStarts: [Int], lineCount: Int) {
         self.hunks = hunks
         self.lineStarts = lineStarts
         self.lineCount = lineCount
@@ -160,6 +27,10 @@ private final class GitDiffRulerView: NSRulerView {
     }
 
     override func drawHashMarksAndLabels(in rect: NSRect) {
+        NSColor.controlBackgroundColor.setFill()
+        bounds.fill()
+        NSColor.separatorColor.setFill()
+        NSRect(x: bounds.maxX - 1, y: bounds.minY, width: 1, height: bounds.height).fill()
         guard let textView = clientView as? NSTextView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }

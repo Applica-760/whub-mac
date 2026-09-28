@@ -1,0 +1,251 @@
+import AppKit
+import Highlighter
+import SwiftUI
+import WhubCore
+
+struct CodeViewerView: View {
+    let fileURL: URL
+    let source: String
+    let refreshID: Int
+    let state: FileStore
+    let editorID: String
+    let onEdit: () -> Void
+    @EnvironmentObject private var store: FileViewerStore
+    @State private var baseline: CodeDiffBaseline?
+    @State private var diffSource: String?
+    @State private var hunks: [GitDiffHunk] = []
+    @State private var diffErrorMessage: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let diffErrorMessage {
+                Text(diffErrorMessage)
+                    .foregroundStyle(.secondary)
+            }
+            Content(
+                state: state,
+                editorID: editorID,
+                onEdit: onEdit,
+                source: source,
+                language: codeLanguages[fileURL.pathExtension.lowercased()],
+                hunks: baseline?.fileURL == fileURL && diffSource == source ? hunks : []
+            )
+        }
+        .task(id: CodeLoadID(fileURL: fileURL, refreshID: refreshID, diskRevision: state.diskRevision)) {
+            baseline = nil
+            diffSource = nil
+            hunks = []
+            diffErrorMessage = nil
+            do {
+                let loaded = try await Git.baselineText(at: fileURL)
+                let changes = try await Git.changes(at: fileURL.deletingLastPathComponent())
+                guard !Task.isCancelled else { return }
+                if let loaded { baseline = CodeDiffBaseline(fileURL: fileURL, source: loaded) }
+                store.gitChanges[fileURL.standardizedFileURL] = changes[fileURL.standardizedFileURL]
+            } catch GitError.notRepository {
+                guard !Task.isCancelled else { return }
+                store.gitChanges.removeValue(forKey: fileURL.standardizedFileURL)
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                diffErrorMessage = error.localizedDescription
+            }
+        }
+        .task(id: CodeDiffID(baseline: baseline, source: source)) {
+            guard let baseline, baseline.fileURL == fileURL else { return }
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+            let calculation = Task.detached(priority: .utility) {
+                Git.diff(from: baseline.source, to: source)
+            }
+            let loaded = await calculation.value
+            guard !Task.isCancelled else { return }
+            hunks = loaded
+            diffSource = source
+        }
+    }
+}
+
+private struct CodeDiffBaseline: Equatable {
+    let fileURL: URL
+    let source: String
+}
+
+private struct CodeDiffID: Equatable {
+    let baseline: CodeDiffBaseline?
+    let source: String
+}
+
+private struct CodeLoadID: Equatable {
+    let fileURL: URL
+    let refreshID: Int
+    let diskRevision: Int
+}
+
+@MainActor private let codeHighlighter = Highlighter()
+
+private struct Content: NSViewRepresentable {
+    let state: FileStore
+    let editorID: String
+    let onEdit: () -> Void
+    let source: String
+    let language: String?
+    let hunks: [GitDiffHunk]
+
+    func makeNSView(context: Context) -> NSScrollView {
+        if let scrollView = state.editorViews[editorID] { return scrollView }
+        let layoutManager = NSLayoutManager()
+        state.textStorage.addLayoutManager(layoutManager)
+        let container = NSTextContainer(size: .zero)
+        layoutManager.addTextContainer(container)
+        let textView = CodeTextView(frame: .zero, textContainer: container)
+        textView.fileStore = state
+        textView.onEdit = onEdit
+        textView.isEditable = true
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isAutomaticTextCompletionEnabled = false
+        let scrollView = CodeScrollView()
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = true
+        textView.autoresizingMask = [.width, .height]
+        textView.maxSize = NSSize(width: CGFloat(Float.greatestFiniteMagnitude), height: CGFloat(Float.greatestFiniteMagnitude))
+        textView.textContainer?.size = textView.maxSize
+        textView.textContainer?.widthTracksTextView = false
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.textContainerInset = NSSize(width: 12, height: 12)
+        let ruler = LineNumberRulerView(scrollView: scrollView, orientation: .verticalRuler)
+        ruler.reservedThicknessForMarkers = 0
+        ruler.clientView = textView
+        scrollView.verticalRulerView = ruler
+        ruler.update(source: source, hunks: hunks)
+        scrollView.hasVerticalRuler = true
+        scrollView.rulersVisible = true
+        scrollView.tile()
+        state.editorViews[editorID] = scrollView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? CodeTextView else { return }
+        textView.onEdit = onEdit
+        (scrollView.verticalRulerView as? LineNumberRulerView)?.update(source: textView.string, hunks: hunks)
+        guard state.textStorage.string == source,
+              !state.editorViews.values.contains(where: {
+                  ($0.documentView as? NSTextView)?.hasMarkedText() == true
+              }) else { return }
+        let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        codeHighlighter?.setTheme(
+            dark ? "xcode-dusk" : "xcode",
+            withFont: "Menlo-Regular",
+            ofSize: 13
+        )
+        let highlighted = language.flatMap { codeHighlighter?.highlight(source, as: $0) }
+            ?? NSAttributedString(
+                string: source,
+                attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                    .foregroundColor: NSColor.labelColor,
+                ]
+            )
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+        ]
+        state.textStorage.beginEditing()
+        state.textStorage.setAttributes(attributes, range: NSRange(location: 0, length: state.textStorage.length))
+        if highlighted.string == source {
+            highlighted.enumerateAttributes(in: NSRange(location: 0, length: highlighted.length)) { attributes, range, _ in
+                state.textStorage.addAttributes(attributes, range: range)
+            }
+        }
+        state.textStorage.endEditing()
+        textView.typingAttributes = attributes
+    }
+}
+
+private final class CodeScrollView: NSScrollView {
+    override func tile() {
+        super.tile()
+        guard rulersVisible, let ruler = verticalRulerView,
+              let textView = documentView as? NSTextView else { return }
+        let rulerEdge = convert(ruler.bounds, from: ruler).maxX
+        let contentEdge = convert(contentView.bounds, from: contentView).minX
+        let inset = 12 + max(0, rulerEdge - contentEdge)
+        if textView.textContainerInset.width != inset {
+            textView.textContainerInset.width = inset
+        }
+    }
+}
+
+final class CodeTextView: NSTextView {
+    weak var fileStore: FileStore?
+    var onEdit: (() -> Void)?
+    private var isSaving = false
+
+    override var undoManager: UndoManager? { fileStore?.undoManager }
+
+    @objc func saveDocument(_ sender: Any?) {
+        guard let fileStore, !isSaving else { return }
+        guard !fileStore.editorViews.values.contains(where: {
+            ($0.documentView as? NSTextView)?.hasMarkedText() == true
+        }) else { NSSound.beep(); return }
+        isSaving = true
+        defer { isSaving = false }
+        var overwriteData: Data?
+        do {
+            while true {
+                do {
+                    try fileStore.save(overwriting: overwriteData)
+                    return
+                } catch let FileStore.SaveError.changedOnDisk(data) {
+                    let alert = NSAlert()
+                    alert.messageText = "ファイルが外部で変更されています"
+                    alert.informativeText = "\(fileStore.fileURL.lastPathComponent)の編集内容を上書き保存するか、ディスクの最新内容を採用してください。"
+                    alert.addButton(withTitle: "上書き")
+                    alert.addButton(withTitle: "最新内容を採用")
+                    alert.addButton(withTitle: "キャンセル")
+                    switch alert.runModal() {
+                    case .alertFirstButtonReturn: overwriteData = data
+                    case .alertSecondButtonReturn:
+                        try fileStore.adoptLatest()
+                        return
+                    default: return
+                    }
+                }
+            }
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
+
+    @objc func undo(_ sender: Any?) { undoManager?.undo() }
+    @objc func redo(_ sender: Any?) { undoManager?.redo() }
+
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(undo(_:)): return undoManager?.canUndo == true
+        case #selector(redo(_:)): return undoManager?.canRedo == true
+        case #selector(saveDocument(_:)): return fileStore?.savedSource != nil && !isSaving
+        default: return super.validateMenuItem(menuItem)
+        }
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        fileStore?.content = .text(string)
+        onEdit?()
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        fileStore?.content = .text(string)
+    }
+}
