@@ -2,3 +2,5 @@
 - キーボードショートカットを重視し、キーボードから手を離さずに開発できる、whub-webapp にはないネイティブアプリならではの体験を目指す。
 - `#Preview`は一切定義しない
 - ビルド・起動・Archiveは [運用文書](docs/operations/build.md) に従う。
+- 要件が固まり切らない段階で勝手にTestを作らない
+- UIは基本LiquidGlassを利用する
