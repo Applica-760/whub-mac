@@ -172,16 +172,15 @@ private struct Content: NSViewRepresentable {
 }
 
 private final class CodeScrollView: NSScrollView {
+    private var didPositionAtLeft = false
+
     override func tile() {
         super.tile()
-        guard rulersVisible, let ruler = verticalRulerView,
-              let textView = documentView as? NSTextView else { return }
-        let rulerEdge = convert(ruler.bounds, from: ruler).maxX
-        let contentEdge = convert(contentView.bounds, from: contentView).minX
-        let inset = 12 + max(0, rulerEdge - contentEdge)
-        if textView.textContainerInset.width != inset {
-            textView.textContainerInset.width = inset
-        }
+        guard !didPositionAtLeft, contentView.bounds.width > 0,
+              contentView.contentInsets.left > 0 else { return }
+        didPositionAtLeft = true
+        contentView.scroll(to: NSPoint(x: -contentView.contentInsets.left, y: contentView.bounds.minY))
+        reflectScrolledClipView(contentView)
     }
 }
 
