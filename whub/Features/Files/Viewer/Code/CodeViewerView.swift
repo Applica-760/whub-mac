@@ -144,7 +144,7 @@ private struct Content: NSViewRepresentable {
         let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         codeHighlighter?.setTheme(
             dark ? "xcode-dusk" : "xcode",
-            withFont: "Menlo-Regular",
+            withFont: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).fontName,
             ofSize: 13
         )
         let highlighted = language.flatMap { codeHighlighter?.highlight(source, as: $0) }
