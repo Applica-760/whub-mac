@@ -2,37 +2,41 @@ import SwiftTerm
 import SwiftUI
 
 struct TerminalView: View {
-    var closeShortcutEnabled = true
+    @State private var tabFocus = TabPaneFocus()
     @EnvironmentObject private var store: TerminalStore
     @State private var pendingCloseID: TerminalSession.ID?
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack(alignment: .bottom) {
-                ForEach(Array(store.sessions.enumerated()), id: \.element.id) { index, session in
+            TabBarContainer(
+                ids: store.sessions.map(\.id),
+                selection: store.selectedSessionID,
+                select: { id in
+                    tabFocus.activate()
+                    store.select(id)
+                },
+                close: requestClose,
+                canClose: { _ in store.sessions.count > 1 },
+                move: store.move,
+                isShortcutTarget: { window in
+                    pendingCloseID == nil && tabFocus.contains(window)
+                }
+            ) { id, isSelected, actions in
+                if let index = store.sessions.firstIndex(where: { $0.id == id }) {
                     TabBar(
                         title: "Term \(index + 1)",
                         icon: Image(systemName: "terminal"),
-                        isSelected: session.id == store.selectedSessionID,
+                        isSelected: isSelected,
                         isCloseDisabled: store.sessions.count == 1,
-                        closeShortcutEnabled: closeShortcutEnabled,
-                        status: store.attention[session.id]?.contains(.permission) == true
+                        status: store.attention[id]?.contains(.permission) == true
                             ? (.orange, "権限待ち")
-                            : store.attention[session.id]?.contains(.completed) == true
+                            : store.attention[id]?.contains(.completed) == true
                                 ? (.green, "完了") : nil,
-                        action: { store.select(session.id) },
-                        closeAction: {
-                            if session.hasRunningCommand {
-                                pendingCloseID = session.id
-                            } else {
-                                store.remove(session.id)
-                            }
-                        }
+                        action: actions.select,
+                        closeAction: actions.close
                     )
                 }
-
-                Spacer()
-
+            } trailing: {
                 Button("Add Terminal", systemImage: "plus") {
                     store.add()
                 }
@@ -42,6 +46,7 @@ struct TerminalView: View {
 
             TerminalWidget(session: store.selectedSession)
         }
+        .background(TabPaneFocusView(focus: tabFocus))
         .padding(.horizontal)
         .padding(.bottom)
         .padding(.top, 8)
@@ -64,6 +69,17 @@ struct TerminalView: View {
                 let terminal = store.selectedSession.terminal
                 terminal.window?.makeFirstResponder(terminal)
             }
+        }
+    }
+
+    private func requestClose(_ id: TerminalSession.ID) {
+        guard store.sessions.count > 1,
+              let session = store.sessions.first(where: { $0.id == id }) else { return }
+        tabFocus.activate()
+        if session.hasRunningCommand {
+            pendingCloseID = id
+        } else {
+            store.remove(id)
         }
     }
 }

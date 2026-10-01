@@ -53,6 +53,13 @@ final class FileViewerStore: ObservableObject {
         fileStores[fileURL] = FileStore(fileURL: fileURL)
     }
 
+    func move(_ fileURL: URL, before target: URL?) {
+        guard let reordered = reorderedTabs(fileURLs, moving: fileURL, before: target, identifiedBy: \.self)
+        else { return }
+        fileURLs = reordered
+        if previewFileURL == fileURL { previewFileURL = nil }
+    }
+
     func select(_ fileURL: URL) {
         guard fileURLs.contains(fileURL) else { return }
         selectedFileURL = fileURL

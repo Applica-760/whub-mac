@@ -5,7 +5,6 @@ struct FileTab: View {
     let isSelected: Bool
     let isPreview: Bool
     let titleColor: Color?
-    let closeShortcutEnabled: Bool
     let action: () -> Void
     let openAction: () -> Void
     let closeAction: () -> Void
@@ -17,7 +16,6 @@ struct FileTab: View {
             isSelected: isSelected,
             isPreview: isPreview,
             titleColor: titleColor,
-            closeShortcutEnabled: closeShortcutEnabled,
             status: fileStore.hasUnsavedChanges ? (.primary, "未保存") : nil,
             openAction: openAction,
             action: action,

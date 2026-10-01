@@ -3,28 +3,39 @@ import SwiftUI
 import WebKit
 
 struct BrowserView: View {
+    @State private var tabFocus = TabPaneFocus()
     @EnvironmentObject private var store: BrowserStore
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack(alignment: .bottom) {
-                ScrollView(.horizontal) {
-                    HStack {
-                        ForEach(store.sessions) { session in
-                            TabBar(
-                                title: session.title,
-                                icon: Image(systemName: "globe"),
-                                isSelected: session.id == store.selectedSessionID,
-                                isCloseDisabled: store.sessions.count == 1,
-                                action: { store.select(session.id) },
-                                closeAction: { store.remove(session.id) }
-                            )
-                        }
-                    }
+            TabBarContainer(
+                ids: store.sessions.map(\.id),
+                selection: store.selectedSessionID,
+                select: { id in
+                    tabFocus.activate()
+                    store.select(id)
+                },
+                close: { id in
+                    tabFocus.activate()
+                    store.remove(id)
+                },
+                canClose: { _ in store.sessions.count > 1 },
+                move: store.move,
+                isShortcutTarget: tabFocus.contains
+            ) { id, isSelected, actions in
+                if let session = store.sessions.first(where: { $0.id == id }) {
+                    TabBar(
+                        title: session.title,
+                        icon: Image(systemName: "globe"),
+                        isSelected: isSelected,
+                        isCloseDisabled: store.sessions.count == 1,
+                        action: actions.select,
+                        closeAction: actions.close
+                    )
                 }
-                .scrollIndicators(.hidden)
-
+            } trailing: {
                 Button("Add Browser Tab", systemImage: "plus") {
+                    tabFocus.activate()
                     store.add()
                 }
                 .keyboardShortcut("t", modifiers: .command)
@@ -34,6 +45,7 @@ struct BrowserView: View {
             BrowserSessionView(session: store.selectedSession)
                 .id(store.selectedSessionID)
         }
+        .background(TabPaneFocusView(focus: tabFocus))
         .padding(.horizontal)
         .padding(.bottom)
         .padding(.top, 8)
