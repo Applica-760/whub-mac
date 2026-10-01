@@ -9,18 +9,18 @@ struct AppView: View {
 
         var label: String {
             switch self {
-            case .overview: "Overview"
             case .workspace: "Workspace"
             case .browser: "Browser"
+            case .overview: "Overview"
             case .motion: "Motion"
             }
         }
 
         var systemImage: String {
             switch self {
-            case .overview: "rectangle.3.group"
             case .workspace: "chevron.left.forwardslash.chevron.right"
             case .browser: "globe"
+            case .overview: "rectangle.3.group"
             case .motion: "hand.draw"
             }
         }
