@@ -33,13 +33,6 @@ struct BrowserView: View {
                         closeAction: actions.close
                     )
                 }
-            } trailing: {
-                Button("Add Browser Tab", systemImage: "plus") {
-                    tabFocus.activate()
-                    store.add()
-                }
-                .keyboardShortcut("t", modifiers: .command)
-                .labelStyle(.iconOnly)
             }
 
             BrowserSessionView(session: store.selectedSession)
@@ -50,6 +43,9 @@ struct BrowserView: View {
         .padding(.bottom)
         .padding(.top, 8)
         .navigationTitle("Browser")
+        .onChange(of: store.selectedSessionID) { _, _ in
+            tabFocus.activate()
+        }
     }
 }
 

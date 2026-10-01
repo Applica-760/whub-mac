@@ -13,6 +13,7 @@ struct whubApp: App {
     private let workspaceContainer: ModelContainer
 
     init() {
+        NSWindow.allowsAutomaticWindowTabbing = false
         do {
             let container = try Container.make()
             workspaceContainer = container
@@ -31,6 +32,17 @@ struct whubApp: App {
         }
         .modelContainer(workspaceContainer)
         .commands {
+            CommandGroup(after: .newItem) {
+                Button("新規タブ") {
+                    switch section {
+                    case .workspace: terminalStore.add()
+                    case .browser: browserStore.add()
+                    default: break
+                    }
+                }
+                .keyboardShortcut("t", modifiers: .command)
+                .disabled(section != .workspace && section != .browser)
+            }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
                     guard NSApp.keyWindow?.firstResponder is CodeTextView else { return }

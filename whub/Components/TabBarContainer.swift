@@ -6,7 +6,7 @@ struct TabBarActions {
     let close: () -> Void
 }
 
-struct TabBarContainer<ID: Hashable & Sendable, Tab: View, Trailing: View>: View {
+struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
     let ids: [ID]
     let selection: ID?
     let select: (ID) -> Void
@@ -15,9 +15,9 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View, Trailing: View>: View
     let move: (ID, ID?) -> Void
     let isShortcutTarget: (NSWindow) -> Bool
     @ViewBuilder let tab: (ID, Bool, TabBarActions) -> Tab
-    @ViewBuilder var trailing: () -> Trailing
 
     @Namespace private var namespace
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var position = ScrollPosition(x: 0)
     @State private var frames: [ID: CGRect] = [:]
@@ -46,65 +46,64 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View, Trailing: View>: View
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            GlassEffectContainer(spacing: 0) {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 4) {
-                        ForEach(displayedIDs, id: \.self) { id in
-                            tab(id, id == selection, TabBarActions(
-                                select: { select(id) },
-                                close: { if canClose(id) { close(id) } }
-                            ))
-                            .background {
-                                if id == selection {
-                                    Capsule()
-                                        .fill(.clear)
-                                        .glassEffect(.regular.tint(.white.opacity(0.15)), in: .capsule)
-                                        .glassEffectID(id, in: namespace)
-                                        .matchedGeometryEffect(id: "selection", in: namespace)
-                                        .allowsHitTesting(false)
-                                }
+        GlassEffectContainer(spacing: 0) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 4) {
+                    ForEach(displayedIDs, id: \.self) { id in
+                        tab(id, id == selection, TabBarActions(
+                            select: { select(id) },
+                            close: { if canClose(id) { close(id) } }
+                        ))
+                        .background {
+                            if id == selection {
+                                Capsule()
+                                    .fill(.clear)
+                                    .glassEffect(.regular.tint(.white.opacity(0.15)), in: .capsule)
+                                    .glassEffectID(id, in: namespace)
+                                    .matchedGeometryEffect(id: "selection", in: namespace)
+                                    .allowsHitTesting(false)
                             }
-                            .opacity(dragging == id ? 0 : 1)
-                            .onGeometryChange(for: CGRect.self) {
-                                $0.frame(in: .named(namespace))
-                            } action: { frames[id] = $0 }
-                            .simultaneousGesture(reorderGesture(for: id))
-                            .id(id)
                         }
+                        .opacity(dragging == id ? 0 : 1)
+                        .onGeometryChange(for: CGRect.self) {
+                            $0.frame(in: .named(namespace))
+                        } action: { frames[id] = $0 }
+                        .simultaneousGesture(reorderGesture(for: id))
+                        .id(id)
                     }
-                    .padding(4)
-                    .animation(animation, value: displayedIDs)
                 }
-                .fixedSize(horizontal: false, vertical: true)
-                .scrollIndicators(.hidden)
-                .scrollPosition($position)
-                .coordinateSpace(name: namespace)
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { viewport = $0 }
-                .onScrollGeometryChange(for: ScrollMetrics.self) {
-                    ScrollMetrics(
-                        offset: $0.contentOffset.x,
-                        maximum: max(0, $0.contentSize.width - $0.containerSize.width)
-                    )
-                } action: { _, metrics in
-                    scrollOffset = metrics.offset
-                    maximumOffset = metrics.maximum
-                }
-                .glassEffect(.regular, in: .capsule)
-                .overlay(alignment: .topLeading) {
-                    if let dragging {
-                        tab(dragging, dragging == selection, TabBarActions(select: {}, close: {}))
-                            .frame(width: floatingSize.width, height: floatingSize.height)
-                            .glassEffect(.regular.tint(.white.opacity(0.15)), in: .capsule)
-                            .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
-                            .offset(x: floatingOrigin.x, y: floatingOrigin.y)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
+                .padding(4)
+                .animation(animation, value: displayedIDs)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .scrollIndicators(.hidden)
+            .scrollPosition($position)
+            .coordinateSpace(name: namespace)
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { viewport = $0 }
+            .onScrollGeometryChange(for: ScrollMetrics.self) {
+                ScrollMetrics(
+                    offset: $0.contentOffset.x,
+                    maximum: max(0, $0.contentSize.width - $0.containerSize.width)
+                )
+            } action: { _, metrics in
+                scrollOffset = metrics.offset
+                maximumOffset = metrics.maximum
+            }
+            .glassEffect(
+                .regular.tint(.black.opacity(colorScheme == .dark ? 0.28 : 0.08)),
+                in: .capsule
+            )
+            .overlay(alignment: .topLeading) {
+                if let dragging {
+                    tab(dragging, dragging == selection, TabBarActions(select: {}, close: {}))
+                        .frame(width: floatingSize.width, height: floatingSize.height)
+                        .glassEffect(.regular.tint(.white.opacity(0.15)), in: .capsule)
+                        .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                        .offset(x: floatingOrigin.x, y: floatingOrigin.y)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
             }
-
-            trailing()
         }
         .animation(animation, value: selection)
         .background(TabBarKeyMonitor { event in

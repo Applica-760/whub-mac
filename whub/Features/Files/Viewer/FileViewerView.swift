@@ -40,8 +40,6 @@ struct FileViewerView: View {
                             closeAction: actions.close
                         )
                     }
-                } trailing: {
-                    EmptyView()
                 }
             }
 

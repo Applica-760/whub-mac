@@ -36,12 +36,6 @@ struct TerminalView: View {
                         closeAction: actions.close
                     )
                 }
-            } trailing: {
-                Button("Add Terminal", systemImage: "plus") {
-                    store.add()
-                }
-                .keyboardShortcut("t", modifiers: .command)
-                .labelStyle(.iconOnly)
             }
 
             TerminalWidget(session: store.selectedSession)
