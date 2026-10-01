@@ -8,13 +8,11 @@ struct TabBar: View {
     var isPreview = false
     var titleColor: Color?
     var isCloseDisabled = false
-    var closeShortcutEnabled = true
     var status: (color: Color, label: String)?
     var openAction: (() -> Void)?
     let action: () -> Void
     let closeAction: () -> Void
     @State private var isHovered = false
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 0) {
@@ -52,36 +50,9 @@ struct TabBar: View {
             .padding(.horizontal, 6)
             .accessibilityLabel("Close \(title)")
             .help(status?.label ?? "Close \(title)")
-            .keyboardShortcut(
-                isSelected && closeShortcutEnabled
-                    ? KeyboardShortcut("w", modifiers: .command)
-                    : nil
-            )
             .disabled(isCloseDisabled)
         }
         .onHover { isHovered = $0 }
-        .background {
-            Color.clear
-                .glassEffect(
-                    .regular
-                        .tint(isSelected
-                            ? .white.opacity(colorScheme == .dark ? 0.12 : 0.50)
-                            : .black.opacity(colorScheme == .dark ? 0.20 : 0.08))
-                        .interactive(),
-                    in: .capsule
-                )
-                .allowsHitTesting(false)
-        }
-        .overlay {
-            if isSelected {
-                Capsule()
-                    .strokeBorder(
-                        colorScheme == .dark ? .white.opacity(0.35) : .black.opacity(0.15),
-                        lineWidth: 1
-                    )
-                    .allowsHitTesting(false)
-            }
-        }
         .background(MiddleClickCloseView(action: closeAction, isEnabled: !isCloseDisabled))
     }
 }

@@ -3,43 +3,44 @@ import SwiftUI
 import WhubCore
 
 struct FileViewerView: View {
-    var closeShortcutEnabled = true
+    @State private var tabFocus = TabPaneFocus()
     @EnvironmentObject private var store: FileViewerStore
     @SceneStorage("fileEditorID") private var editorID = UUID().uuidString
 
     var body: some View {
         VStack(spacing: 8) {
             if !store.fileURLs.isEmpty {
-                ScrollView(.horizontal) {
-                    HStack {
-                        ForEach(store.fileURLs, id: \.self) { fileURL in
-                            if let fileStore = store.fileStores[fileURL] {
-                                let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
-                                case .added: Color(nsColor: .systemGreen)
-                                case .modified, .deleted: Color(nsColor: .systemOrange)
-                                case nil: nil
-                                }
-                                FileTab(
-                                    fileStore: fileStore,
-                                    isSelected: fileURL == store.selectedFileURL,
-                                    isPreview: fileURL == store.previewFileURL,
-                                    titleColor: titleColor,
-                                    closeShortcutEnabled: closeShortcutEnabled,
-                                    action: {
-                                        store.select(fileURL)
-                                    },
-                                    openAction: {
-                                        store.open(fileURL)
-                                    },
-                                    closeAction: {
-                                        store.close(fileURL)
-                                    }
-                                )
-                            }
+                TabBarContainer(
+                    ids: store.fileURLs,
+                    selection: store.selectedFileURL,
+                    select: selectTab,
+                    close: { fileURL in
+                        tabFocus.activate()
+                        store.close(fileURL)
+                    },
+                    canClose: { _ in true },
+                    move: store.move,
+                    isShortcutTarget: tabFocus.contains
+                ) { fileURL, isSelected, actions in
+                    if let fileStore = store.fileStores[fileURL] {
+                        let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
+                        case .added: Color(nsColor: .systemGreen)
+                        case .modified, .deleted: Color(nsColor: .systemOrange)
+                        case nil: nil
                         }
+                        FileTab(
+                            fileStore: fileStore,
+                            isSelected: isSelected,
+                            isPreview: fileURL == store.previewFileURL,
+                            titleColor: titleColor,
+                            action: actions.select,
+                            openAction: { store.open(fileURL) },
+                            closeAction: actions.close
+                        )
                     }
+                } trailing: {
+                    EmptyView()
                 }
-                .scrollIndicators(.hidden)
             }
 
             WidgetFrame {
@@ -54,9 +55,21 @@ struct FileViewerView: View {
                 }
             }
         }
+        .background(TabPaneFocusView(focus: tabFocus))
         .padding(.horizontal)
         .padding(.bottom)
         .padding(.top, 8)
+    }
+
+    private func selectTab(_ fileURL: URL) {
+        tabFocus.activate()
+        store.select(fileURL)
+        DispatchQueue.main.async {
+            guard store.selectedFileURL == fileURL,
+                  let editor = store.fileStores[fileURL]?.editorViews[editorID]?.documentView,
+                  let window = editor.window, tabFocus.contains(window) else { return }
+            window.makeFirstResponder(editor)
+        }
     }
 }
 

@@ -52,6 +52,12 @@ final class BrowserStore: ObservableObject {
         selectedSessionID = sessions[min(index, sessions.endIndex - 1)].id
     }
 
+    func move(_ id: BrowserSession.ID, before target: BrowserSession.ID?) {
+        guard let reordered = reorderedTabs(sessions, moving: id, before: target, identifiedBy: \.id)
+        else { return }
+        sessions = reordered
+    }
+
     func select(_ id: BrowserSession.ID) {
         selectedSessionID = id
     }

@@ -63,7 +63,6 @@ final class TerminalStore: ObservableObject {
     @Published private(set) var selectedSessionID: TerminalSession.ID
     @Published private(set) var attention: [TerminalSession.ID: Set<TerminalAttention>] = [:]
     private let context: ModelContext
-    private var tabShortcutMonitor: Any?
     private var notificationNames: [TerminalSession.ID: [String]] = [:]
 
     init(context: ModelContext) {
@@ -72,20 +71,10 @@ final class TerminalStore: ObservableObject {
         sessions = [session]
         selectedSessionID = session.id
         observe(session)
-        tabShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self,
-                  event.window?.firstResponder === self.selectedSession.terminal,
-                  event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                  let digit = event.charactersIgnoringModifiers?.first?.wholeNumberValue,
-                  (1...9).contains(digit)
-            else { return event }
-            self.select(index: digit - 1)
-            return nil
-        }
+
     }
 
     deinit {
-        if let tabShortcutMonitor { NSEvent.removeMonitor(tabShortcutMonitor) }
         for names in notificationNames.values {
             for name in names { unobserve(name) }
         }
@@ -114,14 +103,15 @@ final class TerminalStore: ObservableObject {
         selectedSessionID = sessions[min(index, sessions.endIndex - 1)].id
     }
 
+    func move(_ id: TerminalSession.ID, before target: TerminalSession.ID?) {
+        guard let reordered = reorderedTabs(sessions, moving: id, before: target, identifiedBy: \.id)
+        else { return }
+        sessions = reordered
+    }
+
     func select(_ id: TerminalSession.ID) {
         selectedSessionID = id
         attention.removeValue(forKey: id)
-    }
-
-    private func select(index: Int) {
-        guard sessions.indices.contains(index) else { return }
-        select(sessions[index].id)
     }
 
     private func observe(_ session: TerminalSession) {
