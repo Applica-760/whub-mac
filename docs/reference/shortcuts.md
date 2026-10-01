@@ -21,7 +21,7 @@
 | ⌘R | 選択中のページを再読み込みする | Browser |
 | ⌘1〜⌘9 | 番号に対応するタブに移動する | フォーカス中の FileViewer・Browser・Terminal（並べ替え後の表示順） |
 
-実装：[TabBarContainer.swift](../../whub/Components/TabBarContainer.swift)、[FileTab.swift](../../whub/Features/Files/Viewer/FileTab.swift)、[TabBar.swift](../../whub/Components/TabBar.swift)、[WorkspaceView.swift](../../whub/Features/Workspace/WorkspaceView.swift)、[TerminalView.swift](../../whub/Features/Terminal/TerminalView.swift)、[BrowserView.swift](../../whub/Features/Browser/BrowserView.swift)、[TerminalStore.swift](../../whub/Features/Terminal/TerminalStore.swift)
+実装：[TabBarContainer.swift](../../whub/Components/TabBarContainer.swift)、[FileViewerView.swift](../../whub/Features/Files/Viewer/FileViewerView.swift)、[TabBar.swift](../../whub/Components/TabBar.swift)、[WorkspaceView.swift](../../whub/Features/Workspace/WorkspaceView.swift)、[TerminalView.swift](../../whub/Features/Terminal/TerminalView.swift)、[BrowserView.swift](../../whub/Features/Browser/BrowserView.swift)、[TerminalStore.swift](../../whub/Features/Terminal/TerminalStore.swift)
 
 タブは同じ列内でドラッグして並べ替えられる。左右端では自動スクロールする。選択は維持し、Fileのプレビュータブは並べ替え確定時に通常タブへ昇格する。順序は起動中のみ保持する。
 
