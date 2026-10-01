@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct TabBar: View {
@@ -53,43 +52,5 @@ struct TabBar: View {
             .disabled(isCloseDisabled)
         }
         .onHover { isHovered = $0 }
-        .background(MiddleClickCloseView(action: closeAction, isEnabled: !isCloseDisabled))
-    }
-}
-
-private struct MiddleClickCloseView: NSViewRepresentable {
-    let action: () -> Void
-    let isEnabled: Bool
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [weak view, weak coordinator = context.coordinator] event in
-            guard let view, let coordinator,
-                  coordinator.isEnabled,
-                  !view.isHiddenOrHasHiddenAncestor,
-                  event.buttonNumber == 2,
-                  event.window === view.window,
-                  view.visibleRect.contains(view.convert(event.locationInWindow, from: nil)) else { return event }
-            coordinator.action?()
-            return nil
-        }
-        return view
-    }
-
-    func updateNSView(_: NSView, context: Context) {
-        context.coordinator.action = action
-        context.coordinator.isEnabled = isEnabled
-    }
-
-    static func dismantleNSView(_: NSView, coordinator: Coordinator) {
-        if let monitor = coordinator.monitor { NSEvent.removeMonitor(monitor) }
-    }
-
-    final class Coordinator {
-        var action: (() -> Void)?
-        var isEnabled = false
-        var monitor: Any?
     }
 }
