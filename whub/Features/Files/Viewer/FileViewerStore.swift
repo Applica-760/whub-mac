@@ -8,7 +8,13 @@ final class FileViewerStore: ObservableObject {
     @Published private(set) var previewFileURL: URL?
     @Published private(set) var refreshID = 0
     @Published var gitChanges: [URL: GitChange] = [:]
-    @Published private(set) var fileStores: [URL: FileStore] = [:]
+    @Published private(set) var fileStores: [URL: FileStore] = [:] {
+        didSet {
+            fileChanges = Publishers.MergeMany(fileStores.values.map(\.objectWillChange))
+                .sink { [weak self] _ in self?.objectWillChange.send() }
+        }
+    }
+    private var fileChanges: AnyCancellable?
 
     func refresh() {
         refreshID += 1

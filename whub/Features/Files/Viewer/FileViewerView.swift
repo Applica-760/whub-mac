@@ -28,13 +28,15 @@ struct FileViewerView: View {
                         case .modified, .deleted: Color(nsColor: .systemOrange)
                         case nil: nil
                         }
-                        FileTab(
-                            fileStore: fileStore,
+                        TabBar(
+                            title: fileURL.lastPathComponent,
+                            icon: IconList.image(for: fileURL),
                             isSelected: isSelected,
                             isPreview: fileURL == store.previewFileURL,
                             titleColor: titleColor,
-                            action: actions.select,
+                            status: fileStore.hasUnsavedChanges ? (.primary, "未保存") : nil,
                             openAction: { store.open(fileURL) },
+                            action: actions.select,
                             closeAction: actions.close
                         )
                     }
