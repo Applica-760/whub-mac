@@ -43,6 +43,9 @@ struct BrowserView: View {
         .padding(.bottom)
         .padding(.top, 8)
         .navigationTitle("Browser")
+        .onAppear {
+            DispatchQueue.main.async { tabFocus.activate() }
+        }
         .onChange(of: store.selectedSessionID) { _, _ in
             tabFocus.activate()
         }
