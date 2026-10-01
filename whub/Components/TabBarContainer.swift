@@ -106,7 +106,15 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
             }
         }
         .animation(animation, value: selection)
-        .background(TabBarKeyMonitor { event in
+        .background(TabBarEventMonitor { event, point in
+            if event.type == .otherMouseDown {
+                guard event.buttonNumber == 2, dragging == nil, !settling,
+                      CGRect(origin: .zero, size: viewport).contains(point) else { return false }
+                let targets = ids.filter { frames[$0]?.contains(point) == true }
+                guard targets.count == 1, let id = targets.first, canClose(id) else { return false }
+                close(id)
+                return true
+            }
             guard let window = event.window, isShortcutTarget(window),
                   event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
                   let key = event.charactersIgnoringModifiers else { return false }
@@ -225,20 +233,22 @@ private struct ScrollMetrics: Equatable {
     let maximum: CGFloat
 }
 
-private struct TabBarKeyMonitor: NSViewRepresentable {
-    let handle: (NSEvent) -> Bool
+private struct TabBarEventMonitor: NSViewRepresentable {
+    let handle: (NSEvent, CGPoint) -> Bool
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+        let view = EventView()
+        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .otherMouseDown]) {
             [weak view, weak coordinator = context.coordinator] event in
             guard let view, let coordinator,
-                  let window = view.window, window.isKeyWindow,
-                  event.window === window, !view.isHiddenOrHasHiddenAncestor,
-                  coordinator.handle?(event) == true else { return event }
-            return nil
+                  let window = view.window, window.isKeyWindow, window.attachedSheet == nil,
+                  event.window === window, !view.isHiddenOrHasHiddenAncestor else { return event }
+            let point = view.convert(event.locationInWindow, from: nil)
+            if event.type == .otherMouseDown,
+               !view.bounds.intersection(view.visibleRect).contains(point) { return event }
+            return coordinator.handle?(event, point) == true ? nil : event
         }
         return view
     }
@@ -252,7 +262,12 @@ private struct TabBarKeyMonitor: NSViewRepresentable {
     }
 
     final class Coordinator {
-        var handle: ((NSEvent) -> Bool)?
+        var handle: ((NSEvent, CGPoint) -> Bool)?
         var monitor: Any?
+    }
+
+    private final class EventView: NSView {
+        override var isFlipped: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
