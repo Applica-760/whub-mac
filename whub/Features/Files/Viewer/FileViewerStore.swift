@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import CoreServices
 import Foundation
@@ -17,6 +18,7 @@ final class FileViewerStore: ObservableObject {
         }
     }
     private var fileChanges: AnyCancellable?
+    private var isClosing = false
     private var eventStream: FSEventStreamRef?
     private var watchedPaths: Set<String> = []
     @Published private(set) var watchError: String?
@@ -129,6 +131,10 @@ final class FileViewerStore: ObservableObject {
     }
 
     func close(_ fileURL: URL) {
+        guard !isClosing, let file = fileStores[fileURL] else { return }
+        isClosing = true
+        defer { isClosing = false }
+        guard file.confirmClose() else { return }
         guard let index = fileURLs.firstIndex(of: fileURL) else { return }
         fileURLs.remove(at: index)
         fileStores.removeValue(forKey: fileURL)
