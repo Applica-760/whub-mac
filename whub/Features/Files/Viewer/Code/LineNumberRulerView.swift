@@ -29,8 +29,8 @@ final class LineNumberRulerView: NSRulerView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.controlBackgroundColor.setFill()
         dirtyRect.intersection(bounds).fill()
-        NSColor.separatorColor.setFill()
-        NSRect(x: bounds.maxX - 1, y: bounds.minY, width: 1, height: bounds.height)
+        NSColor.secondaryLabelColor.withAlphaComponent(0.5).setFill()
+        NSRect(x: bounds.maxX - 2, y: bounds.minY, width: 2, height: bounds.height)
             .intersection(dirtyRect).fill()
         drawHashMarksAndLabels(in: dirtyRect)
     }
