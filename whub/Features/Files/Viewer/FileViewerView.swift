@@ -9,37 +9,35 @@ struct FileViewerView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            if !store.fileURLs.isEmpty {
-                TabBarContainer(
-                    ids: store.fileURLs,
-                    selection: store.selectedFileURL,
-                    select: selectTab,
-                    close: { fileURL in
-                        tabFocus.activate()
-                        store.close(fileURL)
-                    },
-                    canClose: { _ in true },
-                    move: store.move,
-                    isShortcutTarget: tabFocus.contains
-                ) { fileURL, isSelected, actions in
-                    if let fileStore = store.fileStores[fileURL] {
-                        let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
-                        case .added: Color(nsColor: .systemGreen)
-                        case .modified, .deleted: Color(nsColor: .systemOrange)
-                        case nil: nil
-                        }
-                        TabBar(
-                            title: fileURL.lastPathComponent,
-                            icon: IconList.image(for: fileURL),
-                            isSelected: isSelected,
-                            isPreview: fileURL == store.previewFileURL,
-                            titleColor: titleColor,
-                            status: fileStore.hasUnsavedChanges ? (.primary, "未保存") : nil,
-                            openAction: { store.open(fileURL) },
-                            action: actions.select,
-                            closeAction: actions.close
-                        )
+            TabBarContainer(
+                ids: store.fileURLs,
+                selection: store.selectedFileURL,
+                select: selectTab,
+                close: { fileURL in
+                    tabFocus.activate()
+                    store.close(fileURL)
+                },
+                canClose: { _ in true },
+                move: store.move,
+                isShortcutTarget: tabFocus.contains
+            ) { fileURL, isSelected, actions in
+                if let fileStore = store.fileStores[fileURL] {
+                    let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
+                    case .added: Color(nsColor: .systemGreen)
+                    case .modified, .deleted: Color(nsColor: .systemOrange)
+                    case nil: nil
                     }
+                    TabBar(
+                        title: fileURL.lastPathComponent,
+                        icon: IconList.image(for: fileURL),
+                        isSelected: isSelected,
+                        isPreview: fileURL == store.previewFileURL,
+                        titleColor: titleColor,
+                        status: fileStore.hasUnsavedChanges ? (.primary, "未保存") : nil,
+                        openAction: { store.open(fileURL) },
+                        action: actions.select,
+                        closeAction: actions.close
+                    )
                 }
             }
 

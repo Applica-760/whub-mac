@@ -72,6 +72,7 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
                         .id(id)
                     }
                 }
+                .frame(minHeight: 28)
                 .padding(4)
                 .animation(animation, value: displayedIDs)
             }
