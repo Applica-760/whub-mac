@@ -31,6 +31,7 @@ struct CodeViewerView: View {
                 hunks: baseline?.fileURL == fileURL && diffSource == source ? hunks : []
             )
         }
+        .background(Color(white: 0.07).opacity(0.75))
         .task(id: CodeLoadID(fileURL: fileURL, refreshID: refreshID, diskRevision: state.diskRevision)) {
             baseline = nil
             diffSource = nil
@@ -100,6 +101,7 @@ private struct Content: NSViewRepresentable {
         let textView = CodeTextView(frame: .zero, textContainer: container)
         textView.fileStore = state
         textView.onEdit = onEdit
+        textView.drawsBackground = false
         textView.isEditable = true
         textView.isRichText = false
         textView.importsGraphics = false
@@ -110,6 +112,8 @@ private struct Content: NSViewRepresentable {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticTextCompletionEnabled = false
         let scrollView = CodeScrollView()
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -143,7 +147,7 @@ private struct Content: NSViewRepresentable {
               }) else { return }
         let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         codeHighlighter?.setTheme(
-            dark ? "xcode-dusk" : "xcode",
+            dark ? "night-owl" : "xcode",
             withFont: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).fontName,
             ofSize: 13
         )

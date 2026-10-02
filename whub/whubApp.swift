@@ -5,6 +5,7 @@ import WhubCore
 
 @main
 struct whubApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var fileViewerStore = FileViewerStore()
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
@@ -26,6 +27,7 @@ struct whubApp: App {
     var body: some Scene {
         WindowGroup {
             AppView(section: $section)
+                .containerBackground(.thinMaterial, for: .window)
                 .environmentObject(fileViewerStore)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
@@ -57,10 +59,10 @@ struct whubApp: App {
                 .keyboardShortcut("f", modifiers: [.command, .control])
             }
             CommandMenu("Navigate") {
-                Button("Workspace") { section = .workspace }
-                    .keyboardShortcut("w", modifiers: [.command, .shift])
-                Button("Browser") { section = .browser }
-                    .keyboardShortcut("b", modifiers: [.command, .shift])
+                ForEach(Array(AppView.Section.allCases.enumerated()), id: \.element) { index, destination in
+                    Button(destination.label) { section = destination }
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .option])
+                }
                 Button("Reload Files") { fileViewerStore.refresh() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Previous Project or Worktree") { projectNavigation?.move(by: -1) }
@@ -76,5 +78,18 @@ struct whubApp: App {
             SettingsView()
         }
         .modelContainer(workspaceContainer)
+    }
+}
+
+@MainActor
+private final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let alert = NSAlert()
+        alert.messageText = "whubを終了しますか？"
+        alert.informativeText = "未保存の編集内容は失われ、実行中のコマンドは中断されます。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "キャンセル").keyEquivalent = "\r"
+        alert.addButton(withTitle: "終了").keyEquivalent = ""
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
 }

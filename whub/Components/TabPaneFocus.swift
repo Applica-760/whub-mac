@@ -13,8 +13,8 @@ final class TabPaneFocus {
         guard let view, view.window === window, !view.isHiddenOrHasHiddenAncestor,
               let responder = window.firstResponder as? NSView else { return false }
         if responder === view { return true }
-        let rect = view.convert(responder.visibleRect, from: responder)
-        return !rect.isEmpty && view.visibleRect.insetBy(dx: -1, dy: -1).contains(rect)
+        let rect = view.convert(responder.bounds.intersection(responder.visibleRect), from: responder)
+        return !rect.isEmpty && view.bounds.intersection(view.visibleRect).insetBy(dx: -1, dy: -1).contains(rect)
     }
 }
 
@@ -30,7 +30,7 @@ struct TabPaneFocusView: NSViewRepresentable {
             [weak view] event in
             guard let view, let window = view.window,
                   event.window === window, !view.isHiddenOrHasHiddenAncestor,
-                  view.visibleRect.contains(view.convert(event.locationInWindow, from: nil))
+                  view.bounds.intersection(view.visibleRect).contains(view.convert(event.locationInWindow, from: nil))
             else { return event }
             if !focus.contains(window) { window.makeFirstResponder(view) }
             return event
