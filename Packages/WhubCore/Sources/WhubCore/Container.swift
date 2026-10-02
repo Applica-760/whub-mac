@@ -30,7 +30,6 @@ public enum Container {
             Project.self,
             ActivityCategory.self,
             ActivityRecord.self,
-            TimeGoal.self,
             configurations: configuration
         )
     }
