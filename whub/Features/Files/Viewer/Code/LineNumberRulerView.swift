@@ -26,11 +26,16 @@ final class LineNumberRulerView: NSRulerView {
         needsDisplay = true
     }
 
+    override var isOpaque: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.secondaryLabelColor.withAlphaComponent(0.5).setFill()
+        NSRect(x: bounds.maxX - 2, y: bounds.minY, width: 2, height: bounds.height)
+            .intersection(dirtyRect).fill()
+        drawHashMarksAndLabels(in: dirtyRect)
+    }
+
     override func drawHashMarksAndLabels(in rect: NSRect) {
-        NSColor.controlBackgroundColor.setFill()
-        bounds.fill()
-        NSColor.separatorColor.setFill()
-        NSRect(x: bounds.maxX - 1, y: bounds.minY, width: 1, height: bounds.height).fill()
         guard let textView = clientView as? NSTextView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }

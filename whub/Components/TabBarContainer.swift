@@ -72,6 +72,7 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
                         .id(id)
                     }
                 }
+                .frame(minHeight: 28)
                 .padding(4)
                 .animation(animation, value: displayedIDs)
             }
@@ -146,6 +147,7 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
             if !active && !settling { cancelDrag() }
         }
         .onDisappear { cancelDrag() }
+        .zIndex(1)
     }
 
     private func reorderGesture(for id: ID) -> some Gesture {

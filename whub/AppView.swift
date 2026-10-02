@@ -46,7 +46,7 @@ struct AppView: View {
         } detail: {
             section.content()
         }
-        .frame(minWidth: 950, minHeight: 550)
+        .frame(minWidth: 1000, minHeight: 550)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Picker("ページ", selection: $section) {

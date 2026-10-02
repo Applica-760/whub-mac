@@ -27,6 +27,7 @@ struct whubApp: App {
     var body: some Scene {
         WindowGroup {
             AppView(section: $section)
+                .containerBackground(.thinMaterial, for: .window)
                 .environmentObject(fileViewerStore)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
