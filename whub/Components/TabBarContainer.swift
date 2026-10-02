@@ -147,6 +147,7 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
             if !active && !settling { cancelDrag() }
         }
         .onDisappear { cancelDrag() }
+        .zIndex(1)
     }
 
     private func reorderGesture(for id: ID) -> some Gesture {
