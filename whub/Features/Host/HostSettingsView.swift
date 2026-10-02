@@ -2,7 +2,7 @@ import SwiftData
 import SwiftUI
 import WhubCore
 
-struct HostTable: View {
+struct HostSettingsView: View {
     @Query(sort: \WhubCore.Host.name) private var hosts: [WhubCore.Host]
     @Environment(\.modelContext) private var context
     @State private var selection: PersistentIdentifier?
@@ -12,34 +12,28 @@ struct HostTable: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 8) {
-            Table(hosts, selection: $selection) {
-                TableColumn("Name") { host in
-                    cell(host.name, host: host)
-                }
-                TableColumn("Type") { host in
-                    cell(host is LocalHost ? "Local" : "Remote", host: host)
-                }
-                TableColumn("Base Path") { host in
-                    cell(host.basePath, host: host)
-                }
+        EditableTable(
+            rows: hosts,
+            columns: [
+                .init(id: "name", title: "Name", value: { $0.name }),
+                .init(id: "type", title: "Type", value: { $0 is LocalHost ? "Local" : "Remote" }),
+                .init(id: "basePath", title: "Base Path", value: { $0.basePath }),
+            ],
+            selection: $selection,
+            addTitle: "Add Host",
+            removeTitle: "Remove Host",
+            canRemove: selectedHost != nil,
+            onAdd: {
+                editingHost = nil
+                showsForm = true
+                return nil
+            },
+            onRemove: { showsDeleteConfirmation = true },
+            onDoubleClick: { host, _ in
+                editingHost = host
+                showsForm = true
             }
-
-            HStack {
-                ControlGroup {
-                    Button("Add Host", systemImage: "plus") {
-                        editingHost = nil
-                        showsForm = true
-                    }
-                    Button("Remove Host", systemImage: "minus") {
-                        showsDeleteConfirmation = true
-                    }
-                    .disabled(selectedHost == nil)
-                }
-                .labelStyle(.iconOnly)
-                Spacer()
-            }
-        }
+        )
         .sheet(isPresented: $showsForm) {
             HostForm(host: editingHost)
         }
@@ -71,15 +65,5 @@ struct HostTable: View {
         } catch {
             errorMessage = error.localizedDescription
         }
-    }
-
-    private func cell(_ value: String, host: WhubCore.Host) -> some View {
-        Text(value)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture(count: 2) {
-                editingHost = host
-                showsForm = true
-            }
     }
 }

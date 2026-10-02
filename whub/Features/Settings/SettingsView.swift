@@ -4,11 +4,11 @@ import WhubCore
 struct SettingsView: View {
     var body: some View {
         TabView {
-            ProjectTable()
+            ProjectSettingsView()
                 .padding()
                 .tabItem { Label("Projects", systemImage: "folder") }
 
-            HostTable()
+            HostSettingsView()
                 .padding()
                 .tabItem { Label("Hosts", systemImage: "desktopcomputer") }
 
