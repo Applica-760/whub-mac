@@ -30,6 +30,7 @@ public enum Container {
             Project.self,
             ActivityCategory.self,
             ActivityRecord.self,
+            TimerNotification.self,
             configurations: configuration
         )
     }
