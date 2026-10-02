@@ -44,7 +44,6 @@ struct TerminalView: View {
         .padding(.horizontal)
         .padding(.bottom)
         .padding(.top, 8)
-        .navigationTitle("Terminal")
         .alert("実行中のコマンドがあります", isPresented: Binding(
             get: { pendingCloseID != nil },
             set: { if !$0 { pendingCloseID = nil } }
@@ -86,6 +85,8 @@ struct TerminalWidget: View {
             LocalTerminalView(terminal: session.terminal)
                 .id(session.id)
                 .frame(maxWidth: .infinity, minHeight: 240)
+                .padding(6)
+                .background(Color(white: 0.07).opacity(0.75))
         }
     }
 }

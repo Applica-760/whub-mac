@@ -34,13 +34,15 @@ final class TerminalSession: Identifiable {
 
     init(currentDirectory: String) {
         let terminal = FixedCursorTerminalView(frame: .zero)
+        for scroller in terminal.subviews.compactMap({ $0 as? NSScroller }) {
+            scroller.isHidden = true
+        }
         terminal.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         terminal.lineSpacing = 1.1
-        terminal.nativeBackgroundColor = NSColor(calibratedWhite: 0.1, alpha: 1)
+        terminal.nativeBackgroundColor = .clear
         terminal.nativeForegroundColor = NSColor(calibratedWhite: 0.9, alpha: 1)
         terminal.wantsLayer = true
-        terminal.layer?.cornerRadius = 8
-        terminal.layer?.masksToBounds = true
+        terminal.layer?.backgroundColor = terminal.nativeBackgroundColor.cgColor
         terminal.terminal.setCursorStyle(.steadyBar)
         terminal.startProcess(
             executable: "/bin/zsh",
