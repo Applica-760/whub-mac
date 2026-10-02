@@ -87,7 +87,7 @@ struct TerminalWidget: View {
                 .id(session.id)
                 .frame(maxWidth: .infinity, minHeight: 240)
                 .padding(6)
-                .background(Color.black.opacity(0.65))
+                .background(Color(white: 0.07).opacity(0.75))
         }
     }
 }

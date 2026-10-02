@@ -26,9 +26,9 @@ final class LineNumberRulerView: NSRulerView {
         needsDisplay = true
     }
 
+    override var isOpaque: Bool { false }
+
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.controlBackgroundColor.setFill()
-        dirtyRect.intersection(bounds).fill()
         NSColor.secondaryLabelColor.withAlphaComponent(0.5).setFill()
         NSRect(x: bounds.maxX - 2, y: bounds.minY, width: 2, height: bounds.height)
             .intersection(dirtyRect).fill()
