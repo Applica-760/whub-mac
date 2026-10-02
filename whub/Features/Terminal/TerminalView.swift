@@ -44,7 +44,6 @@ struct TerminalView: View {
         .padding(.horizontal)
         .padding(.bottom)
         .padding(.top, 8)
-        .navigationTitle("Terminal")
         .alert("実行中のコマンドがあります", isPresented: Binding(
             get: { pendingCloseID != nil },
             set: { if !$0 { pendingCloseID = nil } }
