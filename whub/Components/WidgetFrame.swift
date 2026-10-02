@@ -8,8 +8,14 @@ struct WidgetFrame<Content: View>: View {
     }
 
     var body: some View {
-        GroupBox {
-            content
-        }
+        let shape = RoundedRectangle(cornerRadius: 8)
+        content
+            .frame(maxWidth: .infinity)
+            .clipShape(shape)
+            .background {
+                Color.clear
+                    .glassEffect(.regular, in: shape)
+                    .allowsHitTesting(false)
+            }
     }
 }
