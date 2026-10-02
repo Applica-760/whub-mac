@@ -191,42 +191,11 @@ private final class CodeScrollView: NSScrollView {
 final class CodeTextView: NSTextView {
     weak var fileStore: FileStore?
     var onEdit: (() -> Void)?
-    private var isSaving = false
 
     override var undoManager: UndoManager? { fileStore?.undoManager }
 
     @objc func saveDocument(_ sender: Any?) {
-        guard let fileStore, !isSaving else { return }
-        guard !fileStore.editorViews.values.contains(where: {
-            ($0.documentView as? NSTextView)?.hasMarkedText() == true
-        }) else { NSSound.beep(); return }
-        isSaving = true
-        defer { isSaving = false }
-        var overwriteData: Data?
-        do {
-            while true {
-                do {
-                    try fileStore.save(overwriting: overwriteData)
-                    return
-                } catch let FileStore.SaveError.changedOnDisk(data) {
-                    let alert = NSAlert()
-                    alert.messageText = "ファイルが外部で変更されています"
-                    alert.informativeText = "\(fileStore.fileURL.lastPathComponent)の編集内容を上書き保存するか、ディスクの最新内容を採用してください。"
-                    alert.addButton(withTitle: "上書き")
-                    alert.addButton(withTitle: "最新内容を採用")
-                    alert.addButton(withTitle: "キャンセル")
-                    switch alert.runModal() {
-                    case .alertFirstButtonReturn: overwriteData = data
-                    case .alertSecondButtonReturn:
-                        try fileStore.adoptLatest()
-                        return
-                    default: return
-                    }
-                }
-            }
-        } catch {
-            NSAlert(error: error).runModal()
-        }
+        fileStore?.saveWithConfirmation()
     }
 
     @objc func undo(_ sender: Any?) { undoManager?.undo() }
@@ -236,7 +205,7 @@ final class CodeTextView: NSTextView {
         switch menuItem.action {
         case #selector(undo(_:)): return undoManager?.canUndo == true
         case #selector(redo(_:)): return undoManager?.canRedo == true
-        case #selector(saveDocument(_:)): return fileStore?.savedSource != nil && !isSaving
+        case #selector(saveDocument(_:)): return fileStore?.savedSource != nil && fileStore?.isSaving != true
         default: return super.validateMenuItem(menuItem)
         }
     }
