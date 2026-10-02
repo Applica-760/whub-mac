@@ -5,9 +5,12 @@ public enum ActivityCategoryStoreError: LocalizedError {
     case nameRequired
     case duplicateName(String)
     case invalidTargetSeconds
+    case invalidColor
 
     public var errorDescription: String? {
         switch self {
+        case .invalidColor:
+            "Color must be a 24-bit RGB value."
         case .invalidTargetSeconds:
             "Target time must be a positive, finite number of seconds."
         case .nameRequired:
@@ -31,18 +34,32 @@ public struct ActivityCategoryStore {
     }
 
     @discardableResult
-    public func add(name: String) throws -> ActivityCategory {
+    public func add(name: String, colorRGB: Int = 0x007AFF) throws -> ActivityCategory {
         let name = try validate(name: name)
-        let category = ActivityCategory(name: name)
+        try validate(colorRGB: colorRGB)
+        let category = ActivityCategory(name: name, colorRGB: colorRGB)
         context.insert(category)
         try context.save()
         return category
     }
 
     public func rename(_ category: ActivityCategory, name: String) throws {
+        try edit(category, name: name, colorRGB: category.colorRGB)
+    }
+
+    public func edit(_ category: ActivityCategory, name: String, colorRGB: Int) throws {
         let name = try validate(name: name, excluding: category)
+        try validate(colorRGB: colorRGB)
+        let previous = (category.name, category.colorRGB)
         category.name = name
-        try context.save()
+        category.colorRGB = colorRGB
+        do {
+            try context.save()
+        } catch {
+            category.name = previous.0
+            category.colorRGB = previous.1
+            throw error
+        }
     }
 
     public func setGoal(
@@ -71,6 +88,12 @@ public struct ActivityCategoryStore {
         } catch {
             category.goal = previous
             throw error
+        }
+    }
+
+    private func validate(colorRGB: Int) throws {
+        guard (0...0xFFFFFF).contains(colorRGB) else {
+            throw ActivityCategoryStoreError.invalidColor
         }
     }
 
