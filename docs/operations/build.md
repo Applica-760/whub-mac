@@ -8,14 +8,14 @@ BasePath から対象ディレクトリに移動し、以降はそこで実行�
 - `worktrees/whub-mac-ISSUE`：Debug ビルド＆起動のみ。
 
 対象が不明なら実行前に確認する。
-`-scheme 'whub (whub project)'` は、XcodeでGUIアプリをビルドする設定を選ぶ指定。
+`-scheme 'whub'` は、XcodeでGUIアプリをビルドする設定を選ぶ指定。
 
 ## Debug ビルド＆起動
 
 ```sh
 xcodebuild build \
   -project whub.xcodeproj \
-  -scheme 'whub (whub project)' \
+  -scheme 'whub' \
   -configuration Debug \
   -destination 'platform=macOS' \
   -derivedDataPath "$PWD/DerivedData"
@@ -36,7 +36,7 @@ open -n "$PWD/DerivedData/Build/Products/Debug/whub.app"
 mkdir -p .build/archives
 xcodebuild archive \
   -project whub.xcodeproj \
-  -scheme 'whub (whub project)' \
+  -scheme 'whub' \
   -configuration Release \
   -destination 'generic/platform=macOS' \
   -derivedDataPath "$PWD/DerivedData" \
