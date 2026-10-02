@@ -86,6 +86,8 @@ struct TerminalWidget: View {
             LocalTerminalView(terminal: session.terminal)
                 .id(session.id)
                 .frame(maxWidth: .infinity, minHeight: 240)
+                .padding(6)
+                .background(Color.black.opacity(0.65))
         }
     }
 }
