@@ -31,6 +31,9 @@ struct whubApp: App {
                 .environmentObject(fileViewerStore)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    fileViewerStore.checkForExternalChanges()
+                }
         }
         .modelContainer(workspaceContainer)
         .commands {

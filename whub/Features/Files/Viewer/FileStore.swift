@@ -10,7 +10,13 @@ final class FileStore: ObservableObject {
     }
 
     let fileURL: URL
-    @Published var content: Content
+    @Published var content: Content {
+        didSet {
+            guard diskMessage != nil else { return }
+            DispatchQueue.main.async { [weak self] in self?.checkForExternalChanges() }
+        }
+    }
+    @Published private(set) var diskMessage: String?
     @Published private(set) var savedSource: String?
     @Published private(set) var diskRevision = 0
     private var savedData: Data?
@@ -86,6 +92,7 @@ final class FileStore: ObservableObject {
         if savedData.starts(with: [0xef, 0xbb, 0xbf]) { data.insert(contentsOf: [0xef, 0xbb, 0xbf], at: 0) }
         try data.write(to: target, options: .atomic)
         self.savedData = data
+        diskMessage = nil
         savedSource = source
         diskRevision += 1
         for scrollView in editorViews.values {
@@ -96,6 +103,34 @@ final class FileStore: ObservableObject {
     func adoptLatest() throws {
         let data = try Data(contentsOf: fileURL)
         guard let source = String(data: data, encoding: .utf8) else { throw SaveError.unsupportedText }
+        apply(data: data, source: source)
+    }
+
+    func checkForExternalChanges() {
+        do {
+            let data = try Data(contentsOf: fileURL)
+            guard data != savedData else { diskMessage = nil; return }
+            guard !hasUnsavedChanges else {
+                diskMessage = "ファイルが外部で変更されています。未保存の編集内容は保持されています。"
+                return
+            }
+            guard !editorViews.values.contains(where: {
+                ($0.documentView as? NSTextView)?.hasMarkedText() == true
+            }) else {
+                diskMessage = "ファイルが外部で変更されています。入力確定後に再確認します。"
+                return
+            }
+            guard let source = String(data: data, encoding: .utf8) else {
+                diskMessage = "外部変更後のファイルをUTF-8として読み込めません。"
+                return
+            }
+            apply(data: data, source: source)
+        } catch {
+            diskMessage = "ファイルを再読み込みできません：\(error.localizedDescription)"
+        }
+    }
+
+    private func apply(data: Data, source: String) {
         for scrollView in editorViews.values {
             (scrollView.documentView as? NSTextView)?.breakUndoCoalescing()
         }
@@ -103,6 +138,7 @@ final class FileStore: ObservableObject {
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: source)
         savedData = data
         savedSource = source
+        diskMessage = nil
         content = .text(source)
         diskRevision += 1
     }
