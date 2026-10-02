@@ -17,6 +17,10 @@ struct SettingsView: View {
             BookmarkSettingsView()
                 .padding()
                 .tabItem { Label("Bookmarks", systemImage: "bookmark") }
+
+            ActivityCategorySettingsView()
+                .padding()
+                .tabItem { Label("Categories", systemImage: "tag") }
         }
         .frame(width: 720, height: 480)
         .onExitCommand { dismissWindow() }
