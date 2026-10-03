@@ -33,12 +33,17 @@ struct FileViewerView: View {
                         isSelected: isSelected,
                         isPreview: fileURL == store.previewFileURL,
                         titleColor: titleColor,
-                        status: fileStore.hasUnsavedChanges ? (.primary, "未保存") : nil,
+                        status: fileStore.diskMessage != nil ? (.orange, "外部変更・読み込みエラー")
+                            : fileStore.hasUnsavedChanges ? (.primary, "未保存") : nil,
                         openAction: { store.open(fileURL) },
                         action: actions.select,
                         closeAction: actions.close
                     )
                 }
+            }
+
+            if let message = store.watchError {
+                Text(message).foregroundStyle(.orange)
             }
 
             WidgetFrame {
@@ -77,6 +82,17 @@ private struct FileContent: View {
     let onEdit: () -> Void
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let message = state.diskMessage {
+                Text(message)
+                    .foregroundStyle(.orange)
+                    .padding(8)
+            }
+            fileContent
+        }
+    }
+
+    @ViewBuilder private var fileContent: some View {
         switch state.content {
         case let .text(source):
             CodeViewerView(

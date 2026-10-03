@@ -31,6 +31,9 @@ struct whubApp: App {
                 .environmentObject(fileViewerStore)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    fileViewerStore.checkForExternalChanges()
+                }
         }
         .modelContainer(workspaceContainer)
         .commands {
@@ -59,10 +62,13 @@ struct whubApp: App {
                 .keyboardShortcut("f", modifiers: [.command, .control])
             }
             CommandMenu("Navigate") {
-                ForEach(Array(AppView.Section.allCases.enumerated()), id: \.element) { index, destination in
+                ForEach(AppView.Section.allCases, id: \.self) { destination in
                     Button(destination.label) { section = destination }
-                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .option])
                 }
+                Button("Previous Page") { moveSection(by: -1) }
+                    .keyboardShortcut(.leftArrow, modifiers: [.command, .shift])
+                Button("Next Page") { moveSection(by: 1) }
+                    .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
                 Button("Reload Files") { fileViewerStore.refresh() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Previous Project or Worktree") { projectNavigation?.move(by: -1) }
@@ -78,6 +84,12 @@ struct whubApp: App {
             SettingsView()
         }
         .modelContainer(workspaceContainer)
+    }
+
+    private func moveSection(by offset: Int) {
+        let sections = AppView.Section.allCases
+        guard let index = sections.firstIndex(of: section) else { return }
+        section = sections[(index + offset + sections.count) % sections.count]
     }
 }
 
