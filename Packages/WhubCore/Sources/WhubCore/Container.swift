@@ -28,6 +28,9 @@ public enum Container {
             LocalHost.self,
             RemoteHost.self,
             Project.self,
+            ActivityCategory.self,
+            ActivityRecord.self,
+            TimerNotification.self,
             configurations: configuration
         )
     }
