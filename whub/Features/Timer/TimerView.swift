@@ -2,12 +2,12 @@ import SwiftUI
 
 struct TimerView: View {
     var body: some View {
-        WidgetFrame {
-            ContentUnavailableView(
-                "Timer",
-                systemImage: "timer",
-                description: Text("Time tracking will be available here.")
-            )
+        HStack(alignment: .top, spacing: 16) {
+            TimerControlsView()
+                .frame(width: 400)
+            TimerClockView()
+                .frame(width: 560)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
