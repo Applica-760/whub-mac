@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import CoreFoundation
 import Darwin
+import MetalKit
 import SwiftData
 import SwiftTerm
 import WhubCore
@@ -16,6 +17,19 @@ enum TerminalAttention: String, CaseIterable, Hashable {
 }
 
 private final class FixedCursorTerminalView: LocalProcessTerminalView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        do {
+            try setUseMetal(true)
+            for metalView in subviews.compactMap({ $0 as? MTKView }) {
+                metalView.layer?.isOpaque = false
+            }
+        } catch {
+            NSLog("Terminal Metal renderer unavailable: %@", error.localizedDescription)
+        }
+    }
+
     override func cursorStyleChanged(source: Terminal, newStyle: CursorStyle) {
         super.cursorStyleChanged(source: source, newStyle: .steadyBar)
     }
