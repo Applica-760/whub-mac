@@ -7,23 +7,19 @@ struct FileExplorerView: View {
     @Query(sort: \Project.name) private var projects: [Project]
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var fileViewerStore: FileViewerStore
-    @State private var selectedRootURL: URL?
-    @State private var worktreeURLs: [URL] = []
-    @State private var rootURL: URL?
-    @State private var errorMessage: String?
-    @State private var gitErrorMessage: String?
+    @StateObject private var store = FileExplorerStore()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Picker("Project or Worktree", selection: $selectedRootURL) {
-                    if availableURLs.isEmpty {
+                Picker("Project or Worktree", selection: $store.selectedRootURL) {
+                    if store.availableURLs(projects: projects).isEmpty {
                         Text("---").tag(URL?.none)
                     }
                     ForEach(projects) { project in
                         Text(project.name).tag(Optional(URL(fileURLWithPath: project.path)))
                     }
-                    ForEach(worktreeURLs, id: \.self) { url in
+                    ForEach(store.worktreeURLs, id: \.self) { url in
                         Text(url.lastPathComponent).tag(Optional(url))
                     }
                 }
@@ -36,7 +32,7 @@ struct FileExplorerView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Refresh files and Git status")
-                .disabled(selectedRootURL == nil)
+                .disabled(store.selectedRootURL == nil)
             }
             .padding(.horizontal)
             .padding(.top)
@@ -44,24 +40,20 @@ struct FileExplorerView: View {
             Divider()
                 .padding(.horizontal)
 
-            if let errorMessage {
+            if let errorMessage = store.errorMessage {
                 Text(errorMessage)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding()
             } else {
-                if let gitErrorMessage {
+                if let gitErrorMessage = store.gitErrorMessage {
                     Text(gitErrorMessage)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
                 }
                 FileTreeView(
-                    rootURL: rootURL,
-                    basePath: projects.first { project in
-                        guard let selectedRootURL else { return false }
-                        return selectedRootURL.path == project.path
-                            || selectedRootURL.path.hasPrefix(project.host.worktreesPath + "/")
-                    }?.host.basePath,
+                    store: store,
+                    basePath: store.basePath(projects: projects),
                     gitChanges: fileViewerStore.gitChanges,
                     refreshID: fileViewerStore.refreshID,
                     onFilePreview: { fileURL in
@@ -79,91 +71,26 @@ struct FileExplorerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .focusedSceneValue(
             \.projectNavigation,
-            ProjectNavigation(urls: availableURLs, selection: $selectedRootURL)
+            ProjectNavigation(urls: store.availableURLs(projects: projects), selection: $store.selectedRootURL)
         )
         .onAppear {
-            selectedRootURL = defaultRootURL
+            store.selectDefaultRoot(projects: projects)
         }
-        .onChange(of: availableURLs) { _, urls in
-            if !urls.contains(where: { $0 == selectedRootURL }) {
-                selectedRootURL = defaultRootURL
-            }
+        .onChange(of: store.availableURLs(projects: projects)) { _, _ in
+            store.validateSelection(projects: projects)
         }
         .task(id: WorktreeLoadID(
             projectPaths: projects.compactMap { $0.host is LocalHost ? $0.path : nil },
             refreshID: fileViewerStore.refreshID
         )) {
-            loadWorktrees()
+            store.loadWorktrees(projects: projects)
         }
         .task(id: ExplorerLoadID(
-            rootURL: selectedRootURL,
+            rootURL: store.selectedRootURL,
             refreshID: fileViewerStore.refreshID
         )) {
-            rootURL = nil
-            fileViewerStore.gitChanges = [:]
-            errorMessage = nil
-            gitErrorMessage = nil
-            guard let selectedRootURL else { return }
-            do {
-                let path: String
-                if let project = projects.first(where: { $0.path == selectedRootURL.path }) {
-                    guard project.host is LocalHost else {
-                        errorMessage = "Remote project files are not available yet."
-                        return
-                    }
-                    path = try await ProjectStore(context: context).resolvePath(for: project)
-                } else {
-                    path = selectedRootURL.path
-                }
-                guard !Task.isCancelled else { return }
-                let url = URL(fileURLWithPath: path)
-                rootURL = url
-                do {
-                    let changes = try await Git.changes(at: url)
-                    guard !Task.isCancelled else { return }
-                    fileViewerStore.gitChanges = changes
-                } catch GitError.notRepository {
-                    guard !Task.isCancelled else { return }
-                    fileViewerStore.gitChanges = [:]
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    fileViewerStore.gitChanges = [:]
-                    gitErrorMessage = error.localizedDescription
-                }
-            } catch {
-                guard !Task.isCancelled else { return }
-                errorMessage = error.localizedDescription
-            }
+            await store.load(projects: projects, context: context, viewerStore: fileViewerStore)
         }
-    }
-
-    private var availableURLs: [URL] {
-        projects.map { URL(fileURLWithPath: $0.path) } + worktreeURLs
-    }
-
-    private var defaultRootURL: URL? {
-        projects.first { $0.name == "whub-mac" }.map { URL(fileURLWithPath: $0.path) } ?? availableURLs.first
-    }
-
-    private func loadWorktrees() {
-        let localProjects = projects.filter { $0.host is LocalHost }
-        worktreeURLs = Set(localProjects.map { $0.host.worktreesPath }).flatMap { path in
-            let urls = (try? FileManager.default.contentsOfDirectory(
-                at: URL(fileURLWithPath: path),
-                includingPropertiesForKeys: [.isDirectoryKey]
-            )) ?? []
-            return urls.filter { url in
-                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { return false }
-                return localProjects.contains { project in
-                    let prefix = project.name + "-"
-                    guard url.lastPathComponent.hasPrefix(prefix),
-                          let number = Int(url.lastPathComponent.dropFirst(prefix.count)),
-                          number > 0 else { return false }
-                    return url.path == project.worktreePath(issueNumber: number)
-                }
-            }
-        }
-        .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 
 }
