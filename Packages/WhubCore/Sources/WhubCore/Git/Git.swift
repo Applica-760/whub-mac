@@ -21,6 +21,26 @@ public enum GitError: LocalizedError {
 }
 
 public enum Git {
+    public static func managementDirectories(at directory: URL) async throws -> Set<URL> {
+        try await Task.detached(priority: .utility) {
+            var directories: Set<URL> = []
+            for option in ["--git-dir", "--git-common-dir"] {
+                let output = try run(["rev-parse", "--path-format=absolute", option], at: directory)
+                guard output.status == 0 else {
+                    if directories.isEmpty { throw GitError.notRepository }
+                    throw GitError.commandFailed(output.status)
+                }
+                guard var path = String(data: output.data, encoding: .utf8), path.hasSuffix("\n") else {
+                    throw GitError.invalidOutput
+                }
+                path.removeLast()
+                guard !path.isEmpty else { throw GitError.invalidOutput }
+                directories.insert(URL(fileURLWithPath: path))
+            }
+            return directories
+        }.value
+    }
+
     public static func changes(at directory: URL) async throws -> [URL: GitChange] {
         try await Task.detached(priority: .utility) {
             let rootOutput = try run(["rev-parse", "--show-toplevel"], at: directory)
@@ -32,7 +52,7 @@ public enum Git {
             let rootURL = URL(fileURLWithPath: root)
 
             let output = try run(
-                ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."],
+                ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."],
                 at: directory
             )
             guard output.status == 0 else { throw GitError.commandFailed(output.status) }
