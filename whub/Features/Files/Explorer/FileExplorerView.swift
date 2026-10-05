@@ -85,13 +85,13 @@ struct FileExplorerView: View {
         )
         .onAppear {
             store.validateSelection(projects: projects)
-            store.startWatching()
+            store.startWatching(viewerStore: fileViewerStore)
         }
         .onDisappear {
             store.stopWatching()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            store.refreshTree()
+            store.refresh()
         }
         .onChange(of: store.availableURLs(projects: projects)) { _, _ in
             store.validateSelection(projects: projects)
