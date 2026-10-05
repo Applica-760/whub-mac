@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import CoreServices
 import Foundation
 import WhubCore
 
@@ -10,6 +9,7 @@ final class FileViewerStore: ObservableObject {
     @Published private(set) var previewFileURL: URL?
     @Published private(set) var refreshID = 0
     @Published var gitChanges: [URL: GitChange] = [:]
+    @Published var gitRootURL: URL?
     @Published private(set) var fileStores: [URL: FileStore] = [:] {
         didSet {
             fileChanges = Publishers.MergeMany(fileStores.values.map(\.objectWillChange))
@@ -19,16 +19,23 @@ final class FileViewerStore: ObservableObject {
     }
     private var fileChanges: AnyCancellable?
     private var isClosing = false
-    private var eventStream: FSEventStreamRef?
-    private var watchedPaths: Set<String> = []
+    private lazy var watcher = FileChangeWatcher { [weak self] event in
+        guard let self else { return }
+        switch event {
+        case let .changed(paths):
+            checkForExternalChanges(paths: paths)
+        case .rescan:
+            checkForExternalChanges()
+        }
+        DispatchQueue.main.async { [weak self] in self?.updateWatching() }
+    }
     @Published private(set) var watchError: String?
 
-    deinit {
-        if let eventStream {
-            FSEventStreamStop(eventStream)
-            FSEventStreamInvalidate(eventStream)
-            FSEventStreamRelease(eventStream)
-        }
+    func managesGitStatus(for fileURL: URL) -> Bool {
+        guard let gitRootURL else { return false }
+        let roots = [gitRootURL.standardizedFileURL.path, gitRootURL.resolvingSymlinksInPath().path]
+        let paths = [fileURL.standardizedFileURL.path, fileURL.resolvingSymlinksInPath().path]
+        return paths.contains { path in roots.contains { path == $0 || path.hasPrefix($0 + "/") } }
     }
 
     func checkForExternalChanges(paths: [String]? = nil) {
@@ -44,61 +51,15 @@ final class FileViewerStore: ObservableObject {
     private func updateWatching() {
         let paths = Set(fileStores.keys.flatMap { url in
             [url.standardizedFileURL, url.resolvingSymlinksInPath()]
-                .map {
-                    var directory = $0.deletingLastPathComponent()
-                    while !FileManager.default.fileExists(atPath: directory.path), directory.path != "/" {
-                        directory.deleteLastPathComponent()
-                    }
-                    return directory.path
-                }
+                .map { $0.deletingLastPathComponent().path }
         })
-        guard paths != watchedPaths else { return }
-        if let eventStream {
-            FSEventStreamStop(eventStream)
-            FSEventStreamInvalidate(eventStream)
-            FSEventStreamRelease(eventStream)
-            self.eventStream = nil
-        }
-        watchedPaths = paths
         watchError = nil
-        guard !paths.isEmpty else { return }
-        var context = FSEventStreamContext(
-            version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
-            retain: nil, release: nil, copyDescription: nil
-        )
-        let flags = FSEventStreamCreateFlags(
-            kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents
-                | kFSEventStreamCreateFlagWatchRoot
-        )
-        guard let stream = FSEventStreamCreate(nil, { _, info, count, rawPaths, flags, _ in
-            guard let info else { return }
-            let store = Unmanaged<FileViewerStore>.fromOpaque(info).takeUnretainedValue()
-            let paths = unsafeBitCast(rawPaths, to: NSArray.self) as! [String]
-            let rescanFlags = FSEventStreamEventFlags(
-                kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagRootChanged
-                    | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped
-            )
-            let rescan = (0..<count).contains { flags[$0] & rescanFlags != 0 }
-            MainActor.assumeIsolated {
-                store.checkForExternalChanges(paths: rescan ? nil : paths)
-                DispatchQueue.main.async { [weak store] in store?.updateWatching() }
-            }
-        }, &context, Array(paths) as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.15, flags)
-        else {
-            watchError = "ファイル変更の監視を開始できません。"
-            watchedPaths = []
-            return
+        do {
+            let changed = try watcher.start(paths: paths)
+            if changed && !paths.isEmpty { checkForExternalChanges() }
+        } catch {
+            watchError = error.localizedDescription
         }
-        FSEventStreamSetDispatchQueue(stream, .main)
-        guard FSEventStreamStart(stream) else {
-            FSEventStreamInvalidate(stream)
-            FSEventStreamRelease(stream)
-            watchError = "ファイル変更の監視を開始できません。"
-            watchedPaths = []
-            return
-        }
-        eventStream = stream
-        checkForExternalChanges()
     }
 
     func refresh() {
