@@ -28,7 +28,6 @@ final class FileViewerStore: ObservableObject {
         }
         DispatchQueue.main.async { [weak self] in self?.updateWatching() }
     }
-    private var watchedPaths: Set<String> = []
     @Published private(set) var watchError: String?
 
     func checkForExternalChanges(paths: [String]? = nil) {
@@ -44,23 +43,14 @@ final class FileViewerStore: ObservableObject {
     private func updateWatching() {
         let paths = Set(fileStores.keys.flatMap { url in
             [url.standardizedFileURL, url.resolvingSymlinksInPath()]
-                .map {
-                    var directory = $0.deletingLastPathComponent()
-                    while !FileManager.default.fileExists(atPath: directory.path), directory.path != "/" {
-                        directory.deleteLastPathComponent()
-                    }
-                    return directory.path
-                }
+                .map { $0.deletingLastPathComponent().path }
         })
-        guard paths != watchedPaths else { return }
         watchError = nil
         do {
-            try watcher.start(paths: paths)
-            watchedPaths = paths
-            if !paths.isEmpty { checkForExternalChanges() }
+            let changed = try watcher.start(paths: paths)
+            if changed && !paths.isEmpty { checkForExternalChanges() }
         } catch {
             watchError = error.localizedDescription
-            watchedPaths = []
         }
     }
 
