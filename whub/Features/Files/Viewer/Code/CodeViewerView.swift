@@ -39,13 +39,20 @@ struct CodeViewerView: View {
             diffErrorMessage = nil
             do {
                 let loaded = try await Git.baselineText(at: fileURL)
-                let changes = try await Git.changes(at: fileURL.deletingLastPathComponent())
                 guard !Task.isCancelled else { return }
                 if let loaded { baseline = CodeDiffBaseline(fileURL: fileURL, source: loaded) }
-                store.gitChanges[fileURL.standardizedFileURL] = changes[fileURL.standardizedFileURL]
+                if !store.managesGitStatus(for: fileURL) {
+                    let changes = try await Git.changes(at: fileURL.deletingLastPathComponent())
+                    guard !Task.isCancelled else { return }
+                    if !store.managesGitStatus(for: fileURL) {
+                        store.gitChanges[fileURL.standardizedFileURL] = changes[fileURL.standardizedFileURL]
+                    }
+                }
             } catch GitError.notRepository {
                 guard !Task.isCancelled else { return }
-                store.gitChanges.removeValue(forKey: fileURL.standardizedFileURL)
+                if !store.managesGitStatus(for: fileURL) {
+                    store.gitChanges.removeValue(forKey: fileURL.standardizedFileURL)
+                }
                 return
             } catch {
                 guard !Task.isCancelled else { return }

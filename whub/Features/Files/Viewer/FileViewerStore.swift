@@ -9,6 +9,7 @@ final class FileViewerStore: ObservableObject {
     @Published private(set) var previewFileURL: URL?
     @Published private(set) var refreshID = 0
     @Published var gitChanges: [URL: GitChange] = [:]
+    @Published var gitRootURL: URL?
     @Published private(set) var fileStores: [URL: FileStore] = [:] {
         didSet {
             fileChanges = Publishers.MergeMany(fileStores.values.map(\.objectWillChange))
@@ -29,6 +30,13 @@ final class FileViewerStore: ObservableObject {
         DispatchQueue.main.async { [weak self] in self?.updateWatching() }
     }
     @Published private(set) var watchError: String?
+
+    func managesGitStatus(for fileURL: URL) -> Bool {
+        guard let gitRootURL else { return false }
+        let roots = [gitRootURL.standardizedFileURL.path, gitRootURL.resolvingSymlinksInPath().path]
+        let paths = [fileURL.standardizedFileURL.path, fileURL.resolvingSymlinksInPath().path]
+        return paths.contains { path in roots.contains { path == $0 || path.hasPrefix($0 + "/") } }
+    }
 
     func checkForExternalChanges(paths: [String]? = nil) {
         for (url, file) in fileStores {
