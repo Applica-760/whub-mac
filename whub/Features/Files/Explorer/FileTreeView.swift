@@ -6,7 +6,6 @@ struct FileTreeView: NSViewRepresentable {
     @ObservedObject var store: FileExplorerStore
     let basePath: String?
     let gitChanges: [URL: GitChange]
-    let refreshID: Int
     let onFilePreview: (URL) -> Void
     let onFileOpen: (URL) -> Void
 
@@ -29,7 +28,7 @@ struct FileTreeView: NSViewRepresentable {
         outlineView.target = context.coordinator
         outlineView.doubleAction = #selector(Coordinator.openSelectedFile(_:))
         context.coordinator.outlineView = outlineView
-        context.coordinator.update(basePath: basePath, gitChanges: gitChanges, refreshID: refreshID)
+        context.coordinator.update(basePath: basePath, gitChanges: gitChanges)
 
         let scrollView = NSScrollView()
         scrollView.documentView = outlineView
@@ -41,7 +40,7 @@ struct FileTreeView: NSViewRepresentable {
     func updateNSView(_: NSScrollView, context: Context) {
         context.coordinator.onFilePreview = onFilePreview
         context.coordinator.onFileOpen = onFileOpen
-        context.coordinator.update(basePath: basePath, gitChanges: gitChanges, refreshID: refreshID)
+        context.coordinator.update(basePath: basePath, gitChanges: gitChanges)
     }
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
@@ -49,6 +48,8 @@ struct FileTreeView: NSViewRepresentable {
         var onFilePreview: (URL) -> Void
         var onFileOpen: (URL) -> Void
         private let store: FileExplorerStore
+        private var renderedRootURL: URL?
+        private var isRestoring = false
 
         init(store: FileExplorerStore, onFilePreview: @escaping (URL) -> Void, onFileOpen: @escaping (URL) -> Void) {
             self.store = store
@@ -56,12 +57,51 @@ struct FileTreeView: NSViewRepresentable {
             self.onFileOpen = onFileOpen
         }
 
-        func update(basePath: String?, gitChanges: [URL: GitChange], refreshID: Int) {
+        func update(basePath: String?, gitChanges: [URL: GitChange]) {
+            guard let outlineView else { return }
             (outlineView as? FileOutlineControl)?.basePath = basePath
-            guard store.updateTree(gitChanges: gitChanges, refreshID: refreshID) else { return }
-            outlineView?.reloadData()
-            if let outlineView {
+            let rootChanged = renderedRootURL != store.rootURL
+            let expandedURLs = Set(store.cachedItems.filter { outlineView.isItemExpanded($0) }.map(\.url))
+            let selectedURLs = outlineView.selectedRowIndexes.compactMap {
+                (outlineView.item(atRow: $0) as? FileItem)?.url
+            }
+            let clipView = outlineView.enclosingScrollView?.contentView
+            let origin = clipView?.bounds.origin ?? .zero
+            let topRow = outlineView.row(at: NSPoint(x: 0, y: origin.y + 1))
+            let topURL = (outlineView.item(atRow: topRow) as? FileItem)?.url
+            let topOffset = topRow >= 0 ? origin.y - outlineView.rect(ofRow: topRow).minY : 0
+
+            guard store.updateTree(gitChanges: gitChanges) else { return }
+            renderedRootURL = store.rootURL
+            isRestoring = true
+            defer { isRestoring = false }
+            outlineView.reloadData()
+            if rootChanged {
                 expandChangedDirectories(in: store.rootItems, outlineView: outlineView)
+            } else {
+                restoreExpansion(in: store.rootItems, urls: expandedURLs, outlineView: outlineView)
+                var selection = IndexSet()
+                var scrollOrigin = origin
+                for row in 0..<outlineView.numberOfRows {
+                    guard let item = outlineView.item(atRow: row) as? FileItem else { continue }
+                    if selectedURLs.contains(item.url) { selection.insert(row) }
+                    if item.url == topURL { scrollOrigin.y = outlineView.rect(ofRow: row).minY + topOffset }
+                }
+                outlineView.selectRowIndexes(selection, byExtendingSelection: false)
+                if let clipView {
+                    let bounds = NSRect(origin: scrollOrigin, size: clipView.bounds.size)
+                    clipView.scroll(to: clipView.constrainBoundsRect(bounds).origin)
+                    outlineView.enclosingScrollView?.reflectScrolledClipView(clipView)
+                }
+            }
+        }
+
+        private func restoreExpansion(in items: [FileItem], urls: Set<URL>, outlineView: NSOutlineView) {
+            for item in items where item.isDirectory {
+                if urls.contains(item.url) { outlineView.expandItem(item) }
+                if urls.contains(where: { $0.path.hasPrefix(item.url.path + "/") }) {
+                    restoreExpansion(in: store.children(for: item), urls: urls, outlineView: outlineView)
+                }
             }
         }
 
@@ -86,6 +126,7 @@ struct FileTreeView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard
+                !isRestoring,
                 let outlineView = notification.object as? NSOutlineView,
                 let item = outlineView.item(atRow: outlineView.selectedRow) as? FileItem,
                 !item.isDirectory

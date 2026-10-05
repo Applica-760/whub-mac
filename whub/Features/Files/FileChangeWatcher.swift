@@ -29,10 +29,22 @@ final class FileChangeWatcher {
         }
     }
 
-    func start(paths: Set<String>) throws {
-        guard paths != watchedPaths else { return }
+    // Accepts directory paths; returns whether the active monitoring targets changed.
+    @discardableResult
+    func start(paths: Set<String>) throws -> Bool {
+        let paths = Set(paths.flatMap { path in
+            let url = URL(fileURLWithPath: path)
+            return [url.standardizedFileURL, url.resolvingSymlinksInPath()].map { url in
+                var directory = url
+                while !FileManager.default.fileExists(atPath: directory.path), directory.path != "/" {
+                    directory.deleteLastPathComponent()
+                }
+                return directory.path
+            }
+        })
+        guard paths != watchedPaths else { return false }
         stop()
-        guard !paths.isEmpty else { return }
+        guard !paths.isEmpty else { return true }
 
         var context = FSEventStreamContext(
             version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
@@ -65,6 +77,7 @@ final class FileChangeWatcher {
         }
         eventStream = stream
         watchedPaths = paths
+        return true
     }
 
     func stop() {

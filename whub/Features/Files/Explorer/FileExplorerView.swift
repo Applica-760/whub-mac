@@ -1,3 +1,4 @@
+import AppKit
 import SwiftData
 import SwiftUI
 import WhubCore
@@ -51,11 +52,20 @@ struct FileExplorerView: View {
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
                 }
+                if let watchError = store.watchError {
+                    Text(watchError)
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal)
+                }
+                if let directoryErrorMessage = store.directoryErrorMessage {
+                    Text(directoryErrorMessage)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal)
+                }
                 FileTreeView(
                     store: store,
                     basePath: store.basePath(projects: projects),
                     gitChanges: fileViewerStore.gitChanges,
-                    refreshID: fileViewerStore.refreshID,
                     onFilePreview: { fileURL in
                         fileViewerStore.preview(fileURL)
                         onFileSelect()
@@ -74,7 +84,14 @@ struct FileExplorerView: View {
             ProjectNavigation(urls: store.availableURLs(projects: projects), selection: $store.selectedRootURL)
         )
         .onAppear {
-            store.selectDefaultRoot(projects: projects)
+            store.validateSelection(projects: projects)
+            store.startWatching()
+        }
+        .onDisappear {
+            store.stopWatching()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            store.refreshTree()
         }
         .onChange(of: store.availableURLs(projects: projects)) { _, _ in
             store.validateSelection(projects: projects)
