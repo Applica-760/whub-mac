@@ -17,6 +17,11 @@ enum TerminalAttention: String, CaseIterable, Hashable {
 }
 
 private final class FixedCursorTerminalView: LocalProcessTerminalView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit is MTKView ? self : hit
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard window != nil else { return }
