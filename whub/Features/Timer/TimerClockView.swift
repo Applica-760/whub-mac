@@ -6,6 +6,8 @@ struct TimerClockView: View {
     @Query(sort: \ActivityRecord.startedAt) private var records: [ActivityRecord]
     @State private var day = Calendar.current.startOfDay(for: .now)
     @State private var editingRecord: ActivityRecord?
+    @State private var newRecordStart = Date.now
+    @State private var showsRecordForm = false
 
     private static let dateFormat = Date.VerbatimFormatStyle(
         format: "\(year: .defaultDigits).\(month: .twoDigits).\(day: .twoDigits)",
@@ -24,6 +26,9 @@ struct TimerClockView: View {
                             .help("Previous day")
                         ActivityClock(day: day, records: records, now: timeline.date, size: 220) {
                             editingRecord = $0
+                            showsRecordForm = true
+                        } onAdd: { start in
+                            addRecord(startingAt: start)
                         }
                         Button("Next day", systemImage: "chevron.right") { moveDay(1) }
                             .disabled(Calendar.current.isDate(day, inSameDayAs: timeline.date))
@@ -35,8 +40,8 @@ struct TimerClockView: View {
                 .padding()
             }
         }
-        .sheet(item: $editingRecord) { record in
-            ActivityRecordEditView(record: record)
+        .sheet(isPresented: $showsRecordForm) {
+            ActivityRecordFormView(record: editingRecord, startedAt: newRecordStart)
         }
     }
 
@@ -47,8 +52,17 @@ struct TimerClockView: View {
                 .font(.caption)
             ActivityClock(day: date, records: records, now: now, size: 80) {
                 editingRecord = $0
+                showsRecordForm = true
+            } onAdd: { start in
+                addRecord(startingAt: start)
             }
         }
+    }
+
+    private func addRecord(startingAt start: Date) {
+        editingRecord = nil
+        newRecordStart = start
+        showsRecordForm = true
     }
 
     private func moveDay(_ offset: Int) {
@@ -62,6 +76,7 @@ private struct ActivityClock: View {
     let now: Date
     let size: CGFloat
     let onEdit: (ActivityRecord) -> Void
+    let onAdd: (Date) -> Void
 
     var body: some View {
         ZStack {
@@ -111,7 +126,15 @@ private struct ActivityClock: View {
 
         return ZStack {
             Circle().stroke(.secondary.opacity(0.18), lineWidth: width)
-                .allowsHitTesting(false)
+                .contentShape(Circle().stroke(style: StrokeStyle(lineWidth: width)))
+                .onTapGesture(count: 2) {
+                    let ends = records.compactMap { record -> Date? in
+                        let from = max(start, record.startedAt)
+                        let to = min(end, record.endedAt ?? now)
+                        return from < to ? to : nil
+                    }
+                    onAdd(defaultRecordStart(periodStart: start, recordEnds: ends))
+                }
             ForEach(records) { record in
                 let from = max(start, record.startedAt)
                 let to = min(end, record.endedAt ?? now)
@@ -133,6 +156,15 @@ private struct ActivityClock: View {
         }
         .frame(width: diameter, height: diameter)
     }
+}
+
+private func defaultRecordStart(
+    periodStart: Date,
+    recordEnds: [Date],
+    calendar: Calendar = .current
+) -> Date {
+    guard let lastEnd = recordEnds.max() else { return periodStart }
+    return calendar.dateInterval(of: .hour, for: lastEnd)!.end
 }
 
 private func clockFraction(_ date: Date) -> Double {
