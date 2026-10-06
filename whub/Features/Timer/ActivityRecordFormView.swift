@@ -2,39 +2,55 @@ import SwiftData
 import SwiftUI
 import WhubCore
 
-struct ActivityRecordEditView: View {
-    let record: ActivityRecord
+struct ActivityRecordFormView: View {
+    let record: ActivityRecord?
+    @Query(sort: \ActivityCategory.name) private var categories: [ActivityCategory]
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @State private var startedAt: Date
     @State private var endedAt: Date
     @State private var hasEndTime: Bool
+    @State private var categoryID: UUID?
     @State private var showsDeleteConfirmation = false
     @State private var errorMessage: String?
 
-    init(record: ActivityRecord) {
+    init(record: ActivityRecord? = nil, startedAt: Date = .now) {
         self.record = record
-        _startedAt = State(initialValue: record.startedAt)
-        _endedAt = State(initialValue: record.endedAt ?? .now)
-        _hasEndTime = State(initialValue: record.endedAt != nil)
+        _startedAt = State(initialValue: record?.startedAt ?? startedAt)
+        _endedAt = State(initialValue: record.map { $0.endedAt ?? .now }
+            ?? Calendar.current.date(byAdding: .hour, value: 1, to: startedAt)!)
+        _hasEndTime = State(initialValue: record == nil || record?.endedAt != nil)
+    }
+
+    private var selectedCategory: ActivityCategory? {
+        record?.category ?? categories.first { $0.id == categoryID }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Edit Activity Record")
+            Text(record == nil ? "Add Activity Record" : "Edit Activity Record")
                 .font(.title2)
 
             Form {
-                LabeledContent("Activity") {
-                    HStack {
-                        Circle().fill(record.category.displayColor)
-                            .frame(width: 10, height: 10)
-                            .accessibilityHidden(true)
-                        Text(record.category.name)
+                if let record {
+                    LabeledContent("Activity") {
+                        HStack {
+                            Circle().fill(record.category.displayColor)
+                                .frame(width: 10, height: 10)
+                                .accessibilityHidden(true)
+                            Text(record.category.name)
+                        }
+                    }
+                } else {
+                    Picker("Activity", selection: $categoryID) {
+                        Text("Select an activity").tag(nil as UUID?)
+                        ForEach(categories) { category in
+                            Text(category.name).tag(Optional(category.id))
+                        }
                     }
                 }
                 DatePicker("Start", selection: $startedAt, displayedComponents: [.date, .hourAndMinute])
-                if record.endedAt == nil {
+                if let record, record.endedAt == nil {
                     Toggle("Set end time", isOn: $hasEndTime)
                     if !hasEndTime {
                         Text("Recording in progress")
@@ -48,12 +64,15 @@ struct ActivityRecordEditView: View {
             .formStyle(.grouped)
 
             HStack {
-                Button("Delete", role: .destructive) { showsDeleteConfirmation = true }
+                if record != nil {
+                    Button("Delete", role: .destructive) { showsDeleteConfirmation = true }
+                }
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Save", action: save)
                     .keyboardShortcut(.defaultAction)
+                    .disabled(selectedCategory == nil)
             }
             .buttonStyle(.glass)
         }
@@ -76,13 +95,15 @@ struct ActivityRecordEditView: View {
     }
 
     private func save() {
+        guard let category = selectedCategory else { return }
+        let store = ActivityRecordStore(context: context)
         do {
-            try ActivityRecordStore(context: context).edit(
-                record,
-                category: record.category,
-                startedAt: startedAt,
-                endedAt: hasEndTime ? endedAt : nil
-            )
+            if let record {
+                try store.edit(record, category: category, startedAt: startedAt,
+                               endedAt: hasEndTime ? endedAt : nil)
+            } else {
+                try store.add(category: category, startedAt: startedAt, endedAt: endedAt)
+            }
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
@@ -90,6 +111,7 @@ struct ActivityRecordEditView: View {
     }
 
     private func delete() {
+        guard let record else { return }
         do {
             try ActivityRecordStore(context: context).delete(record)
             dismiss()

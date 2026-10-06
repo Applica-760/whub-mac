@@ -57,6 +57,20 @@ public struct ActivityRecordStore {
         return record
     }
 
+    @discardableResult
+    public func add(category: ActivityCategory, startedAt: Date, endedAt: Date) throws -> ActivityRecord {
+        try validate(startedAt: startedAt, endedAt: endedAt)
+        let record = ActivityRecord(category: category, startedAt: startedAt, endedAt: endedAt)
+        context.insert(record)
+        do {
+            try context.save()
+        } catch {
+            context.delete(record)
+            throw error
+        }
+        return record
+    }
+
     public func stop(at date: Date = .now) throws {
         guard let current = try fetchCurrentRecord() else { return }
         try edit(current, category: current.category, startedAt: current.startedAt, endedAt: date)
