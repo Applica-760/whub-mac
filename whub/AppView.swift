@@ -4,6 +4,7 @@ struct AppView: View {
     enum Section: CaseIterable, Hashable {
         case workspace
         case browser
+        case codex
         case overview
         case motion
 
@@ -11,6 +12,7 @@ struct AppView: View {
             switch self {
             case .workspace: "Workspace"
             case .browser: "Browser"
+            case .codex: "Codex"
             case .overview: "Overview"
             case .motion: "Motion"
             }
@@ -20,6 +22,7 @@ struct AppView: View {
             switch self {
             case .workspace: "chevron.left.forwardslash.chevron.right"
             case .browser: "globe"
+            case .codex: "sparkles"
             case .overview: "rectangle.3.group"
             case .motion: "hand.draw"
             }
@@ -31,6 +34,7 @@ struct AppView: View {
             case .overview: OverviewView()
             case .workspace: WorkspaceView()
             case .browser: BrowserView()
+            case .codex: CodexView()
             case .motion: MotionView()
             }
         }
