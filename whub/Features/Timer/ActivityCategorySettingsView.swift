@@ -35,6 +35,15 @@ struct ActivityCategorySettingsView: View {
     }
 }
 
+extension ActivityCategory {
+    var displayColor: Color {
+        Color(.sRGB,
+              red: Double((colorRGB >> 16) & 0xFF) / 255,
+              green: Double((colorRGB >> 8) & 0xFF) / 255,
+              blue: Double(colorRGB & 0xFF) / 255)
+    }
+}
+
 private struct CategoryRow: Identifiable {
     let id: UUID
     let category: ActivityCategory?
