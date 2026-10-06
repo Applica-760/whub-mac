@@ -83,6 +83,11 @@ public struct ActivityRecordStore {
         }
     }
 
+    public func delete(_ record: ActivityRecord) throws {
+        context.delete(record)
+        try context.save()
+    }
+
     private func validate(
         startedAt: Date,
         endedAt: Date?,
