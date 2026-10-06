@@ -24,7 +24,9 @@ private final class FixedCursorTerminalView: LocalProcessTerminalView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else { return }
+        guard let window else { return }
+        fontSmoothing = false
+        metalScaleFactorOverride = window.backingScaleFactor * 2
         do {
             try setUseMetal(true)
             for metalView in subviews.compactMap({ $0 as? MTKView }) {
