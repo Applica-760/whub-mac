@@ -49,6 +49,8 @@ struct AppView: View {
         .frame(minWidth: 1000, minHeight: 550)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                TimerToolbarView()
+
                 Picker("ページ", selection: $section) {
                     ForEach(Section.allCases, id: \.self) { section in
                         Label(section.label, systemImage: section.systemImage)
@@ -64,6 +66,7 @@ struct AppView: View {
                     Label("Settings", systemImage: "gearshape")
                 }
                 .labelStyle(.iconOnly)
+
             }
         }
     }

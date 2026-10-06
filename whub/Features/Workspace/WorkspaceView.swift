@@ -11,7 +11,7 @@ struct WorkspaceView: View {
             TerminalView()
                 .frame(minWidth: 300)
         }
-		 .navigationTitle("Workspace")
+        .navigationTitle("Workspace")
         .onAppear {
             DispatchQueue.main.async {
                 let terminal = terminalStore.selectedSession.terminal
