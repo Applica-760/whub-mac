@@ -9,6 +9,7 @@ struct whubApp: App {
     @StateObject private var fileViewerStore = FileViewerStore()
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
+    @StateObject private var codexStore = CodexStore()
     @State private var section = AppView.Section.workspace
     @FocusedValue(\.projectNavigation) private var projectNavigation
     private let workspaceContainer: ModelContainer
@@ -31,6 +32,10 @@ struct whubApp: App {
                 .environmentObject(fileViewerStore)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
+                .environmentObject(codexStore)
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    codexStore.disconnect()
+                }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                     fileViewerStore.checkForExternalChanges()
                 }
