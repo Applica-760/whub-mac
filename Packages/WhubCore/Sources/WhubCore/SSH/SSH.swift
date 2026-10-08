@@ -76,6 +76,10 @@ public enum SSH {
         init(executable: URL, arguments: [String]) throws {
             let process = Process()
             let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
+            // A cancelled write must throw EPIPE rather than terminate the app.
+            guard fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
             self.process = process
             input = stdin.fileHandleForWriting
             output = Self.read(stdout.fileHandleForReading)

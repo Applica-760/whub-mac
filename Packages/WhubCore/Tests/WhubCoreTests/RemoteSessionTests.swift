@@ -2,6 +2,7 @@
 // - 同梱Pythonへの連続・並行要求が同一プロセスで処理され、毎回起動されない。
 // - 注入直後の入力、分割・連結・順序逆転した応答を正しく読み取る。
 // - 起動失敗・切断・期限超過・キャンセルで要求が残らず、終了時にプロセスが終了する。
+// - スクリプト送信が詰まっていてもキャンセルで起動期限前にプロセスを終了する。
 // - JSON-RPCエラー後にも接続を利用でき、stderrの大量出力で停止しない。
 // - Project／Worktree相当のルートで直下だけ取得し、隠しファイルの表示条件とリンク種別を保つ。
 // - 本文の正確な復元、1 MiB境界、非UTF-8・バイナリ・特殊ファイル・リンク・ルート外の拒否を検証する。
@@ -136,6 +137,45 @@ struct RemoteSessionTests {
         await #expect(throws: CancellationError.self) { try await request.value }
         #expect(try await session.ping() == 1)
         await session.close()
+    }
+
+    @Test func cancellationStopsBlockedInjection() async throws {
+        let directory = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ready = directory.appendingPathComponent("ready")
+        // Read only the length line, then leave the source bytes in the pipe.
+        let connection = try SSH.Connection(
+            executable: URL(fileURLWithPath: "/usr/bin/python3"),
+            arguments: ["-u", "-c", """
+            import os, sys, time
+            b = b''
+            while not b.endswith(b'\\n'): b += os.read(0, 1)
+            open(sys.argv[1], 'w').close()
+            time.sleep(60)
+            """, ready.path]
+        )
+        let attempt = Task {
+            try await RemoteSession.connect(
+                connection: connection, source: Data(repeating: 32, count: 1_048_576), timeout: .seconds(10)
+            )
+        }
+        defer { attempt.cancel(); connection.stop() }
+        let deadline = ContinuousClock.now + .seconds(3)
+        while !FileManager.default.fileExists(atPath: ready.path) {
+            guard ContinuousClock.now < deadline else { throw RemoteSessionError.timedOut }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(connection.process.isRunning)
+        let start = ContinuousClock.now
+        attempt.cancel()
+        do {
+            let session = try await attempt.value
+            await session.close()
+            Issue.record("送信中のキャンセル後に接続が成功しました。")
+        } catch {
+            #expect(start.duration(to: .now) < .seconds(5))
+        }
+        #expect(!connection.process.isRunning)
     }
 
     private func fixture() throws -> URL {
