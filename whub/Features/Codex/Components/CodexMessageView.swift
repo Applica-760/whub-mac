@@ -6,6 +6,8 @@ struct CodexMessageView: View {
     let isUser: Bool
     let showsHeader: Bool
     var width: CGFloat? = nil
+    var history: [CodexTurn] = []
+    @State private var showsHistory = false
     var copy: () -> Void = {}
 
     var body: some View {
@@ -16,6 +18,16 @@ struct CodexMessageView: View {
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Spacer()
                     if !isUser {
+                        ZStack {
+                            if history.contains(where: { $0.status == "inProgress" }) {
+                                ProgressView().controlSize(.mini)
+                                    .accessibilityLabel("応答を生成中")
+                            }
+                        }
+                        .frame(width: 16, height: 16)
+                        Button("作業履歴", systemImage: "terminal") { showsHistory.toggle() }
+                            .font(.caption).buttonStyle(.plain)
+                            .popover(isPresented: $showsHistory) { CodexHistoryView(turns: history) }
                         Button("回答をコピー", systemImage: "doc.on.doc", action: copy)
                             .labelStyle(.iconOnly).buttonStyle(.plain)
                     }

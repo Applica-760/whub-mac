@@ -26,7 +26,6 @@ final class CodexBookPagination: ObservableObject {
     @Published private(set) var pageSize: CGSize?
     @Published private(set) var pages = [Page()]
     @Published private(set) var spread = 0
-    private var followsLatest = true
     private var committedIDs: [UUID] = []
     private var committedPages = [Page()]
     private var measured: [Measurement: CGFloat] = [:]
@@ -35,27 +34,24 @@ final class CodexBookPagination: ObservableObject {
     private let gap: CGFloat = 14
 
     var spreadCount: Int { max(1, (pages.count + 1) / 2) }
-    var contentWidth: CGFloat { (pageSize?.width ?? 400) - 48 }
-    var contentHeight: CGFloat { (pageSize?.height ?? 600) - 64 }
+    var contentWidth: CGFloat { (pageSize?.width ?? 400) - 32 }
+    // Keep the one-line composer (36pt), bottom inset (16pt) and a 12pt gap clear.
+    var contentHeight: CGFloat { (pageSize?.height ?? 600) - 80 }
 
     func configure(viewport: CGSize) {
         guard pageSize == nil, viewport.width > 100, viewport.height > 100 else { return }
-        pageSize = CGSize(width: max(280, floor((viewport.width - 24) / 2)), height: max(320, floor(viewport.height)))
+        pageSize = CGSize(width: max(280, floor((viewport.width - 16) / 2)), height: max(320, floor(viewport.height)))
     }
 
     func move(_ offset: Int) {
         spread = min(max(0, spread + offset), spreadCount - 1)
-        followsLatest = spread == spreadCount - 1
     }
-
-    func showLatest() { followsLatest = true; spread = spreadCount - 1 }
 
     func update(_ turns: [CodexTurn]) {
         guard pageSize != nil else { return }
         if Array(turns.prefix(committedIDs.count).map(\.id)) != committedIDs || turns.isEmpty {
             committedIDs = []
             committedPages = [Page()]
-            followsLatest = true
             spread = 0
         }
         usedMeasurements.removeAll(keepingCapacity: true)
@@ -63,6 +59,9 @@ final class CodexBookPagination: ObservableObject {
         for turn in turns.dropFirst(committedIDs.count) {
             append([Block(id: 0, kind: .paragraph, text: AttributedString(turn.prompt))],
                    turnID: turn.id, isUser: true, to: &output)
+            if turn.answers.isEmpty {
+                append([Block(id: 0, kind: .paragraph)], turnID: turn.id, isUser: false, to: &output)
+            }
             for answer in turn.answers {
                 append(CodexMarkdownResponseView(source: answer.text).blocks,
                        turnID: turn.id, isUser: false, to: &output)
@@ -75,7 +74,7 @@ final class CodexBookPagination: ObservableObject {
         }
         measured = measured.filter { usedMeasurements.contains($0.key) }
         pages = output
-        spread = followsLatest ? spreadCount - 1 : min(spread, spreadCount - 1)
+        spread = min(spread, spreadCount - 1)
     }
 
     private struct Measurement: Hashable {

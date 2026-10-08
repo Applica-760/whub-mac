@@ -5,26 +5,33 @@ import SwiftUI
 struct CodexBookView: View {
     @EnvironmentObject private var store: CodexStore
     @ObservedObject var book: CodexBookPagination
-    @State private var showsHistory = false
+    var composerClearance: CGFloat = 64
     @State private var readingFocus = TabPaneFocus()
 
     var body: some View {
         VStack(spacing: 8) {
             GeometryReader { geometry in
                 if let size = book.pageSize {
-                    let width = size.width * 2 + 24
+                    let width = size.width * 2 + 16
                     let scale = min(1, geometry.size.width / width, geometry.size.height / size.height)
                     HStack(spacing: 0) {
                         page(book.spread * 2, size: size)
-                        Rectangle().fill(.secondary.opacity(0.18)).frame(width: 1)
-                            .padding(.horizontal, 11.5).padding(.vertical, 20)
+                        Color.clear.frame(width: 16)
                         page(book.spread * 2 + 1, size: size)
                     }
                     .frame(width: width, height: size.height)
                     .scaleEffect(scale)
                     .frame(width: geometry.size.width, height: geometry.size.height)
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(.secondary.opacity(0.18))
+                            .frame(width: 1, height: max(0, geometry.size.height - composerClearance - 20))
+                            .padding(.top, 20)
+                            .allowsHitTesting(false)
+                    }
                 }
             }
+            .background(.background, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.quaternary))
             .clipped()
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
                 guard book.pageSize == nil else { return }
@@ -38,24 +45,6 @@ struct CodexBookView: View {
                 book.move(event.keyCode == 123 ? -1 : 1)
                 return true
             })
-
-            HStack(spacing: 16) {
-                Button("前の見開き", systemImage: "chevron.left") { book.move(-1) }
-                    .labelStyle(.iconOnly).disabled(book.spread == 0)
-                Text("\(book.spread * 2 + 1)–\(book.spread * 2 + 2) / \(book.spreadCount * 2)")
-                    .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-                Button("次の見開き", systemImage: "chevron.right") { book.move(1) }
-                    .labelStyle(.iconOnly).disabled(book.spread == book.spreadCount - 1)
-                Button("最新へ", systemImage: "arrow.right.to.line") { book.showLatest() }
-                    .disabled(book.spread == book.spreadCount - 1)
-                Divider().frame(height: 16)
-                Button("作業履歴", systemImage: "terminal") { showsHistory.toggle() }
-                    .popover(isPresented: $showsHistory) { CodexHistoryView(turns: store.turns) }
-                if store.isBusy { ProgressView().controlSize(.small).accessibilityLabel("応答を生成中") }
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .glassEffect(.regular, in: .capsule)
         }
         .onReceive(store.$turns.throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)) {
             book.update($0)
@@ -64,25 +53,43 @@ struct CodexBookView: View {
 
     private func page(_ index: Int, size: CGSize) -> some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 16).fill(.background)
+            Color.clear
             if book.pages.indices.contains(index) {
                 ForEach(book.pages[index].fragments) { fragment in
-                    CodexMessageView(block: fragment.block, isUser: fragment.isUser, showsHeader: fragment.showsHeader, width: book.contentWidth) {
+                    CodexMessageView(block: fragment.block, isUser: fragment.isUser, showsHeader: fragment.showsHeader, width: book.contentWidth, history: store.turns.filter { $0.id == fragment.turnID }) {
                         let answer = store.turns.first { $0.id == fragment.turnID }?.answers.map(\.text).joined(separator: "\n\n") ?? ""
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(answer, forType: .string)
                     }
                     .frame(width: book.contentWidth, height: fragment.naturalHeight, alignment: .topLeading)
                     .scaleEffect(fragment.scale, anchor: .topLeading)
-                    .offset(x: 24, y: 24 + fragment.y)
+                    .offset(x: 16, y: 16 + fragment.y)
                 }
             }
         }
         .frame(width: size.width, height: size.height)
-        .overlay(alignment: .bottom) {
-            Text("\(index + 1)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary).padding(.bottom, 12)
+        .overlay(alignment: index.isMultiple(of: 2) ? .bottomLeading : .bottomTrailing) {
+            HStack(spacing: 0) {
+                if index.isMultiple(of: 2) {
+                    Button { book.move(-1) } label: {
+                        Image(systemName: "chevron.left").frame(width: 28, height: 28).contentShape(Rectangle())
+                    }
+                    .disabled(book.spread == 0)
+                    .accessibilityLabel("前の見開き")
+                }
+                Text("\(index + 1)")
+                if !index.isMultiple(of: 2) {
+                    Button { book.move(1) } label: {
+                        Image(systemName: "chevron.right").frame(width: 28, height: 28).contentShape(Rectangle())
+                    }
+                    .disabled(book.spread == book.spreadCount - 1)
+                    .accessibilityLabel("次の見開き")
+                }
+            }
+            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12).padding(.bottom, 20)
         }
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.quaternary))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(index + 1)ページ")
     }

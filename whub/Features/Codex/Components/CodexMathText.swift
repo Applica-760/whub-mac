@@ -102,7 +102,7 @@ struct CodexMathSource {
 
 struct CodexMathText: View {
     let text: AttributedString
-    var fontSize: CGFloat = 15
+    var fontSize: CGFloat = 13
     @Environment(\.colorScheme) private var colorScheme
 
     private enum Segment {
