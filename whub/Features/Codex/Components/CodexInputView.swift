@@ -45,7 +45,7 @@ struct CodexInputView: View {
     }
 
     var body: some View {
-        WidgetFrame {
+        Group {
             VStack(alignment: .leading, spacing: 10) {
                 if showsSkills || (token?.text.hasPrefix("$") == true && token != dismissedToken) || !candidates.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
@@ -83,20 +83,33 @@ struct CodexInputView: View {
                     }
                     .font(.callout)
                 }
-                CodexTextInput(text: $store.draft, selection: $selection, handleKey: handleKey)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityAction(named: Text("送信")) { submit() }
-                if store.isBusy {
-                    HStack {
-                        Spacer()
-                        Button(store.isStopping ? "停止中…" : "停止", systemImage: "stop.fill") {
-                            Task { await store.interrupt() }
+                HStack(alignment: .bottom, spacing: 12) {
+                    CodexTextInput(text: $store.draft, selection: $selection, handleKey: handleKey)
+                        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                        .accessibilityAction(named: Text("送信")) { submit() }
+                    ZStack {
+                        Color.clear
+                        if store.isBusy {
+                            Button(store.isStopping ? "停止中…" : "停止", systemImage: "stop.fill") {
+                                Task { await store.interrupt() }
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.plain)
+                            .frame(width: 32, height: 32)
+                            .background(.quaternary, in: Circle())
+                            .contentShape(Circle())
+                            .help(store.isStopping ? "停止中…" : "停止")
+                            .disabled(store.isStopping)
                         }
-                        .disabled(store.isStopping)
                     }
+                    .frame(width: 32, height: 32)
                 }
-            }.padding(16)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .frame(maxWidth: 868)
         .padding(.horizontal, 16).padding(.bottom, 16).padding(.top, 8)
         .task(id: store.directory) { await store.loadSkills() }

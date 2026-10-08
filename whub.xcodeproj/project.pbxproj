@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A49000000000000000000001 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = A49000000000000000000002 /* SwiftMath */; };
 		C8244DC530553E480038A6AF /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C8244DC430553E480038A6AF /* SwiftTerm */; };
 		C8244E5C3056B24F0038A6AF /* WhubCore in Frameworks */ = {isa = PBXBuildFile; productRef = C8244E5B3056B24F0038A6AF /* WhubCore */; };
 		CAA6689B4CD1D40F57C3DB8D /* Highlighter in Frameworks */ = {isa = PBXBuildFile; productRef = E46B7CCC8930061F68FD4E6E /* Highlighter */; };
@@ -29,6 +30,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A49000000000000000000001 /* SwiftMath in Frameworks */,
 				C8244DC530553E480038A6AF /* SwiftTerm in Frameworks */,
 				C8244E5C3056B24F0038A6AF /* WhubCore in Frameworks */,
 				CAA6689B4CD1D40F57C3DB8D /* Highlighter in Frameworks */,
@@ -74,6 +76,7 @@
 			);
 			name = whub;
 			packageProductDependencies = (
+				A49000000000000000000002 /* SwiftMath */,
 				C8244DC430553E480038A6AF /* SwiftTerm */,
 				C8244E5B3056B24F0038A6AF /* WhubCore */,
 				E46B7CCC8930061F68FD4E6E /* Highlighter */,
@@ -107,6 +110,7 @@
 			mainGroup = C8244D7C3052F9300038A6AF;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				A49000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftMath" */,
 				C8244DC330553E480038A6AF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				C8244E5A3056B24F0038A6AF /* XCLocalSwiftPackageReference "Packages/WhubCore" */,
 				03AEE2700291130EC651D647 /* XCRemoteSwiftPackageReference "HighlighterSwift" */,
@@ -368,6 +372,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		A49000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mgriebling/SwiftMath.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.7.3;
+			};
+		};
 		03AEE2700291130EC651D647 /* XCRemoteSwiftPackageReference "HighlighterSwift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/smittytone/HighlighterSwift.git";
@@ -387,6 +399,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A49000000000000000000002 /* SwiftMath */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A49000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftMath" */;
+			productName = SwiftMath;
+		};
 		C8244DC430553E480038A6AF /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C8244DC330553E480038A6AF /* XCRemoteSwiftPackageReference "SwiftTerm" */;
