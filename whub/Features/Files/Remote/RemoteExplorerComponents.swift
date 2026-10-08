@@ -10,8 +10,8 @@ struct RemoteWorkspaceMenuItems: View {
             if !entries.isEmpty {
                 Divider()
                 Section {
-                    ForEach(entries) { entry in
-                        Text(entry.name).tag(Optional(entry.id))
+                    ForEach(entries, id: \.self) { entry in
+                        Text(entry.name).tag(Optional(entry))
                     }
                 } header: {
                     Text(source.hostName)

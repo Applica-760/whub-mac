@@ -3,6 +3,7 @@
 // - 同じパスのローカル・別ホストを区別し、選択とショートカットの順序を保つ。
 // - 切断・再接続後に遅れて返る成功・失敗が新しい一覧を上書きしない。
 // - 再取得時に一覧を更新し、一部の取得失敗を空の正常結果として隠さない。
+// - ホスト表示名の変更では一覧を再取得せず、既存の一覧・選択を維持する。
 // 限界: 通信応答を制御して状態管理を検証する。実SSHとメニューの見た目は別途確認する。
 import Foundation
 import SwiftData
@@ -39,22 +40,58 @@ struct RemoteWorkspaceStoreTests {
         try await eventually { sources.allSatisfy { store.states[$0.hostID] == .loaded } }
         let rows = store.entries(for: sources)
         #expect(rows.map(\.name) == ["a", "z", "a-2", "a-10", "a", "z", "a-2", "a-10"])
-        #expect(rows[0].id != rows[4].id)
-        #expect(rows[0].id != .local(URL(fileURLWithPath: "/same/projects/a")))
+        #expect(rows[0] != rows[4])
+        #expect(rows[0] != .local(URL(fileURLWithPath: "/same/projects/a")))
         let explorer = FileExplorerStore()
         let localHost = try HostStore(context: fixture.container.mainContext).addLocal(name: "local", basePath: "/same")
         let project = try ProjectStore(context: fixture.container.mainContext).add(name: "a", gitURL: nil, host: localHost)
-        let locations = explorer.availableLocations(projects: [project], remote: rows.map(\.id))
-        #expect(locations == [.local(URL(fileURLWithPath: project.path))] + rows.map(\.id))
+        let locations = explorer.availableLocations(projects: [project], remote: rows)
+        #expect(locations == [.local(URL(fileURLWithPath: project.path))] + rows)
         explorer.selectedLocation = locations[0]
         let navigation = ProjectNavigation(locations: locations, selection: Binding(
             get: { explorer.selectedLocation }, set: { explorer.selectedLocation = $0 }
         ))
         navigation.move(by: 1)
-        #expect(explorer.selectedLocation == rows[0].id)
+        #expect(explorer.selectedLocation == rows[0])
         #expect(explorer.selectedRootURL == nil)
         explorer.validateSelection(projects: [project], remote: [])
         #expect(explorer.selectedLocation == locations[0])
+        store.stop()
+    }
+
+    @Test func renamePreservesListingAndSelection() async throws {
+        let fixture = try Fixture()
+        let source = fixture.source(fixture.first)
+        let store = RemoteWorkspaceStore()
+        var requests = 0
+        store.update(sources: [source], refreshID: 0) { source, path in
+            requests += 1
+            return try entries(path == source.projectsPath ? ["a"] : ["a-1"])
+        }
+        try await eventually { store.states[source.hostID] == .loaded }
+        let locations = store.entries(for: [source])
+        let explorer = FileExplorerStore()
+        let selected = try #require(locations.last)
+        explorer.selectedLocation = selected
+
+        let host = fixture.first
+        try HostStore(context: fixture.container.mainContext).editRemote(
+            host, name: "renamed", basePath: host.basePath, hostname: host.hostname,
+            user: host.user, port: host.port, identityFile: host.identityFile
+        )
+        let renamed = fixture.source(fixture.first)
+        #expect(renamed.hostName == "renamed")
+        #expect(renamed == source)
+        #expect(store.entries(for: [renamed]) == locations)
+        store.update(sources: [renamed], refreshID: 0) { _, _ in
+            requests += 1
+            Issue.record("表示名だけの変更で一覧を再取得しました。")
+            return []
+        }
+        #expect(store.states[source.hostID] == .loaded)
+        explorer.validateSelection(projects: [], remote: store.entries(for: [renamed]))
+        #expect(explorer.selectedLocation == selected)
+        #expect(requests == 2)
         store.stop()
     }
 

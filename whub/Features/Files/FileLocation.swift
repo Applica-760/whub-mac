@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-enum FileLocation: Hashable {
+nonisolated enum FileLocation: Hashable, Sendable {
     case local(URL)
     case remote(hostID: PersistentIdentifier, path: String)
 

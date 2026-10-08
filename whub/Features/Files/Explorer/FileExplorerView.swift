@@ -74,11 +74,11 @@ struct FileExplorerView: View {
                     basePath: store.basePath(projects: projects),
                     gitChanges: fileViewerStore.gitChanges,
                     onFilePreview: { fileURL in
-                        fileViewerStore.preview(fileURL)
+                        fileViewerStore.preview(.local(fileURL))
                         onFileSelect()
                     },
                     onFileOpen: { fileURL in
-                        fileViewerStore.open(fileURL)
+                        fileViewerStore.open(.local(fileURL))
                         onFileSelect()
                     }
                 )
@@ -105,7 +105,7 @@ struct FileExplorerView: View {
         .onAppear {
             updateRemote()
             updateRemoteTree()
-            store.validateSelection(projects: projects, remote: remoteEntries.map(\.id))
+            store.validateSelection(projects: projects, remote: remoteEntries)
             store.startWatching(viewerStore: fileViewerStore)
         }
         .onDisappear {
@@ -116,7 +116,7 @@ struct FileExplorerView: View {
             store.refresh()
         }
         .onChange(of: availableLocations) { _, _ in
-            store.validateSelection(projects: projects, remote: remoteEntries.map(\.id))
+            store.validateSelection(projects: projects, remote: remoteEntries)
         }
         .onChange(of: RemoteLoadID(sources: remoteSources, refreshID: fileViewerStore.refreshID), initial: true) { _, _ in
             updateRemote()
@@ -146,10 +146,10 @@ struct FileExplorerView: View {
         RemoteWorkspaceStore.connectedSources(hosts: hosts, connections: connections)
     }
 
-    private var remoteEntries: [RemoteWorkspaceStore.Entry] { remoteStore.entries(for: remoteSources) }
+    private var remoteEntries: [FileLocation] { remoteStore.entries(for: remoteSources) }
 
     private var availableLocations: [FileLocation] {
-        store.availableLocations(projects: projects, remote: remoteEntries.map(\.id))
+        store.availableLocations(projects: projects, remote: remoteEntries)
     }
 
     private func updateRemoteTree() {
