@@ -1,5 +1,23 @@
 import Combine
 import Foundation
+import SwiftData
+import WhubCore
+
+enum CodexCommand: String, CaseIterable {
+    case new = "/new"
+    case stop = "/stop"
+    case skills = "/skills"
+    case status = "/status"
+
+    var description: String {
+        switch self {
+        case .new: "新しい会話"
+        case .stop: "作業を停止"
+        case .skills: "Skillを選択"
+        case .status: "状態を確認"
+        }
+    }
+}
 
 struct CodexItem: Identifiable {
     let id: String
@@ -8,7 +26,7 @@ struct CodexItem: Identifiable {
     var title: String
     var text: String
     var status: String
-    var isAnswer: Bool { type == "agentMessage" && phase == "final_answer" }
+    var isAnswer: Bool { type == "commandOutput" || (type == "agentMessage" && phase == "final_answer") }
 }
 
 struct CodexTurn: Identifiable {
@@ -73,10 +91,10 @@ struct CodexSkill: Identifiable {
 }
 
 @MainActor
-final class CodexStore: ObservableObject {
+final class CodexStore: ObservableObject, Identifiable {
+    let id = UUID()
     @Published var draft = ""
-    @Published var directory = ""
-    @Published var writable = false
+    @Published var selectedSkills: [CodexSkill] = []
     @Published private(set) var skills: [CodexSkill] = []
     @Published private(set) var skillError: String?
     @Published private(set) var isLoadingSkills = false
@@ -89,10 +107,12 @@ final class CodexStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     private(set) var threadID: String?
     private let client = CodexClient()
+    private let context: ModelContext
     private var stopRequested = false
     private var needsResume = false
 
-    init() {
+    init(context: ModelContext) {
+        self.context = context
         client.onEvent = { [weak self] in self?.receive($0, params: $1, requestID: $2) }
         client.onDisconnect = { [weak self] message in
             self?.fail(message)
@@ -100,20 +120,81 @@ final class CodexStore: ObservableObject {
         }
     }
 
-    var canSend: Bool { !isBusy && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !directory.isEmpty }
-    var canConfigure: Bool { threadID == nil && !isBusy }
+    var directory: String {
+        (try? HostStore(context: context).fetchHosts().first { $0 is LocalHost }?.basePath)
+            ?? NSHomeDirectory()
+    }
 
-    func loadSkills(forceReload: Bool = false) async {
+    var canSend: Bool { !isBusy && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !directory.isEmpty }
+
+    private var activeTurnIndex: Int? {
+        turns.lastIndex { $0.status == "inProgress" }
+    }
+
+    func runCommand(_ command: CodexCommand) async {
+        let output: String
+        switch command {
+        case .new:
+            reset()
+            return
+        case .stop:
+            let wasBusy = isBusy
+            await interrupt()
+            output = wasBusy ? (isStopping ? "停止を要求しました。" : errorMessage ?? "作業を停止しました。") : "実行中の作業はありません。"
+        case .skills:
+            output = await loadSkills(forceReload: true)
+        case .status:
+            output = await statusText()
+        }
+        appendCommandOutput(command, output)
+    }
+
+    private func appendCommandOutput(_ command: CodexCommand, _ output: String) {
+        let item = CodexItem(id: UUID().uuidString, type: "commandOutput", phase: nil,
+                             title: command.rawValue, text: "```\n" + output + "\n```", status: "completed")
+        turns.append(CodexTurn(prompt: command.rawValue, items: [item], status: "completed"))
+    }
+
+    private func statusText() async -> String {
+        var output = "作業フォルダ: \(directory)\n会話: \(threadID ?? "未開始")"
+        do { try await client.connect(directory: directory) }
+        catch { return output + "\n接続: " + error.localizedDescription }
+        let requests: [(String, [String: Any])] = [
+            ("config/read", ["includeLayers": false]), ("account/read", ["refreshToken": false]),
+            ("account/rateLimits/read", [:])
+        ]
+        for (method, params) in requests {
+            do {
+                var result = try await client.request(method, params)
+                if method == "config/read", let config = result["config"] as? [String: Any] {
+                    // Provider configuration can contain credentials; show only status fields.
+                    result = config.filter { ["model", "model_reasoning_effort", "model_provider", "service_tier", "sandbox_mode", "approval_policy", "approvals_reviewer"].contains($0.key) }
+                    if threadID != nil { result["model"] = model }
+                }
+                output += "\n\n" + method + "\n" + Self.pretty(result)
+                if method == "account/read" {
+                    guard let account = result["account"] as? [String: Any], account["type"] as? String != "apiKey" else { break }
+                }
+            } catch {
+                output += "\n\n" + method + "\n" + error.localizedDescription
+                if method == "account/read" { break }
+            }
+        }
+        return output
+    }
+
+    @discardableResult
+    func loadSkills(forceReload: Bool = false) async -> String {
         let cwd = directory
-        guard !cwd.isEmpty else { return }
+        guard !cwd.isEmpty else { return "作業フォルダがありません。" }
         isLoadingSkills = true
         if skillsDirectory != cwd { skills = [] }
         skillError = nil
         defer { if directory == cwd { isLoadingSkills = false } }
         do {
-            try await client.connect()
+            try await client.connect(directory: cwd)
             let result = try await client.request("skills/list", ["cwds": [cwd], "forceReload": forceReload])
-            guard directory == cwd else { return }
+            guard directory == cwd else { return "作業フォルダが変更されました。再実行してください。" }
             let entries = result["data"] as? [[String: Any]] ?? []
             skills = entries.flatMap { $0["skills"] as? [[String: Any]] ?? [] }.compactMap {
                 guard $0["enabled"] as? Bool != false,
@@ -123,16 +204,19 @@ final class CodexStore: ObservableObject {
             skillsDirectory = cwd
             let errors = entries.flatMap { $0["errors"] as? [[String: Any]] ?? [] }
             if !errors.isEmpty { skillError = Self.pretty(errors) }
+            return Self.pretty(result)
         } catch {
             if directory == cwd { skillError = error.localizedDescription }
+            return error.localizedDescription
         }
     }
 
     func send(skills selectedSkills: [CodexSkill] = []) async {
         guard canSend else { return }
+        let cwd = directory
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
-            errorMessage = "作業フォルダが存在しません。フォルダを選択してください。"
+        guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory), isDirectory.boolValue else {
+            errorMessage = "ローカルHostのBasePathが存在しません。Host設定を確認してください。"
             return
         }
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -142,12 +226,9 @@ final class CodexStore: ObservableObject {
         isBusy = true
         turns.append(CodexTurn(prompt: prompt))
         do {
-            try await client.connect()
+            try await client.connect(directory: cwd)
             if threadID == nil {
-                let result = try await client.request("thread/start", [
-                    "cwd": directory, "sandbox": writable ? "workspace-write" : "read-only",
-                    "approvalPolicy": "on-request", "approvalsReviewer": "user"
-                ])
+                let result = try await client.request("thread/start", ["cwd": cwd])
                 guard let thread = result["thread"] as? [String: Any], let id = thread["id"] as? String else {
                     throw CodexError(message: "Codexから会話IDを取得できませんでした。")
                 }
@@ -162,8 +243,8 @@ final class CodexStore: ObservableObject {
             var input: [[String: Any]] = [["type": "text", "text": prompt]]
             input += selectedSkills.map { ["type": "skill", "name": $0.name, "path": $0.path] }
             let result = try await client.request("turn/start", ["threadId": threadID, "input": input])
-            if let turn = result["turn"] as? [String: Any], let id = turn["id"] as? String, isBusy {
-                turns[turns.count - 1].remoteID = id
+            if let turn = result["turn"] as? [String: Any], let id = turn["id"] as? String, isBusy, let index = activeTurnIndex {
+                turns[index].remoteID = id
                 if stopRequested { await interrupt() }
             }
         } catch {
@@ -176,7 +257,7 @@ final class CodexStore: ObservableObject {
         guard isBusy else { return }
         stopRequested = true
         isStopping = true
-        guard let threadID, let turnID = turns.last?.remoteID else { return }
+        guard let threadID, let index = activeTurnIndex, let turnID = turns[index].remoteID else { return }
         for attempt in 0..<10 {
             guard isBusy else { return }
             do {
@@ -205,6 +286,7 @@ final class CodexStore: ObservableObject {
         requests = []
         errorMessage = nil
         model = "Codexの既存設定"
+        appendCommandOutput(.new, "新しい会話を開始しました。")
     }
 
     func disconnect() { client.disconnect() }
@@ -221,7 +303,8 @@ final class CodexStore: ObservableObject {
             if ["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "item/tool/requestUserInput"].contains(method) {
                 var details = params
                 if method == "item/fileChange/requestApproval",
-                   let item = turns.last?.items.first(where: { $0.id == params["itemId"] as? String }) {
+                   let index = activeTurnIndex,
+                   let item = turns[index].items.first(where: { $0.id == params["itemId"] as? String }) {
                     details["changePreview"] = item.text
                 }
                 requests.append(CodexRequest(rpcID: requestID, method: method, params: details))
@@ -235,8 +318,7 @@ final class CodexStore: ObservableObject {
             requests.removeAll { $0.id == Self.pretty(id) }
             return
         }
-        guard params["threadId"] as? String == threadID, !turns.isEmpty else { return }
-        let index = turns.count - 1
+        guard params["threadId"] as? String == threadID, let index = activeTurnIndex else { return }
         if method == "turn/started", let turn = params["turn"] as? [String: Any] {
             turns[index].remoteID = turn["id"] as? String
             return
@@ -274,7 +356,7 @@ final class CodexStore: ObservableObject {
     }
 
     private func finish(_ status: String) {
-        if !turns.isEmpty { turns[turns.count - 1].status = status }
+        if let index = activeTurnIndex { turns[index].status = status }
         isBusy = false
         isStopping = false
         requests = []

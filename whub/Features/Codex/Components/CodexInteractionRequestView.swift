@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct CodexRequestView: View {
+struct CodexInteractionRequestView: View {
     let request: CodexRequest
     let respond: ([String: Any]) -> Void
     @State private var answers: [String: String] = [:]

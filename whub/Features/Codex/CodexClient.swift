@@ -20,17 +20,18 @@ final class CodexClient {
     private var diagnostics = ""
     var isConnected: Bool { process?.isRunning == true }
 
-    func connect() async throws {
-        if let connecting { try await connecting.value; return }
-        guard !isConnected else { return }
+    func connect(directory: String) async throws {
+        if let connecting { try await connecting.value }
+        let cwd = URL(fileURLWithPath: directory).standardizedFileURL
+        guard !isConnected || process?.currentDirectoryURL?.standardizedFileURL != cwd else { return }
         disconnect()
-        let task = Task { try await startConnection() }
+        let task = Task { try await startConnection(directory: cwd) }
         connecting = task
         defer { connecting = nil }
         try await task.value
     }
 
-    private func startConnection() async throws {
+    private func startConnection(directory: URL) async throws {
         let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
             + ["/opt/homebrew/bin", "/usr/local/bin", NSHomeDirectory() + "/.local/bin"]
         guard let executable = paths.map({ $0 + "/codex" }).first(where: FileManager.default.isExecutableFile(atPath:)) else {
@@ -39,6 +40,7 @@ final class CodexClient {
         let child = Process()
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         child.executableURL = URL(fileURLWithPath: executable)
+        child.currentDirectoryURL = directory
         child.arguments = ["app-server", "--listen", "stdio://"]
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = (paths + ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]).joined(separator: ":")

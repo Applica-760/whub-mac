@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct CodexTurnView: View {
+struct CodexMessageView: View {
     let turn: CodexTurn
     @State private var showsHistory = false
 
@@ -38,8 +38,6 @@ struct CodexTurnView: View {
                 HStack(spacing: 8) {
                     if turn.status == "inProgress" { ProgressView().controlSize(.small) }
                     Text("作業履歴 · \(turn.history.count)件")
-                    Spacer()
-                    Text(statusLabel).font(.caption)
                 }.foregroundStyle(.secondary)
             }
 
@@ -55,7 +53,7 @@ struct CodexTurnView: View {
                         }
                         .labelStyle(.iconOnly).buttonStyle(.plain)
                     }
-                    ForEach(turn.answers) { item in CodexMarkdown(source: item.text) }
+                    ForEach(turn.answers) { item in CodexMarkdownResponseView(source: item.text) }
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -71,14 +69,4 @@ struct CodexTurnView: View {
             }
         }
     }
-
-    private var statusLabel: String {
-        switch turn.status {
-        case "inProgress": "作業中"
-        case "completed": "完了"
-        case "interrupted": "停止済み"
-        default: "エラー"
-        }
-    }
 }
-

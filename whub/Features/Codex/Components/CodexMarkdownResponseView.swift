@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Foundation parses Markdown; block boundaries provide readable native spacing.
-struct CodexMarkdown: View {
+struct CodexMarkdownResponseView: View {
     let source: String
 
     private struct Block: Identifiable {
