@@ -11,12 +11,12 @@ final class RemoteWorkspaceStore: ObservableObject {
         let projectsPath: String
         let worktreesPath: String
         let sessionID: ObjectIdentifier
-    }
 
-    struct Entry: Identifiable, Equatable {
-        let id: FileLocation
-        let name: String
-        let hostName: String
+        // Display-name changes do not invalidate directory listings.
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.hostID == rhs.hostID && lhs.projectsPath == rhs.projectsPath
+                && lhs.worktreesPath == rhs.worktreesPath && lhs.sessionID == rhs.sessionID
+        }
     }
 
     enum State: Equatable {
@@ -24,7 +24,7 @@ final class RemoteWorkspaceStore: ObservableObject {
     }
 
     @Published private(set) var states: [PersistentIdentifier: State] = [:]
-    @Published private var entries: [PersistentIdentifier: [Entry]] = [:]
+    @Published private var entries: [PersistentIdentifier: [FileLocation]] = [:]
     private var sources: [PersistentIdentifier: Source] = [:]
     private var jobs: [PersistentIdentifier: Task<Void, Never>] = [:]
     private var generations: [PersistentIdentifier: UUID] = [:]
@@ -51,7 +51,7 @@ final class RemoteWorkspaceStore: ObservableObject {
         }
     }
 
-    func entries(for current: [Source]) -> [Entry] {
+    func entries(for current: [Source]) -> [FileLocation] {
         current.flatMap { source in
             sources[source.hostID] == source ? entries[source.hostID, default: []] : []
         }
@@ -91,8 +91,7 @@ final class RemoteWorkspaceStore: ObservableObject {
                 catch { errors.append("Worktrees: \(error.localizedDescription)") }
                 guard !Task.isCancelled, let self, self.generations[id] == generation else { return }
                 let projectEntries = projects.map {
-                    Entry(id: .remote(hostID: id, path: (source.projectsPath as NSString).appendingPathComponent($0)),
-                          name: $0, hostName: source.hostName)
+                    FileLocation.remote(hostID: id, path: (source.projectsPath as NSString).appendingPathComponent($0))
                 }
                 let worktreeEntries = worktrees.filter { name in
                     projects.contains { project in
@@ -101,8 +100,7 @@ final class RemoteWorkspaceStore: ObservableObject {
                         return name == "\(project)-\(number)"
                     }
                 }.map {
-                    Entry(id: .remote(hostID: id, path: (source.worktreesPath as NSString).appendingPathComponent($0)),
-                          name: $0, hostName: source.hostName)
+                    FileLocation.remote(hostID: id, path: (source.worktreesPath as NSString).appendingPathComponent($0))
                 }
                 self.entries[id] = projectEntries + worktreeEntries
                 self.states[id] = errors.isEmpty ? .loaded : .failed(errors.joined(separator: "\n"))

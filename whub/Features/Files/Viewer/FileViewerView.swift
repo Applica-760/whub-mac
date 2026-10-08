@@ -10,32 +10,32 @@ struct FileViewerView: View {
     var body: some View {
         VStack(spacing: 8) {
             TabBarContainer(
-                ids: store.fileURLs,
-                selection: store.selectedFileURL,
+                ids: store.fileLocations,
+                selection: store.selectedLocation,
                 select: selectTab,
-                close: { fileURL in
+                close: { location in
                     tabFocus.activate()
-                    store.close(fileURL)
+                    store.close(location)
                 },
                 canClose: { _ in true },
                 move: store.move,
                 isShortcutTarget: tabFocus.contains
-            ) { fileURL, isSelected, actions in
-                if let fileStore = store.fileStores[fileURL] {
+            ) { location, isSelected, actions in
+                if let fileStore = store.fileStores[location], let fileURL = location.localURL {
                     let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
                     case .added: Color(nsColor: .systemGreen)
                     case .modified, .deleted: Color(nsColor: .systemOrange)
                     case nil: nil
                     }
                     TabBar(
-                        title: fileURL.lastPathComponent,
+                        title: location.name,
                         icon: IconList.image(for: fileURL),
                         isSelected: isSelected,
-                        isPreview: fileURL == store.previewFileURL,
+                        isPreview: location == store.previewLocation,
                         titleColor: titleColor,
                         status: fileStore.diskMessage != nil ? (.orange, "外部変更・読み込みエラー")
                             : fileStore.hasUnsavedChanges ? (.primary, "未保存") : nil,
-                        openAction: { store.open(fileURL) },
+                        openAction: { store.open(location) },
                         action: actions.select,
                         closeAction: actions.close
                     )
@@ -47,11 +47,11 @@ struct FileViewerView: View {
             }
 
             WidgetFrame {
-                if let fileURL = store.selectedFileURL, let state = store.fileStores[fileURL] {
+                if let location = store.selectedLocation, let state = store.fileStores[location] {
                     FileContent(state: state, editorID: editorID) { [weak store] in
-                        if store?.previewFileURL == fileURL { store?.open(fileURL) }
+                        if store?.previewLocation == location { store?.open(location) }
                     }
-                    .id(fileURL)
+                    .id(location)
                 } else {
                     Text("Select a file")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -64,12 +64,12 @@ struct FileViewerView: View {
         .padding(.top, 8)
     }
 
-    private func selectTab(_ fileURL: URL) {
+    private func selectTab(_ location: FileLocation) {
         tabFocus.activate()
-        store.select(fileURL)
+        store.select(location)
         DispatchQueue.main.async {
-            guard store.selectedFileURL == fileURL,
-                  let editor = store.fileStores[fileURL]?.editorViews[editorID]?.documentView,
+            guard store.selectedLocation == location,
+                  let editor = store.fileStores[location]?.editorViews[editorID]?.documentView,
                   let window = editor.window, tabFocus.contains(window) else { return }
             window.makeFirstResponder(editor)
         }
