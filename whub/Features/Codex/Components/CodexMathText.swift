@@ -8,7 +8,7 @@ nonisolated struct CodexFormula: Hashable, Sendable {
     let display: Bool
 }
 
-nonisolated private enum CodexFormulaAttribute: AttributedStringKey {
+nonisolated enum CodexFormulaAttribute: AttributedStringKey {
     typealias Value = CodexFormula
     static let name = "whub.formula"
 }

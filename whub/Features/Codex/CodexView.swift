@@ -5,6 +5,7 @@ struct CodexView: View {
     @EnvironmentObject private var store: CodexTabsStore
     @State private var tabFocus = TabPaneFocus()
     @State private var pendingCloseID: CodexStore.ID?
+    @State private var books: [CodexStore.ID: CodexBookPagination] = [:]
 
     var body: some View {
         VStack(spacing: 8) {
@@ -27,9 +28,19 @@ struct CodexView: View {
                     )
                 }
             }
-            CodexSessionView()
-                .environmentObject(store.selectedSession)
-                .id(store.selectedSessionID)
+            if let book = books[store.selectedSessionID] {
+                CodexSessionView(book: book)
+                    .environmentObject(store.selectedSession)
+                    .id(store.selectedSessionID)
+            } else {
+                Color.clear.frame(maxHeight: .infinity)
+            }
+        }
+        .task(id: store.selectedSessionID) {
+            if books[store.selectedSessionID] == nil { books[store.selectedSessionID] = CodexBookPagination() }
+        }
+        .onChange(of: store.sessions.map(\.id)) { _, ids in
+            books = books.filter { ids.contains($0.key) }
         }
         .background(TabPaneFocusView(focus: tabFocus))
         .padding(.horizontal)
@@ -81,26 +92,12 @@ private struct CodexConversationTab: View {
 
 private struct CodexSessionView: View {
     @EnvironmentObject private var store: CodexStore
+    let book: CodexBookPagination
     @State private var confirmsReset = false
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 32) {
-                        ForEach(store.turns) { turn in
-                            CodexMessageView(turn: turn).id(turn.id)
-                        }
-                    }
-                    .frame(maxWidth: 820, alignment: .leading)
-                    .frame(maxWidth: .infinity)
-                    .padding(24)
-                }
-                .onChange(of: store.turns.count) { _, _ in
-                    if let id = store.turns.last?.id { proxy.scrollTo(id, anchor: .top) }
-                }
-
-            }
+            CodexBookView(book: book)
             if !store.requests.isEmpty {
                 ScrollView {
                     VStack(spacing: 12) {

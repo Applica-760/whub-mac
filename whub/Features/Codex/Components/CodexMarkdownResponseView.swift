@@ -4,11 +4,12 @@ import SwiftUI
 struct CodexMarkdownResponseView: View {
     let source: String
 
-    private struct Block: Identifiable {
+    struct Block: Identifiable, Hashable {
         let id: Int
         let kind: PresentationIntent.Kind
         var text = AttributedString()
         var children: [Block] = []
+        var continued = false
 
         mutating func append(_ text: AttributedString, path: ArraySlice<PresentationIntent.IntentType>) {
             guard let component = path.first else {
@@ -22,7 +23,7 @@ struct CodexMarkdownResponseView: View {
         }
     }
 
-    private var blocks: [Block] {
+    var blocks: [Block] {
         let math = CodexMathSource(source)
         guard let markdown = try? AttributedString(markdown: math.markdown, options: .init(interpretedSyntax: .full)) else {
             return [Block(id: 0, kind: .paragraph, text: AttributedString(source))]
@@ -52,13 +53,14 @@ struct CodexMarkdownResponseView: View {
         .textSelection(.enabled)
     }
 
-    private struct BlockView: View {
+    struct BlockView: View {
         let block: Block
         var ordered = false
+        var width: CGFloat? = nil
 
         private var contents: some View {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(block.children) { BlockView(block: $0) }
+                ForEach(block.children) { BlockView(block: $0, width: width.map { $0 - (block.kind == .blockQuote ? 14 : 32) }) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -77,7 +79,7 @@ struct CodexMarkdownResponseView: View {
             case .orderedList, .unorderedList:
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(block.children) { child in
-                        BlockView(block: child, ordered: block.kind == .orderedList)
+                        BlockView(block: child, ordered: block.kind == .orderedList, width: width)
                     }
                 }
             case .listItem(let ordinal):
@@ -86,6 +88,7 @@ struct CodexMarkdownResponseView: View {
                         .font(.system(size: 15).monospacedDigit())
                         .foregroundStyle(.secondary)
                         .frame(minWidth: 22, alignment: .trailing)
+                        .opacity(block.continued ? 0 : 1)
                     contents
                 }
             case .blockQuote:
@@ -103,7 +106,7 @@ struct CodexMarkdownResponseView: View {
                 }
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
             case .table(let columns):
-                TableView(block: block, columns: columns)
+                TableView(block: block, columns: columns, fixedWidth: width)
             default:
                 if block.children.isEmpty {
                     CodexMathText(text: block.text)
@@ -120,10 +123,11 @@ struct CodexMarkdownResponseView: View {
     private struct TableView: View {
         let block: Block
         let columns: [PresentationIntent.TableColumn]
+        var fixedWidth: CGFloat?
         @State private var availableWidth: CGFloat = 820
 
         private var columnWidth: CGFloat {
-            max(120, min(300, availableWidth / CGFloat(max(columns.count, 1))))
+            max(120, min(300, (fixedWidth ?? availableWidth) / CGFloat(max(columns.count, 1))))
         }
 
         var body: some View {
