@@ -6,6 +6,9 @@ import WhubCore
 struct FileExplorerView: View {
     let onFileSelect: () -> Void
     @Query(sort: \Project.name) private var projects: [Project]
+    @Query(sort: \RemoteHost.name) private var hosts: [RemoteHost]
+    @EnvironmentObject private var connections: RemoteConnectionStore
+    @StateObject private var remoteStore = RemoteWorkspaceStore()
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var fileViewerStore: FileViewerStore
     @StateObject private var store = FileExplorerStore()
@@ -13,33 +16,34 @@ struct FileExplorerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Picker("Project or Worktree", selection: $store.selectedRootURL) {
-                    if store.availableURLs(projects: projects).isEmpty {
-                        Text("---").tag(URL?.none)
+                Picker("Project or Worktree", selection: $store.selectedLocation) {
+                    if availableLocations.isEmpty {
+                        Text("---").tag(FileLocation?.none)
                     }
-                    ForEach(projects) { project in
-                        Text(project.name).tag(Optional(URL(fileURLWithPath: project.path)))
+                    ForEach(projects.filter { $0.host is LocalHost }) { project in
+                        Text(project.name).tag(Optional(FileLocation.local(URL(fileURLWithPath: project.path))))
                     }
                     ForEach(store.worktreeURLs, id: \.self) { url in
-                        Text(url.lastPathComponent).tag(Optional(url))
+                        Text(url.lastPathComponent).tag(Optional(FileLocation.local(url)))
                     }
+                    RemoteWorkspaceMenuItems(store: remoteStore, sources: remoteSources)
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 
-                Button {
-                    fileViewerStore.refresh()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .help("Refresh files and Git status")
-                .disabled(store.selectedRootURL == nil)
+                // Reserve the trigger position; expanded actions overlay the explorer.
+                Color.clear.frame(width: 36, height: 36)
             }
             .padding(.horizontal)
             .padding(.top)
 
             Divider()
                 .padding(.horizontal)
+
+            RemoteWorkspaceStatusView(store: remoteStore, sources: remoteSources)
 
             if let errorMessage = store.errorMessage {
                 Text(errorMessage)
@@ -62,16 +66,21 @@ struct FileExplorerView: View {
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
                 }
+                if case .remote = store.selectedLocation {
+                    RemoteFileTreeStatusView(states: store.remoteTree.states)
+                }
                 FileTreeView(
                     store: store,
                     basePath: store.basePath(projects: projects),
                     gitChanges: fileViewerStore.gitChanges,
-                    onFilePreview: { fileURL in
-                        fileViewerStore.preview(fileURL)
+                    onFilePreview: { location in
+                        fileViewerStore.remote.load(location, root: store.treeLocation, hosts: hosts, connections: connections)
+                        fileViewerStore.preview(location)
                         onFileSelect()
                     },
-                    onFileOpen: { fileURL in
-                        fileViewerStore.open(fileURL)
+                    onFileOpen: { location in
+                        fileViewerStore.remote.load(location, root: store.treeLocation, hosts: hosts, connections: connections)
+                        fileViewerStore.open(location)
                         onFileSelect()
                     }
                 )
@@ -79,22 +88,47 @@ struct FileExplorerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .topTrailing) {
+            GeometryReader { geometry in
+                ExplorerActionsView(
+                    availableWidth: min(280, max(36, geometry.size.width - 32)),
+                    canRefresh: store.selectedLocation != nil || !remoteSources.isEmpty
+                ) {
+                    fileViewerStore.refresh()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(16)
+            }
+        }
         .focusedSceneValue(
             \.projectNavigation,
-            ProjectNavigation(urls: store.availableURLs(projects: projects), selection: $store.selectedRootURL)
+            ProjectNavigation(locations: availableLocations, selection: $store.selectedLocation)
         )
         .onAppear {
-            store.validateSelection(projects: projects)
+            updateRemote()
+            updateRemoteTree()
+            store.validateSelection(projects: projects, remote: remoteEntries)
             store.startWatching(viewerStore: fileViewerStore)
         }
         .onDisappear {
             store.stopWatching()
+            remoteStore.stop()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             store.refresh()
         }
-        .onChange(of: store.availableURLs(projects: projects)) { _, _ in
-            store.validateSelection(projects: projects)
+        .onChange(of: availableLocations) { _, _ in
+            store.validateSelection(projects: projects, remote: remoteEntries)
+        }
+        .onChange(of: RemoteLoadID(sources: remoteSources, refreshID: fileViewerStore.refreshID), initial: true) { _, _ in
+            updateRemote()
+        }
+        .onChange(of: RemoteTreeLoadID(
+            location: store.selectedLocation,
+            sources: remoteSources,
+            refreshID: fileViewerStore.refreshID
+        ), initial: true) { _, _ in
+            updateRemoteTree()
         }
         .task(id: WorktreeLoadID(
             projectPaths: projects.compactMap { $0.host is LocalHost ? $0.path : nil },
@@ -103,21 +137,51 @@ struct FileExplorerView: View {
             store.loadWorktrees(projects: projects)
         }
         .task(id: ExplorerLoadID(
-            rootURL: store.selectedRootURL,
+            location: store.selectedLocation,
             refreshID: fileViewerStore.refreshID
         )) {
             await store.load(projects: projects, context: context, viewerStore: fileViewerStore)
         }
     }
 
+    private var remoteSources: [RemoteWorkspaceStore.Source] {
+        RemoteWorkspaceStore.connectedSources(hosts: hosts, connections: connections)
+    }
+
+    private var remoteEntries: [FileLocation] { remoteStore.entries(for: remoteSources) }
+
+    private var availableLocations: [FileLocation] {
+        store.availableLocations(projects: projects, remote: remoteEntries)
+    }
+
+    private func updateRemoteTree() {
+        store.remoteTree.update(location: store.selectedLocation, hosts: hosts,
+                                connections: connections, refreshID: fileViewerStore.refreshID)
+    }
+
+    private func updateRemote() {
+        remoteStore.update(hosts: hosts, connections: connections, refreshID: fileViewerStore.refreshID)
+    }
+
 }
 
 private struct ExplorerLoadID: Equatable {
-    let rootURL: URL?
+    let location: FileLocation?
     let refreshID: Int
 }
 
 private struct WorktreeLoadID: Equatable {
     let projectPaths: [String]
+    let refreshID: Int
+}
+
+private struct RemoteLoadID: Equatable {
+    let sources: [RemoteWorkspaceStore.Source]
+    let refreshID: Int
+}
+
+private struct RemoteTreeLoadID: Equatable {
+    let location: FileLocation?
+    let sources: [RemoteWorkspaceStore.Source]
     let refreshID: Int
 }

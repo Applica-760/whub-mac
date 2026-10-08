@@ -26,6 +26,7 @@ public enum HostStoreError: LocalizedError {
 
 @MainActor
 public struct HostStore {
+    static let connectionInvalidated = Notification.Name("WhubCore.HostConnectionInvalidated")
     private let context: ModelContext
 
     public init(context: ModelContext) {
@@ -90,6 +91,10 @@ public struct HostStore {
     ) throws {
         let name = try validate(name: name, basePath: basePath, excluding: host)
         try SSH.validate(hostname: hostname, user: user, port: port)
+        if host.hostname != hostname || host.user != user || host.port != port
+            || host.identityFile != identityFile || host.basePath != basePath {
+            NotificationCenter.default.post(name: Self.connectionInvalidated, object: host.persistentModelID)
+        }
         host.name = name
         host.basePath = basePath
         host.hostname = hostname
@@ -122,6 +127,7 @@ public struct HostStore {
         guard !projects.contains(where: { $0.host.persistentModelID == host.persistentModelID }) else {
             throw HostStoreError.hasProjects(host.name)
         }
+        NotificationCenter.default.post(name: Self.connectionInvalidated, object: host.persistentModelID)
         context.delete(host)
         try context.save()
     }
