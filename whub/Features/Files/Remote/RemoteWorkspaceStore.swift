@@ -30,6 +30,27 @@ final class RemoteWorkspaceStore: ObservableObject {
     private var generations: [PersistentIdentifier: UUID] = [:]
     private var refreshID: Int?
 
+    static func connectedSources(hosts: [RemoteHost], connections: RemoteConnectionStore) -> [Source] {
+        hosts.compactMap { host in
+            guard let session = connections.session(for: host) else { return nil }
+            return .init(hostID: host.persistentModelID, hostName: host.name,
+                         projectsPath: host.projectsPath, worktreesPath: host.worktreesPath,
+                         sessionID: ObjectIdentifier(session))
+        }
+    }
+
+    func update(hosts: [RemoteHost], connections: RemoteConnectionStore, refreshID: Int) {
+        let sessions = Dictionary(uniqueKeysWithValues: hosts.compactMap { host in
+            connections.session(for: host).map { (host.persistentModelID, $0) }
+        })
+        update(sources: Self.connectedSources(hosts: hosts, connections: connections), refreshID: refreshID) { source, root in
+            guard let session = sessions[source.hostID], ObjectIdentifier(session) == source.sessionID else {
+                throw RemoteSessionError.disconnected
+            }
+            return try await session.listDirectory(root: root)
+        }
+    }
+
     func entries(for current: [Source]) -> [Entry] {
         current.flatMap { source in
             sources[source.hostID] == source ? entries[source.hostID, default: []] : []
