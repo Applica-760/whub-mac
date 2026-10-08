@@ -53,6 +53,14 @@ final class FileStore: ObservableObject {
         textStorage = NSTextStorage(string: source)
     }
 
+    func updateReadOnly(source: String) {
+        guard !isEditable, source != savedSource else { return }
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: source)
+        savedSource = source
+        content = .text(source)
+        diskRevision += 1
+    }
+
     var isEditable: Bool { fileURL != nil }
 
     var hasUnsavedChanges: Bool {

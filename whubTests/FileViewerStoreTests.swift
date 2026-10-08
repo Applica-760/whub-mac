@@ -1,6 +1,7 @@
 // 検証内容: 本文の遅延取得・再利用、ホスト識別、ルート検証、失敗表示、閉じたタブへの遅延応答破棄。
 // 読み取り専用の編集・保存拒否と、ローカルの保存・プレビュー・タブ操作も確認する。
-// 限界: 通信は制御した応答を使用。実SSH・画面操作・切断後の再取得は別途確認する。
+// リロード・切断・再接続・取得失敗時の旧本文保持と、旧セッションの応答破棄も確認する。
+// 限界: 通信と接続識別は制御した値を使用。実SSH・画面操作は別途確認する。
 import AppKit
 import SwiftData
 import SwiftUI
@@ -123,6 +124,118 @@ struct FileViewerStoreTests {
         #expect(store.file(for: file)?.textStorage.string == "")
     }
 
+    @Test func refreshAndFailureRetainReadOnlyFile() async throws {
+        let fixture = try ViewerFixture()
+        let viewer = FileViewerStore()
+        let root = fixture.root()
+        let location = root.appending("file")
+        var reads = 0
+        viewer.remote.load(location, root: root) { _, rootPath, path in
+            #expect(rootPath == "/project")
+            #expect(path == "file")
+            reads += 1
+            switch reads {
+            case 1: return "first"
+            case 2: return "second"
+            case 3: throw RemoteSessionError.remote(-32000, "ファイルが削除されました")
+            default: return ""
+            }
+        }
+        viewer.open(location)
+        try await eventually { viewer.remote.file(for: location) != nil }
+        let file = try #require(viewer.remote.file(for: location))
+        viewer.refresh()
+        try await eventually { file.textStorage.string == "second" }
+        #expect(viewer.remote.file(for: location) === file)
+        #expect(viewer.selectedLocation == location)
+        #expect(!file.isEditable)
+        viewer.refresh()
+        try await eventually { if case .failed = viewer.remote.states[location] { return true }; return false }
+        #expect(file.textStorage.string == "second")
+        #expect(viewer.remote.file(for: location) === file)
+        viewer.refresh()
+        try await eventually { file.textStorage.string.isEmpty }
+        #expect(reads == 4)
+        viewer.close(location)
+        viewer.refresh()
+        #expect(viewer.remote.states.isEmpty)
+        #expect(reads == 4)
+    }
+
+    @Test(arguments: [true, false])
+    func reconnectDiscardsOldSessionResult(succeeds: Bool) async throws {
+        let fixture = try ViewerFixture()
+        let store = RemoteFileViewerStore()
+        let root = fixture.root()
+        let location = root.appending("file")
+        let firstSession = NSObject()
+        let secondSession = NSObject()
+        var session: ObjectIdentifier? = ObjectIdentifier(firstSession)
+        let gate = ViewerGate()
+        var reads = 0
+        var returned = false
+        store.load(location, root: root, connection: { session }) { _, _, _ in
+            reads += 1
+            if reads == 1 { return "cached" }
+            if reads == 2 {
+                await gate.wait()
+                returned = true
+                if succeeds { return "old session" }
+                throw RemoteSessionError.disconnected
+            }
+            return "new session"
+        }
+        try await eventually { store.file(for: location) != nil }
+        let file = try #require(store.file(for: location))
+        store.refresh()
+        try await eventually { gate.waiting }
+        session = nil
+        store.synchronizeConnections()
+        guard case .disconnected = store.states[location] else { Issue.record("切断状態が必要"); return }
+        #expect(file.textStorage.string == "cached")
+        store.refresh()
+        #expect(reads == 2)
+        session = ObjectIdentifier(secondSession)
+        store.synchronizeConnections()
+        try await eventually { file.textStorage.string == "new session" }
+        gate.release()
+        try await eventually { returned }
+        #expect(file.textStorage.string == "new session")
+        #expect(store.file(for: location) === file)
+        store.synchronizeConnections()
+        #expect(reads == 3)
+        store.close(location)
+    }
+
+    @Test func refreshAndCloseDiscardPendingResult() async throws {
+        let fixture = try ViewerFixture()
+        let store = RemoteFileViewerStore()
+        let root = fixture.root()
+        let location = root.appending("file")
+        let gate = ViewerGate()
+        var reads = 0
+        var returned = false
+        store.load(location, root: root) { _, _, _ in
+            reads += 1
+            if reads == 1 {
+                await gate.wait()
+                returned = true
+                return "old"
+            }
+            return "latest"
+        }
+        try await eventually { gate.waiting }
+        store.refresh()
+        try await eventually { store.file(for: location)?.textStorage.string == "latest" }
+        store.close(location)
+        gate.release()
+        try await eventually { returned }
+        #expect(store.states[location] == nil)
+        #expect(store.file(for: location) == nil)
+        store.refresh()
+        #expect(reads == 2)
+    }
+
     @Test func localEditingAndTabs() throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/ViewerTests/" + UUID().uuidString)
@@ -135,6 +248,8 @@ struct FileViewerStoreTests {
         viewer.preview(location)
         let file = try #require(viewer.fileStores[location])
         #expect(file.isEditable)
+        file.updateReadOnly(source: "must not replace local content")
+        #expect(file.textStorage.string == "original")
         file.content = .text("edited")
         #expect(file.hasUnsavedChanges)
         viewer.open(location)

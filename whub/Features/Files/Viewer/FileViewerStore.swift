@@ -72,6 +72,7 @@ final class FileViewerStore: ObservableObject {
 
     func refresh() {
         refreshID += 1
+        remote.refresh()
     }
 
     func open(_ location: FileLocation) {
