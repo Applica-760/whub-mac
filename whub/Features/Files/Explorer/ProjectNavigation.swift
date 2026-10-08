@@ -1,13 +1,13 @@
 import SwiftUI
 
 struct ProjectNavigation {
-    let urls: [URL]
-    @Binding var selection: URL?
+    let locations: [FileLocation]
+    @Binding var selection: FileLocation?
 
     func move(by offset: Int) {
-        guard let index = urls.firstIndex(where: { $0 == selection }),
-              urls.indices.contains(index + offset) else { return }
-        selection = urls[index + offset]
+        guard let index = locations.firstIndex(where: { $0 == selection }),
+              locations.indices.contains(index + offset) else { return }
+        selection = locations[index + offset]
     }
 }
 
