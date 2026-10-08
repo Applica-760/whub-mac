@@ -33,8 +33,9 @@ struct CodexMarkdownResponseView: View {
         for run in parsed.runs {
             let path = Array((run.presentationIntent?.components ?? []).reversed())
             var text = AttributedString(parsed[run.range])
+            text.presentationIntent = nil
             if run.inlinePresentationIntent?.contains(.code) == true {
-                text.font = .system(size: 14, design: .monospaced)
+                text.font = .system(size: 12, design: .monospaced)
                 text.backgroundColor = Color.secondary.opacity(0.16)
             }
             if path.isEmpty {
@@ -70,9 +71,9 @@ struct CodexMarkdownResponseView: View {
             case .thematicBreak:
                 Divider().padding(.vertical, 6)
             case .header(let level):
-                CodexMathText(text: block.text, fontSize: [28.0, 24, 21, 18, 16, 15][min(max(level, 1), 6) - 1])
-                    .font(.system(size: [28.0, 24, 21, 18, 16, 15][min(max(level, 1), 6) - 1],
-                                  weight: level <= 2 ? .bold : .semibold))
+                CodexMathText(text: block.text, fontSize: [23.0, 20, 18, 16, 14, 13][min(max(level, 1), 6) - 1])
+                    .font(.system(size: [23.0, 20, 18, 16, 14, 13][min(max(level, 1), 6) - 1],
+                                  weight: .regular))
                     .foregroundStyle(level == 6 ? Color.secondary : Color.primary)
                     .padding(.top, level <= 2 ? 10 : 4)
                     .padding(.bottom, level <= 2 ? 4 : 0)
@@ -85,7 +86,7 @@ struct CodexMarkdownResponseView: View {
             case .listItem(let ordinal):
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(ordered ? "\(ordinal)." : "•")
-                        .font(.system(size: 15).monospacedDigit())
+                        .font(.system(size: 13, weight: .light).monospacedDigit())
                         .foregroundStyle(.secondary)
                         .frame(minWidth: 22, alignment: .trailing)
                         .opacity(block.continued ? 0 : 1)
@@ -101,7 +102,7 @@ struct CodexMarkdownResponseView: View {
             case .codeBlock:
                 ScrollView(.horizontal) {
                     Text(String(block.text.characters))
-                        .font(.system(size: 13, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .padding(12)
                 }
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
@@ -110,8 +111,8 @@ struct CodexMarkdownResponseView: View {
             default:
                 if block.children.isEmpty {
                     CodexMathText(text: block.text)
-                        .font(.system(size: 15))
-                        .lineSpacing(6)
+                        .font(.system(size: 13, weight: .light))
+                        .lineSpacing(4)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     contents
@@ -138,7 +139,7 @@ struct CodexMarkdownResponseView: View {
                             ForEach(columns.indices, id: \.self) { index in
                                 let cell = row.children.first { $0.kind == .tableCell(columnIndex: index) }
                                 CodexMathText(text: cell?.text ?? AttributedString())
-                                    .font(.system(size: 15, weight: row.kind == .tableHeaderRow ? .semibold : .regular))
+                                    .font(.system(size: 13, weight: row.kind == .tableHeaderRow ? .regular : .light))
                                     .multilineTextAlignment(columns[index].alignment == .right ? .trailing
                                         : columns[index].alignment == .center ? .center : .leading)
                                     .frame(width: columnWidth - 24, alignment: columns[index].alignment == .right ? .trailing

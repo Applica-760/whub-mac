@@ -85,7 +85,7 @@ struct CodexInputView: View {
                 }
                 HStack(alignment: .bottom, spacing: 12) {
                     CodexTextInput(text: $store.draft, selection: $selection, handleKey: handleKey)
-                        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                        .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
                         .accessibilityAction(named: Text("送信")) { submit() }
                     ZStack {
                         Color.clear
@@ -95,18 +95,18 @@ struct CodexInputView: View {
                             }
                             .labelStyle(.iconOnly)
                             .buttonStyle(.plain)
-                            .frame(width: 32, height: 32)
+                            .frame(width: 24, height: 24)
                             .background(.quaternary, in: Circle())
                             .contentShape(Circle())
                             .help(store.isStopping ? "停止中…" : "停止")
                             .disabled(store.isStopping)
                         }
                     }
-                    .frame(width: 32, height: 32)
+                    .frame(width: 24, height: 24)
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.vertical, 6)
         }
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -190,7 +190,7 @@ private struct CodexTextInput: NSViewRepresentable {
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
         view.drawsBackground = false
-        view.font = .systemFont(ofSize: 15)
+        view.font = .systemFont(ofSize: 13, weight: .light)
         view.textColor = .labelColor
         view.textContainerInset = .zero
         view.textContainer?.lineFragmentPadding = 0
@@ -248,27 +248,6 @@ private struct CodexTextInput: NSViewRepresentable {
 
 private final class CodexTextView: NSTextView {
     var handleKey: ((NSEvent) -> Bool)?
-    var showsPlaceholder: Bool { string.isEmpty && !hasMarkedText() }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        if showsPlaceholder {
-            (">" as NSString).draw(at: textContainerOrigin, withAttributes: [
-                .font: font ?? NSFont.systemFont(ofSize: 15), .foregroundColor: NSColor.tertiaryLabelColor
-            ])
-        }
-    }
-
-    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
-        needsDisplay = true
-    }
-
-    override func didChangeText() {
-        super.didChangeText()
-        needsDisplay = true
-    }
-
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         textContainer?.containerSize = CGSize(width: max(newSize.width, 1), height: .greatestFiniteMagnitude)
