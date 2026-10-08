@@ -9,6 +9,7 @@ struct CodexError: LocalizedError {
 final class CodexClient {
     var onEvent: ((String, [String: Any], Any?) -> Void)?
     var onDisconnect: ((String) -> Void)?
+    private var connecting: Task<Void, Error>?
     private var process: Process?
     private var input: FileHandle?
     private var readers: [Task<Void, Never>] = []
@@ -20,8 +21,16 @@ final class CodexClient {
     var isConnected: Bool { process?.isRunning == true }
 
     func connect() async throws {
+        if let connecting { try await connecting.value; return }
         guard !isConnected else { return }
         disconnect()
+        let task = Task { try await startConnection() }
+        connecting = task
+        defer { connecting = nil }
+        try await task.value
+    }
+
+    private func startConnection() async throws {
         let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
             + ["/opt/homebrew/bin", "/usr/local/bin", NSHomeDirectory() + "/.local/bin"]
         guard let executable = paths.map({ $0 + "/codex" }).first(where: FileManager.default.isExecutableFile(atPath:)) else {
