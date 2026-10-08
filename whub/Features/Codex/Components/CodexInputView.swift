@@ -23,16 +23,14 @@ struct CodexInputToken: Equatable {
     }
 }
 
-struct CodexComposerView: View {
+struct CodexInputView: View {
     @EnvironmentObject private var store: CodexStore
     let newConversation: () -> Void
     @State private var selection = NSRange(location: 0, length: 0)
     @State private var candidateIndex = 0
     @State private var dismissedToken: CodexInputToken?
     @State private var showsSkills = false
-    @State private var selectedSkills: [CodexSkill] = []
 
-    private let commands = [("/new", "新しい会話"), ("/stop", "作業を停止"), ("/skills", "Skillを選択")]
     private var token: CodexInputToken? { CodexInputToken.at(selection, in: store.draft) }
     private var candidates: [(name: String, detail: String, skill: CodexSkill?)] {
         if showsSkills {
@@ -40,7 +38,7 @@ struct CodexComposerView: View {
         }
         guard let token, token != dismissedToken else { return [] }
         if token.text.hasPrefix("/") {
-            return commands.filter { $0.0.hasPrefix(token.text.lowercased()) }.map { ($0.0, $0.1, nil) }
+            return CodexCommand.allCases.filter { $0.rawValue.hasPrefix(token.text.lowercased()) }.map { ($0.rawValue, $0.description, nil) }
         }
         return store.skills.filter { ("$" + $0.name).lowercased().hasPrefix(token.text.lowercased()) }
             .map { ("$" + $0.name, $0.description, $0) }
@@ -88,11 +86,6 @@ struct CodexComposerView: View {
                 CodexTextInput(text: $store.draft, selection: $selection, handleKey: handleKey)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityAction(named: Text("送信")) { submit() }
-                    .overlay(alignment: .topLeading) {
-                        if store.draft.isEmpty {
-                            Text("Codexに依頼する…").foregroundStyle(.tertiary).allowsHitTesting(false)
-                        }
-                    }
                 if store.isBusy {
                     HStack {
                         Spacer()
@@ -108,7 +101,7 @@ struct CodexComposerView: View {
         .padding(.horizontal, 16).padding(.bottom, 16).padding(.top, 8)
         .task(id: store.directory) { await store.loadSkills() }
         .onChange(of: token) { _, _ in candidateIndex = 0 }
-        .onChange(of: store.directory) { _, _ in selectedSkills = [] }
+        .onChange(of: store.directory) { _, _ in store.selectedSkills = [] }
         .onChange(of: store.draft) { _, text in
             if text.isEmpty { showsSkills = false }
         }
@@ -120,33 +113,33 @@ struct CodexComposerView: View {
         let range = showsSkills ? selection : token?.range ?? selection
         store.draft = (store.draft as NSString).replacingCharacters(in: range, with: candidate.name + " ")
         selection = NSRange(location: range.location + (candidate.name as NSString).length + 1, length: 0)
-        if let skill = candidate.skill, !selectedSkills.contains(where: { $0.path == skill.path }) {
-            selectedSkills.append(skill)
+        if let skill = candidate.skill, !store.selectedSkills.contains(where: { $0.path == skill.path }) {
+            store.selectedSkills.append(skill)
         }
         showsSkills = false
         dismissedToken = nil
     }
 
     private func submit() {
-        let command = store.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch command {
-        case "/new":
+        let text = store.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let command = CodexCommand(rawValue: text) else {
+            guard store.canSend else { return }
+            let skills = store.selectedSkills.filter { $0.isMentioned(in: store.draft) }
+            Task { await store.send(skills: skills) }
+            return
+        }
+        if command == .new {
             guard !store.isBusy else { return }
             store.draft = ""
             newConversation()
-        case "/stop":
-            store.draft = ""
-            Task { await store.interrupt() }
-        case "/skills":
-            store.draft = ""
+            return
+        }
+        store.draft = ""
+        if command == .skills {
             selection = NSRange(location: 0, length: 0)
             showsSkills = true
-            Task { await store.loadSkills(forceReload: true) }
-        default:
-            guard store.canSend else { return }
-            let skills = selectedSkills.filter { $0.isMentioned(in: store.draft) }
-            Task { await store.send(skills: skills) }
         }
+        Task { await store.runCommand(command) }
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
@@ -198,7 +191,7 @@ private struct CodexTextInput: NSViewRepresentable {
         context.coordinator.isUpdating = true
         defer { context.coordinator.isUpdating = false }
         view.handleKey = handleKey
-        if view.string != text {
+        if !view.hasMarkedText(), view.string != text {
             let range = NSRange(location: 0, length: (view.string as NSString).length)
             view.insertText(text, replacementRange: range)
             view.setSelectedRange(NSRange(location: min(selection.location, (text as NSString).length), length: 0))
@@ -242,6 +235,27 @@ private struct CodexTextInput: NSViewRepresentable {
 
 private final class CodexTextView: NSTextView {
     var handleKey: ((NSEvent) -> Bool)?
+    var showsPlaceholder: Bool { string.isEmpty && !hasMarkedText() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        if showsPlaceholder {
+            (">" as NSString).draw(at: textContainerOrigin, withAttributes: [
+                .font: font ?? NSFont.systemFont(ofSize: 15), .foregroundColor: NSColor.tertiaryLabelColor
+            ])
+        }
+    }
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        needsDisplay = true
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        needsDisplay = true
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         textContainer?.containerSize = CGSize(width: max(newSize.width, 1), height: .greatestFiniteMagnitude)

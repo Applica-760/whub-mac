@@ -9,7 +9,7 @@ struct whubApp: App {
     @StateObject private var fileViewerStore = FileViewerStore()
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
-    @StateObject private var codexStore = CodexStore()
+    @StateObject private var codexStore: CodexTabsStore
     @State private var section = AppView.Section.workspace
     @FocusedValue(\.projectNavigation) private var projectNavigation
     private let workspaceContainer: ModelContainer
@@ -20,6 +20,7 @@ struct whubApp: App {
             let container = try Container.make()
             workspaceContainer = container
             _terminalStore = StateObject(wrappedValue: TerminalStore(context: container.mainContext))
+            _codexStore = StateObject(wrappedValue: CodexTabsStore(context: container.mainContext))
         } catch {
             fatalError("Unable to open workspace store: \(error)")
         }
@@ -47,11 +48,12 @@ struct whubApp: App {
                     switch section {
                     case .workspace: terminalStore.add()
                     case .browser: browserStore.add()
+                    case .codex: codexStore.add()
                     default: break
                     }
                 }
                 .keyboardShortcut("t", modifiers: .command)
-                .disabled(section != .workspace && section != .browser)
+                .disabled(section != .workspace && section != .browser && section != .codex)
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
