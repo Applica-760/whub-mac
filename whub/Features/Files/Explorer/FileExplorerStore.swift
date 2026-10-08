@@ -4,9 +4,10 @@ import SwiftData
 import WhubCore
 
 final class FileExplorerStore: ObservableObject {
-    @Published var selectedRootURL: URL? {
+    @Published var selectedLocation: FileLocation? {
         didSet {
-            guard selectedRootURL != oldValue else { return }
+            guard selectedLocation != oldValue else { return }
+            remoteTree.stop()
             watcher.stop()
             gitRequestID += 1
             gitDirectories = []
@@ -17,6 +18,8 @@ final class FileExplorerStore: ObservableObject {
             directoryErrorMessage = nil
         }
     }
+    var selectedRootURL: URL? { selectedLocation?.localURL }
+
     @Published private(set) var worktreeURLs: [URL] = []
     @Published private(set) var rootURL: URL?
     @Published private(set) var errorMessage: String?
@@ -25,10 +28,26 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var directoryErrorMessage: String?
     @Published private(set) var treeRevision = 0
 
-    private(set) var rootItems: [FileItem] = []
+    let remoteTree = RemoteFileTreeStore()
+    var treeLocation: FileLocation? {
+        if case .remote = selectedLocation { return remoteTree.source?.root }
+        return rootURL.map(FileLocation.local)
+    }
+    var rootItems: [FileItem] {
+        if case .remote = selectedLocation { return remoteTree.rootItems }
+        return localRootItems
+    }
+    private var localRootItems: [FileItem] = []
+
+    init() {
+        remoteTree.onChange = { [weak self] in
+            // Outline callbacks may run while SwiftUI is updating its representable.
+            DispatchQueue.main.async { self?.treeRevision += 1 }
+        }
+    }
     private(set) var decorations: [URL: GitChange] = [:]
     private var itemsByURL: [URL: FileItem] = [:]
-    private var treeRootURL: URL?
+    private var treeRootLocation: FileLocation?
     private var loadedTreeRevision = -1
     private var isVisible = false
     private weak var viewerStore: FileViewerStore?
@@ -68,7 +87,10 @@ final class FileExplorerStore: ObservableObject {
         }) { refreshGit() }
     }
 
-    var cachedItems: [FileItem] { Array(itemsByURL.values) }
+    var cachedItems: [FileItem] {
+        if case .remote = selectedLocation { return remoteTree.cachedItems }
+        return Array(itemsByURL.values)
+    }
 
     func startWatching(viewerStore: FileViewerStore) {
         self.viewerStore = viewerStore
@@ -78,6 +100,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func stopWatching() {
+        remoteTree.stop()
         isVisible = false
         gitRequestID += 1
         watcher.stop()
@@ -144,24 +167,22 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
-    func availableURLs(projects: [Project]) -> [URL] {
-        projects.map { URL(fileURLWithPath: $0.path) } + worktreeURLs
+    func availableLocations(projects: [Project], remote: [FileLocation]) -> [FileLocation] {
+        projects.filter { $0.host is LocalHost }.map { .local(URL(fileURLWithPath: $0.path)) }
+            + worktreeURLs.map(FileLocation.local) + remote
     }
 
-    func selectDefaultRoot(projects: [Project]) {
-        selectedRootURL = projects.first { $0.name == "whub-mac" }
-            .map { URL(fileURLWithPath: $0.path) } ?? availableURLs(projects: projects).first
-    }
-
-    func validateSelection(projects: [Project]) {
-        if !availableURLs(projects: projects).contains(where: { $0 == selectedRootURL }) {
-            selectDefaultRoot(projects: projects)
+    func validateSelection(projects: [Project], remote: [FileLocation]) {
+        let available = availableLocations(projects: projects, remote: remote)
+        if !available.contains(where: { $0 == selectedLocation }) {
+            selectedLocation = projects.first { $0.host is LocalHost && $0.name == "whub-mac" }
+                .map { .local(URL(fileURLWithPath: $0.path)) } ?? available.first
         }
     }
 
     func basePath(projects: [Project]) -> String? {
         projects.first { project in
-            guard let selectedRootURL else { return false }
+            guard project.host is LocalHost, let selectedRootURL else { return false }
             return selectedRootURL.path == project.path
                 || selectedRootURL.path.hasPrefix(project.host.worktreesPath + "/")
         }?.host.basePath
@@ -193,17 +214,15 @@ final class FileExplorerStore: ObservableObject {
         if rootURL == nil { viewerStore.gitChanges = [:] }
         errorMessage = nil
         gitErrorMessage = nil
-        guard let selectedRootURL else { return }
+        guard let selectedRootURL else {
+            return
+        }
         func isCurrent() -> Bool {
             !Task.isCancelled && isVisible && self.selectedRootURL == selectedRootURL
         }
         do {
             let path: String
-            if let project = projects.first(where: { $0.path == selectedRootURL.path }) {
-                guard project.host is LocalHost else {
-                    errorMessage = "Remote project files are not available yet."
-                    return
-                }
+            if let project = projects.first(where: { $0.host is LocalHost && $0.path == selectedRootURL.path }) {
                 path = try await ProjectStore(context: context).resolvePath(for: project)
             } else {
                 path = selectedRootURL.path
@@ -220,27 +239,35 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func updateTree(gitChanges: [URL: GitChange]) -> Bool {
-        let rootChanged = treeRootURL != rootURL
+        let rootChanged = treeRootLocation != treeLocation
+        if case .remote = selectedLocation {
+            guard rootChanged || loadedTreeRevision != treeRevision else { return false }
+            treeRootLocation = treeLocation
+            loadedTreeRevision = treeRevision
+            decorations = [:]
+            return true
+        }
         let refreshed = loadedTreeRevision != treeRevision
         let nextDecorations = Self.decorations(for: gitChanges, under: rootURL)
         guard rootChanged || refreshed || decorations != nextDecorations else { return false }
         if rootChanged { itemsByURL.removeAll() }
-        treeRootURL = rootURL
+        treeRootLocation = treeLocation
         loadedTreeRevision = treeRevision
         decorations = nextDecorations
         if rootChanged || refreshed {
             reportDirectoryError(nil)
             for item in itemsByURL.values { item.children = nil }
-            rootItems = rootURL.map(directoryContents) ?? []
+            localRootItems = rootURL.map(directoryContents) ?? []
         }
         return true
     }
 
     func children(for item: FileItem?) -> [FileItem] {
+        if case .remote = selectedLocation { return remoteTree.children(for: item) }
         guard let item else { return rootItems }
-        guard item.isDirectory else { return [] }
+        guard item.isDirectory, let url = item.location.localURL else { return [] }
         if let children = item.children { return children }
-        let children = directoryContents(at: item.url)
+        let children = directoryContents(at: url)
         item.children = children
         return children
     }
@@ -270,7 +297,7 @@ final class FileExplorerStore: ObservableObject {
             }
             .sorted {
                 if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
-                return $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending
+                return $0.location.name.localizedStandardCompare($1.location.name) == .orderedAscending
             }
     }
 
@@ -301,12 +328,17 @@ final class FileExplorerStore: ObservableObject {
 }
 
 final class FileItem: NSObject {
-    let url: URL
+    let location: FileLocation
     let isDirectory: Bool
     var children: [FileItem]?
 
     init(url: URL) {
-        self.url = url
+        location = .local(url)
         isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+    }
+
+    init(location: FileLocation, isDirectory: Bool) {
+        self.location = location
+        self.isDirectory = isDirectory
     }
 }

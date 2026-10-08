@@ -4,19 +4,26 @@ import Foundation
 import WhubCore
 
 final class FileViewerStore: ObservableObject {
-    @Published private(set) var fileURLs: [URL] = []
-    @Published private(set) var selectedFileURL: URL?
-    @Published private(set) var previewFileURL: URL?
+    @Published private(set) var fileLocations: [FileLocation] = []
+    @Published private(set) var selectedLocation: FileLocation?
+    @Published private(set) var previewLocation: FileLocation?
     @Published private(set) var refreshID = 0
     @Published var gitChanges: [URL: GitChange] = [:]
     @Published var gitRootURL: URL?
-    @Published private(set) var fileStores: [URL: FileStore] = [:] {
+    @Published private(set) var fileStores: [FileLocation: FileStore] = [:] {
         didSet {
             fileChanges = Publishers.MergeMany(fileStores.values.map(\.objectWillChange))
                 .sink { [weak self] _ in self?.objectWillChange.send() }
             updateWatching()
         }
     }
+    let remote = RemoteFileViewerStore()
+    private var remoteChanges: AnyCancellable?
+
+    init() {
+        remoteChanges = remote.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+
     private var fileChanges: AnyCancellable?
     private var isClosing = false
     private lazy var watcher = FileChangeWatcher { [weak self] event in
@@ -39,7 +46,8 @@ final class FileViewerStore: ObservableObject {
     }
 
     func checkForExternalChanges(paths: [String]? = nil) {
-        for (url, file) in fileStores {
+        for (location, file) in fileStores {
+            guard let url = location.localURL else { continue }
             let targets = [url.standardizedFileURL.path, url.resolvingSymlinksInPath().path]
             if let paths, !paths.contains(where: { path in
                 targets.contains { $0 == path || $0.hasPrefix(path + "/") }
@@ -49,7 +57,7 @@ final class FileViewerStore: ObservableObject {
     }
 
     private func updateWatching() {
-        let paths = Set(fileStores.keys.flatMap { url in
+        let paths = Set(fileStores.keys.compactMap(\.localURL).flatMap { url in
             [url.standardizedFileURL, url.resolvingSymlinksInPath()]
                 .map { $0.deletingLastPathComponent().path }
         })
@@ -64,60 +72,67 @@ final class FileViewerStore: ObservableObject {
 
     func refresh() {
         refreshID += 1
+        remote.refresh()
     }
 
-    func open(_ fileURL: URL) {
-        loadIfNeeded(fileURL)
-        if !fileURLs.contains(fileURL) {
-            fileURLs.append(fileURL)
+    func open(_ location: FileLocation) {
+        guard location.localURL != nil || remote.states[location] != nil else { return }
+        loadIfNeeded(location)
+        if !fileLocations.contains(location) {
+            fileLocations.append(location)
         }
-        selectedFileURL = fileURL
-        if previewFileURL == fileURL { previewFileURL = nil }
+        selectedLocation = location
+        if previewLocation == location { previewLocation = nil }
     }
 
-    func preview(_ fileURL: URL) {
-        if fileURLs.contains(fileURL) && previewFileURL != fileURL {
-            selectedFileURL = fileURL
+    func preview(_ location: FileLocation) {
+        guard location.localURL != nil || remote.states[location] != nil else { return }
+        if fileLocations.contains(location) && previewLocation != location {
+            selectedLocation = location
             return
         }
-        if let previewFileURL, let index = fileURLs.firstIndex(of: previewFileURL) {
-            if previewFileURL != fileURL { fileStores.removeValue(forKey: previewFileURL) }
-            fileURLs[index] = fileURL
-        } else if !fileURLs.contains(fileURL) {
-            fileURLs.append(fileURL)
+        if let previewLocation, let index = fileLocations.firstIndex(of: previewLocation) {
+            if previewLocation != location {
+                fileStores.removeValue(forKey: previewLocation)
+                remote.close(previewLocation)
+            }
+            fileLocations[index] = location
+        } else if !fileLocations.contains(location) {
+            fileLocations.append(location)
         }
-        loadIfNeeded(fileURL)
-        previewFileURL = fileURL
-        selectedFileURL = fileURL
+        loadIfNeeded(location)
+        previewLocation = location
+        selectedLocation = location
     }
 
-    func close(_ fileURL: URL) {
-        guard !isClosing, let file = fileStores[fileURL] else { return }
+    func close(_ location: FileLocation) {
+        guard !isClosing, fileLocations.contains(location) else { return }
         isClosing = true
         defer { isClosing = false }
-        guard file.confirmClose() else { return }
-        guard let index = fileURLs.firstIndex(of: fileURL) else { return }
-        fileURLs.remove(at: index)
-        fileStores.removeValue(forKey: fileURL)
-        if previewFileURL == fileURL { previewFileURL = nil }
-        guard selectedFileURL == fileURL else { return }
-        selectedFileURL = index < fileURLs.count ? fileURLs[index] : fileURLs.last
+        guard fileStores[location]?.confirmClose() != false else { return }
+        guard let index = fileLocations.firstIndex(of: location) else { return }
+        fileLocations.remove(at: index)
+        fileStores.removeValue(forKey: location)
+        remote.close(location)
+        if previewLocation == location { previewLocation = nil }
+        guard selectedLocation == location else { return }
+        selectedLocation = index < fileLocations.count ? fileLocations[index] : fileLocations.last
     }
 
-    private func loadIfNeeded(_ fileURL: URL) {
-        guard fileStores[fileURL] == nil else { return }
-        fileStores[fileURL] = FileStore(fileURL: fileURL)
+    private func loadIfNeeded(_ location: FileLocation) {
+        guard fileStores[location] == nil, let url = location.localURL else { return }
+        fileStores[location] = FileStore(fileURL: url)
     }
 
-    func move(_ fileURL: URL, before target: URL?) {
-        guard let reordered = reorderedTabs(fileURLs, moving: fileURL, before: target, identifiedBy: \.self)
+    func move(_ location: FileLocation, before target: FileLocation?) {
+        guard let reordered = reorderedTabs(fileLocations, moving: location, before: target, identifiedBy: \.self)
         else { return }
-        fileURLs = reordered
-        if previewFileURL == fileURL { previewFileURL = nil }
+        fileLocations = reordered
+        if previewLocation == location { previewLocation = nil }
     }
 
-    func select(_ fileURL: URL) {
-        guard fileURLs.contains(fileURL) else { return }
-        selectedFileURL = fileURL
+    func select(_ location: FileLocation) {
+        guard fileLocations.contains(location) else { return }
+        selectedLocation = location
     }
 }
