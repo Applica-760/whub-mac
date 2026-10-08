@@ -1,9 +1,6 @@
-import AppKit
 import SwiftUI
 
 struct WorkspaceView: View {
-    @EnvironmentObject private var terminalStore: TerminalStore
-
     var body: some View {
         HSplitView {
             FileViewerView()
@@ -12,11 +9,5 @@ struct WorkspaceView: View {
                 .frame(minWidth: 300)
         }
         .navigationTitle("Workspace")
-        .onAppear {
-            DispatchQueue.main.async {
-                let terminal = terminalStore.selectedSession.terminal
-                terminal.window?.makeFirstResponder(terminal)
-            }
-        }
     }
 }

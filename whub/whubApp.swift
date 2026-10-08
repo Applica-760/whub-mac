@@ -44,13 +44,13 @@ struct whubApp: App {
             CommandGroup(after: .newItem) {
                 Button("新規タブ") {
                     switch section {
-                    case .workspace: terminalStore.add()
+                    case .workspace, .terminal: terminalStore.add()
                     case .browser: browserStore.add()
                     default: break
                     }
                 }
                 .keyboardShortcut("t", modifiers: .command)
-                .disabled(section != .workspace && section != .browser)
+                .disabled(section != .workspace && section != .terminal && section != .browser)
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
