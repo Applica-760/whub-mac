@@ -4,9 +4,9 @@ import SwiftData
 import WhubCore
 
 final class FileExplorerStore: ObservableObject {
-    @Published var selectedRootURL: URL? {
+    @Published var selectedLocation: FileLocation? {
         didSet {
-            guard selectedRootURL != oldValue else { return }
+            guard selectedLocation != oldValue else { return }
             watcher.stop()
             gitRequestID += 1
             gitDirectories = []
@@ -17,6 +17,8 @@ final class FileExplorerStore: ObservableObject {
             directoryErrorMessage = nil
         }
     }
+    var selectedRootURL: URL? { selectedLocation?.localURL }
+
     @Published private(set) var worktreeURLs: [URL] = []
     @Published private(set) var rootURL: URL?
     @Published private(set) var errorMessage: String?
@@ -144,24 +146,22 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
-    func availableURLs(projects: [Project]) -> [URL] {
-        projects.map { URL(fileURLWithPath: $0.path) } + worktreeURLs
+    func availableLocations(projects: [Project], remote: [FileLocation]) -> [FileLocation] {
+        projects.filter { $0.host is LocalHost }.map { .local(URL(fileURLWithPath: $0.path)) }
+            + worktreeURLs.map(FileLocation.local) + remote
     }
 
-    func selectDefaultRoot(projects: [Project]) {
-        selectedRootURL = projects.first { $0.name == "whub-mac" }
-            .map { URL(fileURLWithPath: $0.path) } ?? availableURLs(projects: projects).first
-    }
-
-    func validateSelection(projects: [Project]) {
-        if !availableURLs(projects: projects).contains(where: { $0 == selectedRootURL }) {
-            selectDefaultRoot(projects: projects)
+    func validateSelection(projects: [Project], remote: [FileLocation]) {
+        let available = availableLocations(projects: projects, remote: remote)
+        if !available.contains(where: { $0 == selectedLocation }) {
+            selectedLocation = projects.first { $0.host is LocalHost && $0.name == "whub-mac" }
+                .map { .local(URL(fileURLWithPath: $0.path)) } ?? available.first
         }
     }
 
     func basePath(projects: [Project]) -> String? {
         projects.first { project in
-            guard let selectedRootURL else { return false }
+            guard project.host is LocalHost, let selectedRootURL else { return false }
             return selectedRootURL.path == project.path
                 || selectedRootURL.path.hasPrefix(project.host.worktreesPath + "/")
         }?.host.basePath
@@ -193,17 +193,18 @@ final class FileExplorerStore: ObservableObject {
         if rootURL == nil { viewerStore.gitChanges = [:] }
         errorMessage = nil
         gitErrorMessage = nil
-        guard let selectedRootURL else { return }
+        guard let selectedRootURL else {
+            if case .remote = selectedLocation {
+                errorMessage = "リモートのファイル表示にはまだ対応していません。"
+            }
+            return
+        }
         func isCurrent() -> Bool {
             !Task.isCancelled && isVisible && self.selectedRootURL == selectedRootURL
         }
         do {
             let path: String
-            if let project = projects.first(where: { $0.path == selectedRootURL.path }) {
-                guard project.host is LocalHost else {
-                    errorMessage = "Remote project files are not available yet."
-                    return
-                }
+            if let project = projects.first(where: { $0.host is LocalHost && $0.path == selectedRootURL.path }) {
                 path = try await ProjectStore(context: context).resolvePath(for: project)
             } else {
                 path = selectedRootURL.path
