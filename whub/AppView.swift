@@ -46,6 +46,7 @@ struct AppView: View {
         } detail: {
             section.content()
         }
+        .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 1000, minHeight: 550)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {

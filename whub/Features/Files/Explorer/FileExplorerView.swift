@@ -26,14 +26,12 @@ struct FileExplorerView: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 
-                Button {
-                    fileViewerStore.refresh()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .help("Refresh files and Git status")
-                .disabled(store.selectedRootURL == nil)
+                // Reserve the trigger position; expanded actions overlay the explorer.
+                Color.clear.frame(width: 36, height: 36)
             }
             .padding(.horizontal)
             .padding(.top)
@@ -79,6 +77,18 @@ struct FileExplorerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .topTrailing) {
+            GeometryReader { geometry in
+                ExplorerActionsView(
+                    availableWidth: min(280, max(36, geometry.size.width - 32)),
+                    canRefresh: store.selectedRootURL != nil
+                ) {
+                    fileViewerStore.refresh()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(16)
+            }
+        }
         .focusedSceneValue(
             \.projectNavigation,
             ProjectNavigation(urls: store.availableURLs(projects: projects), selection: $store.selectedRootURL)

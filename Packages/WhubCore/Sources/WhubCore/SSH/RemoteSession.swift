@@ -62,6 +62,12 @@ public final class RemoteSession {
     private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
     private var deadlines: [Int: Task<Void, Never>] = [:]
     private var closed = false
+    public private(set) var disconnectionError: (any Error)?
+    public var onDisconnect: ((any Error) -> Void)? {
+        didSet {
+            if let disconnectionError { onDisconnect?(disconnectionError) }
+        }
+    }
     public private(set) var diagnostics = Data()
     public let notifications: AsyncStream<Data>
     private let notificationSink: AsyncStream<Data>.Continuation
@@ -104,11 +110,17 @@ public final class RemoteSession {
         defer { startupDeadline.cancel() }
         do {
             guard !source.isEmpty, source.count <= 1_048_576 else { throw RemoteSessionError.invalidMessage }
-            try await connection.send(Data("\(source.count)\n".utf8) + source)
-            _ = try await session.ping(timeout: timeout)
+            try await withTaskCancellationHandler {
+                try Task.checkCancellation()
+                try await connection.send(Data("\(source.count)\n".utf8) + source)
+                _ = try await session.ping(timeout: timeout)
+            } onCancel: {
+                Task { @MainActor [weak session] in session?.fail(CancellationError()) }
+            }
             return session
         } catch {
             session.fail(error)
+            await session.close()
             throw error
         }
     }
@@ -194,10 +206,12 @@ public final class RemoteSession {
     private func fail(_ error: Error) {
         guard !closed else { return }
         closed = true
+        disconnectionError = error
         for id in Array(pending.keys) { complete(id, with: .failure(error)) }
         notificationSink.finish()
         connection.stop()
         reader?.cancel()
+        onDisconnect?(error)
     }
 
     public func close() async {
