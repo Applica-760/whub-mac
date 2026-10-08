@@ -61,11 +61,26 @@ struct CodexRequest: Identifiable {
     var id: String { CodexStore.pretty(rpcID) }
 }
 
+struct CodexSkill: Identifiable {
+    let name: String
+    let description: String
+    let path: String
+    var id: String { path }
+    func isMentioned(in text: String) -> Bool {
+        let pattern = "(?<!\\S)\\$" + NSRegularExpression.escapedPattern(for: name) + "(?![\\p{L}\\p{N}_-])"
+        return text.range(of: pattern, options: .regularExpression) != nil
+    }
+}
+
 @MainActor
 final class CodexStore: ObservableObject {
     @Published var draft = ""
     @Published var directory = ""
     @Published var writable = false
+    @Published private(set) var skills: [CodexSkill] = []
+    @Published private(set) var skillError: String?
+    @Published private(set) var isLoadingSkills = false
+    private var skillsDirectory = ""
     @Published private(set) var turns: [CodexTurn] = []
     @Published private(set) var requests: [CodexRequest] = []
     @Published private(set) var isBusy = false
@@ -88,7 +103,32 @@ final class CodexStore: ObservableObject {
     var canSend: Bool { !isBusy && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !directory.isEmpty }
     var canConfigure: Bool { threadID == nil && !isBusy }
 
-    func send() async {
+    func loadSkills(forceReload: Bool = false) async {
+        let cwd = directory
+        guard !cwd.isEmpty else { return }
+        isLoadingSkills = true
+        if skillsDirectory != cwd { skills = [] }
+        skillError = nil
+        defer { if directory == cwd { isLoadingSkills = false } }
+        do {
+            try await client.connect()
+            let result = try await client.request("skills/list", ["cwds": [cwd], "forceReload": forceReload])
+            guard directory == cwd else { return }
+            let entries = result["data"] as? [[String: Any]] ?? []
+            skills = entries.flatMap { $0["skills"] as? [[String: Any]] ?? [] }.compactMap {
+                guard $0["enabled"] as? Bool != false,
+                      let name = $0["name"] as? String, let path = $0["path"] as? String else { return nil }
+                return CodexSkill(name: name, description: $0["description"] as? String ?? "", path: path)
+            }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            skillsDirectory = cwd
+            let errors = entries.flatMap { $0["errors"] as? [[String: Any]] ?? [] }
+            if !errors.isEmpty { skillError = Self.pretty(errors) }
+        } catch {
+            if directory == cwd { skillError = error.localizedDescription }
+        }
+    }
+
+    func send(skills selectedSkills: [CodexSkill] = []) async {
         guard canSend else { return }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -119,7 +159,9 @@ final class CodexStore: ObservableObject {
             }
             guard !stopRequested else { finish("interrupted"); return }
             guard let threadID else { return }
-            let result = try await client.request("turn/start", ["threadId": threadID, "input": [["type": "text", "text": prompt]]])
+            var input: [[String: Any]] = [["type": "text", "text": prompt]]
+            input += selectedSkills.map { ["type": "skill", "name": $0.name, "path": $0.path] }
+            let result = try await client.request("turn/start", ["threadId": threadID, "input": input])
             if let turn = result["turn"] as? [String: Any], let id = turn["id"] as? String, isBusy {
                 turns[turns.count - 1].remoteID = id
                 if stopRequested { await interrupt() }
