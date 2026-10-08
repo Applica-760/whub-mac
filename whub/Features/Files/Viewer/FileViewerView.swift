@@ -39,6 +39,11 @@ struct FileViewerView: View {
                         action: actions.select,
                         closeAction: actions.close
                     )
+                } else if case .remote = location {
+                    TabBar(title: location.name, icon: Image(systemName: "network"),
+                           isSelected: isSelected, isPreview: location == store.previewLocation,
+                           openAction: { store.open(location) }, action: actions.select, closeAction: actions.close)
+                        .help(location.path)
                 }
             }
 
@@ -52,6 +57,9 @@ struct FileViewerView: View {
                         if store?.previewLocation == location { store?.open(location) }
                     }
                     .id(location)
+                } else if let location = store.selectedLocation, case .remote = location {
+                    RemoteFileViewerView(store: store.remote, location: location, editorID: editorID)
+                        .id(location)
                 } else {
                     Text("Select a file")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -69,7 +77,7 @@ struct FileViewerView: View {
         store.select(location)
         DispatchQueue.main.async {
             guard store.selectedLocation == location,
-                  let editor = store.fileStores[location]?.editorViews[editorID]?.documentView,
+                  let editor = (store.fileStores[location] ?? store.remote.file(for: location))?.editorViews[editorID]?.documentView,
                   let window = editor.window, tabFocus.contains(window) else { return }
             window.makeFirstResponder(editor)
         }
@@ -95,12 +103,12 @@ private struct FileContent: View {
     @ViewBuilder private var fileContent: some View {
         switch state.content {
         case let .text(source):
-            CodeViewerView(
-                fileURL: state.fileURL, source: source, refreshID: 0,
-                state: state, editorID: editorID, onEdit: onEdit
-            )
+            if let fileURL = state.fileURL {
+                CodeViewerView(fileURL: fileURL, source: source, refreshID: 0,
+                               state: state, editorID: editorID, onEdit: onEdit)
+            }
         case .binary:
-            BinaryViewerView(fileURL: state.fileURL)
+            if let fileURL = state.fileURL { BinaryViewerView(fileURL: fileURL) }
         case let .error(message):
             Text(message).foregroundStyle(.secondary)
         }

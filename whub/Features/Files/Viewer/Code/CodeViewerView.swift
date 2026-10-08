@@ -22,7 +22,7 @@ struct CodeViewerView: View {
                 Text(diffErrorMessage)
                     .foregroundStyle(.secondary)
             }
-            Content(
+            CodeTextContent(
                 state: state,
                 editorID: editorID,
                 onEdit: onEdit,
@@ -91,7 +91,7 @@ private struct CodeLoadID: Equatable {
 
 @MainActor private let codeHighlighter = Highlighter()
 
-private struct Content: NSViewRepresentable {
+struct CodeTextContent: NSViewRepresentable {
     let state: FileStore
     let editorID: String
     let onEdit: () -> Void
@@ -109,10 +109,10 @@ private struct Content: NSViewRepresentable {
         textView.fileStore = state
         textView.onEdit = onEdit
         textView.drawsBackground = false
-        textView.isEditable = true
+        textView.isEditable = state.isEditable
         textView.isRichText = false
         textView.importsGraphics = false
-        textView.allowsUndo = true
+        textView.allowsUndo = state.isEditable
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -212,19 +212,21 @@ final class CodeTextView: NSTextView {
         switch menuItem.action {
         case #selector(undo(_:)): return undoManager?.canUndo == true
         case #selector(redo(_:)): return undoManager?.canRedo == true
-        case #selector(saveDocument(_:)): return fileStore?.savedSource != nil && fileStore?.isSaving != true
+        case #selector(saveDocument(_:)): return fileStore?.isEditable == true && fileStore?.savedSource != nil && fileStore?.isSaving != true
         default: return super.validateMenuItem(menuItem)
         }
     }
 
     override func didChangeText() {
         super.didChangeText()
+        guard isEditable else { return }
         fileStore?.content = .text(string)
         onEdit?()
     }
 
     override func unmarkText() {
         super.unmarkText()
+        guard isEditable else { return }
         fileStore?.content = .text(string)
     }
 }

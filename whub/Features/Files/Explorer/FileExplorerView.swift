@@ -73,12 +73,14 @@ struct FileExplorerView: View {
                     store: store,
                     basePath: store.basePath(projects: projects),
                     gitChanges: fileViewerStore.gitChanges,
-                    onFilePreview: { fileURL in
-                        fileViewerStore.preview(.local(fileURL))
+                    onFilePreview: { location in
+                        fileViewerStore.remote.load(location, root: store.treeLocation, hosts: hosts, connections: connections)
+                        fileViewerStore.preview(location)
                         onFileSelect()
                     },
-                    onFileOpen: { fileURL in
-                        fileViewerStore.open(.local(fileURL))
+                    onFileOpen: { location in
+                        fileViewerStore.remote.load(location, root: store.treeLocation, hosts: hosts, connections: connections)
+                        fileViewerStore.open(location)
                         onFileSelect()
                     }
                 )

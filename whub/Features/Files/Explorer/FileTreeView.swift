@@ -6,8 +6,8 @@ struct FileTreeView: NSViewRepresentable {
     @ObservedObject var store: FileExplorerStore
     let basePath: String?
     let gitChanges: [URL: GitChange]
-    let onFilePreview: (URL) -> Void
-    let onFileOpen: (URL) -> Void
+    let onFilePreview: (FileLocation) -> Void
+    let onFileOpen: (FileLocation) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(store: store, onFilePreview: onFilePreview, onFileOpen: onFileOpen)
@@ -45,13 +45,13 @@ struct FileTreeView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         weak var outlineView: NSOutlineView?
-        var onFilePreview: (URL) -> Void
-        var onFileOpen: (URL) -> Void
+        var onFilePreview: (FileLocation) -> Void
+        var onFileOpen: (FileLocation) -> Void
         private let store: FileExplorerStore
         private var renderedRootLocation: FileLocation?
         private var isRestoring = false
 
-        init(store: FileExplorerStore, onFilePreview: @escaping (URL) -> Void, onFileOpen: @escaping (URL) -> Void) {
+        init(store: FileExplorerStore, onFilePreview: @escaping (FileLocation) -> Void, onFileOpen: @escaping (FileLocation) -> Void) {
             self.store = store
             self.onFilePreview = onFilePreview
             self.onFileOpen = onFileOpen
@@ -139,12 +139,12 @@ struct FileTreeView: NSViewRepresentable {
             else {
                 return
             }
-            if let url = item.location.localURL { onFilePreview(url) }
+            onFilePreview(item.location)
         }
 
         @objc func openSelectedFile(_ sender: NSOutlineView) {
             guard let item = sender.item(atRow: sender.clickedRow) as? FileItem, !item.isDirectory else { return }
-            if let url = item.location.localURL { onFileOpen(url) }
+            onFileOpen(item.location)
         }
 
         func outlineView(
