@@ -17,6 +17,13 @@ final class FileViewerStore: ObservableObject {
             updateWatching()
         }
     }
+    let remote = RemoteFileViewerStore()
+    private var remoteChanges: AnyCancellable?
+
+    init() {
+        remoteChanges = remote.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+
     private var fileChanges: AnyCancellable?
     private var isClosing = false
     private lazy var watcher = FileChangeWatcher { [weak self] event in
@@ -68,7 +75,7 @@ final class FileViewerStore: ObservableObject {
     }
 
     func open(_ location: FileLocation) {
-        guard location.localURL != nil else { return }
+        guard location.localURL != nil || remote.states[location] != nil else { return }
         loadIfNeeded(location)
         if !fileLocations.contains(location) {
             fileLocations.append(location)
@@ -78,13 +85,16 @@ final class FileViewerStore: ObservableObject {
     }
 
     func preview(_ location: FileLocation) {
-        guard location.localURL != nil else { return }
+        guard location.localURL != nil || remote.states[location] != nil else { return }
         if fileLocations.contains(location) && previewLocation != location {
             selectedLocation = location
             return
         }
         if let previewLocation, let index = fileLocations.firstIndex(of: previewLocation) {
-            if previewLocation != location { fileStores.removeValue(forKey: previewLocation) }
+            if previewLocation != location {
+                fileStores.removeValue(forKey: previewLocation)
+                remote.close(previewLocation)
+            }
             fileLocations[index] = location
         } else if !fileLocations.contains(location) {
             fileLocations.append(location)
@@ -95,13 +105,14 @@ final class FileViewerStore: ObservableObject {
     }
 
     func close(_ location: FileLocation) {
-        guard !isClosing, let file = fileStores[location] else { return }
+        guard !isClosing, fileLocations.contains(location) else { return }
         isClosing = true
         defer { isClosing = false }
-        guard file.confirmClose() else { return }
+        guard fileStores[location]?.confirmClose() != false else { return }
         guard let index = fileLocations.firstIndex(of: location) else { return }
         fileLocations.remove(at: index)
         fileStores.removeValue(forKey: location)
+        remote.close(location)
         if previewLocation == location { previewLocation = nil }
         guard selectedLocation == location else { return }
         selectedLocation = index < fileLocations.count ? fileLocations[index] : fileLocations.last
