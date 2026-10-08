@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import WhubCore
 
 @MainActor
@@ -23,6 +24,19 @@ final class RemoteFileTreeStore {
     var onChange: (() -> Void)?
 
     var cachedItems: [FileItem] { Array(items.values) }
+
+    func update(location: FileLocation?, hosts: [RemoteHost], connections: RemoteConnectionStore, refreshID: Int) {
+        guard let location,
+              case let .remote(hostID, root) = location,
+              let host = hosts.first(where: { $0.persistentModelID == hostID }),
+              let session = connections.session(for: host) else {
+            update(source: nil, refreshID: refreshID, list: nil)
+            return
+        }
+        update(source: .init(root: location, sessionID: ObjectIdentifier(session)), refreshID: refreshID) { path in
+            try await session.listDirectory(root: root, path: path)
+        }
+    }
 
     func update(source: Source?, refreshID: Int,
                 list: (@MainActor (String) async throws -> [RemoteFileEntry])?) {

@@ -26,21 +26,7 @@ struct FileExplorerView: View {
                     ForEach(store.worktreeURLs, id: \.self) { url in
                         Text(url.lastPathComponent).tag(Optional(FileLocation.local(url)))
                     }
-                    ForEach(remoteSources, id: \.hostID) { source in
-                        let entries = remoteStore.entries(for: [source])
-                        if !entries.isEmpty {
-                            Divider()
-                            Section {
-                                ForEach(entries) { entry in
-                                    Text(entry.name).tag(Optional(entry.id))
-                                }
-                            } header: {
-                                Text(source.hostName)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
+                    RemoteWorkspaceMenuItems(store: remoteStore, sources: remoteSources)
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
@@ -57,20 +43,7 @@ struct FileExplorerView: View {
             Divider()
                 .padding(.horizontal)
 
-            ForEach(hosts) { host in
-                if remoteSources.contains(where: { $0.hostID == host.persistentModelID }),
-                   let state = remoteStore.states[host.persistentModelID] {
-                    switch state {
-                    case .loading:
-                        Text("\(host.name)：一覧を取得中…")
-                            .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
-                    case let .failed(message):
-                        Text("\(host.name)：\(message)")
-                            .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
-                    case .loaded: EmptyView()
-                    }
-                }
-            }
+            RemoteWorkspaceStatusView(store: remoteStore, sources: remoteSources)
 
             if let errorMessage = store.errorMessage {
                 Text(errorMessage)
@@ -94,17 +67,7 @@ struct FileExplorerView: View {
                         .padding(.horizontal)
                 }
                 if case .remote = store.selectedLocation {
-                    ForEach(store.remoteTree.states.keys.sorted(), id: \.self) { path in
-                        switch store.remoteTree.states[path] {
-                        case .loading:
-                            Text("\(path.isEmpty ? "ルート" : path)：取得中…")
-                                .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
-                        case let .failed(message):
-                            Text("\(path.isEmpty ? "ルート" : path)：\(message) — リロードで再取得")
-                                .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
-                        default: EmptyView()
-                        }
-                    }
+                    RemoteFileTreeStatusView(states: store.remoteTree.states)
                 }
                 FileTreeView(
                     store: store,
@@ -180,12 +143,7 @@ struct FileExplorerView: View {
     }
 
     private var remoteSources: [RemoteWorkspaceStore.Source] {
-        hosts.compactMap { host in
-            guard let session = connections.session(for: host) else { return nil }
-            return .init(hostID: host.persistentModelID, hostName: host.name,
-                         projectsPath: host.projectsPath, worktreesPath: host.worktreesPath,
-                         sessionID: ObjectIdentifier(session))
-        }
+        RemoteWorkspaceStore.connectedSources(hosts: hosts, connections: connections)
     }
 
     private var remoteEntries: [RemoteWorkspaceStore.Entry] { remoteStore.entries(for: remoteSources) }
@@ -195,31 +153,12 @@ struct FileExplorerView: View {
     }
 
     private func updateRemoteTree() {
-        guard let location = store.selectedLocation,
-              case let .remote(hostID, root) = location,
-              let host = hosts.first(where: { $0.persistentModelID == hostID }),
-              let session = connections.session(for: host) else {
-            store.remoteTree.update(source: nil, refreshID: fileViewerStore.refreshID, list: nil)
-            return
-        }
-        store.remoteTree.update(
-            source: .init(root: location, sessionID: ObjectIdentifier(session)),
-            refreshID: fileViewerStore.refreshID
-        ) { path in
-            try await session.listDirectory(root: root, path: path)
-        }
+        store.remoteTree.update(location: store.selectedLocation, hosts: hosts,
+                                connections: connections, refreshID: fileViewerStore.refreshID)
     }
 
     private func updateRemote() {
-        let sessions = Dictionary(uniqueKeysWithValues: hosts.compactMap { host in
-            connections.session(for: host).map { (host.persistentModelID, $0) }
-        })
-        remoteStore.update(sources: remoteSources, refreshID: fileViewerStore.refreshID) { source, root in
-            guard let session = sessions[source.hostID], ObjectIdentifier(session) == source.sessionID else {
-                throw RemoteSessionError.disconnected
-            }
-            return try await session.listDirectory(root: root)
-        }
+        remoteStore.update(hosts: hosts, connections: connections, refreshID: fileViewerStore.refreshID)
     }
 
 }
