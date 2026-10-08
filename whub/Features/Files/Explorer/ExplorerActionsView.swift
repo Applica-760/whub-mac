@@ -10,7 +10,6 @@ struct ExplorerActionsView: View {
     @EnvironmentObject private var connections: RemoteConnectionStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPresented = false
-    @State private var isPinned = false
     @State private var hovered = false
     @State private var hoverTask: Task<Void, Never>?
     @FocusState private var triggerFocused: Bool
@@ -102,7 +101,6 @@ struct ExplorerActionsView: View {
         } else {
             Button {
                 hoverTask?.cancel()
-                isPinned = true
                 setPresented(true)
                 triggerFocused = true
             } label: {
@@ -142,8 +140,6 @@ struct ExplorerActionsView: View {
             .transition(.opacity)
 
             roundButton(title, icon: "network") {
-                hoverTask?.cancel()
-                isPinned = true
                 Task {
                     switch state {
                     case .connecting, .connected: await connections.disconnect(host)
@@ -179,11 +175,9 @@ struct ExplorerActionsView: View {
 
     private func updateHover() {
         hoverTask?.cancel()
-        guard !isPinned else { return }
         hoverTask = Task {
             do { try await Task.sleep(for: .milliseconds(200)) }
             catch { return }
-            guard !isPinned else { return }
             setPresented(hovered)
         }
     }
@@ -197,6 +191,5 @@ struct ExplorerActionsView: View {
     private func dismiss() {
         hoverTask?.cancel()
         setPresented(false)
-        isPinned = false
     }
 }
