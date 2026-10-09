@@ -212,3 +212,79 @@ struct CodexImageTests {
         #expect(store.errorMessage != nil)
     }
 }
+
+@Suite @MainActor
+struct CodexApprovalTests {
+    @Test func resolvedRequestsKeepBookLayoutIndependentOfDetails() throws {
+        let book = CodexBookPagination()
+        book.configure(viewport: CGSize(width: 600, height: 320))
+        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
+                                   params: ["command": "/bin/date"])
+        var turn = CodexTurn(prompt: "確認", approvals: [request])
+        book.update([turn])
+        book.revealApproval(request.id)
+        #expect(book.visibleApproval?.id == request.id)
+        let expandedHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
+        turn.approvals[0].outcome = "承認済み"
+        turn.status = "completed"
+        book.update([turn])
+        #expect(book.visibleApproval == nil)
+        let collapsedHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
+        #expect(collapsedHeight < expandedHeight)
+        let pageCount = book.pages.count
+        let heights = book.pages.map(\.usedHeight)
+        book.toggleApprovalDetails(request.id, turns: [turn])
+        #expect(book.visibleApproval == nil)
+        #expect(book.pages.count == pageCount)
+        #expect(book.pages.map(\.usedHeight) == heights)
+        #expect(book.pages.flatMap(\.fragments).first { $0.approval != nil }?.height == collapsedHeight)
+        for page in book.pages { #expect(page.usedHeight <= book.contentHeight) }
+    }
+
+    @Test func approvalHeightFitsContentAndCapsLongDetails() throws {
+        let book = CodexBookPagination()
+        book.configure(viewport: CGSize(width: 800, height: 650))
+        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
+                                   params: ["command": "/usr/bin/true", "reason": "確認", "cwd": "/Users/test"])
+        let turn = CodexTurn(prompt: "確認", approvals: [request])
+        book.update([turn])
+        let shortHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
+        #expect(shortHeight < 250)
+        book.toggleApprovalDetails(request.id, turns: [turn])
+        let detailHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
+        #expect(detailHeight > shortHeight)
+        let longRequest = CodexRequest(rpcID: 2, method: request.method,
+                                       params: ["reason": String(repeating: "長い説明\n", count: 100)])
+        book.update([CodexTurn(prompt: "確認", approvals: [longRequest])])
+        let longHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
+        #expect(longHeight == book.contentHeight)
+    }
+
+    @Test func keysIgnoreCompositionRepeatsAndUnrelatedKeys() {
+        #expect(CodexPageKeys.approvalDecision(keyCode: 36, isRepeat: false, hasMarkedText: false) == true)
+        #expect(CodexPageKeys.approvalDecision(keyCode: 76, isRepeat: false, hasMarkedText: false) == true)
+        #expect(CodexPageKeys.approvalDecision(keyCode: 53, isRepeat: false, hasMarkedText: false) == false)
+        #expect(CodexPageKeys.approvalDecision(keyCode: 36, isRepeat: true, hasMarkedText: false) == nil)
+        #expect(CodexPageKeys.approvalDecision(keyCode: 36, isRepeat: false, hasMarkedText: true) == nil)
+        #expect(CodexPageKeys.approvalDecision(keyCode: 123, isRepeat: false, hasMarkedText: false) == nil)
+    }
+
+    @Test func pendingRequestsResolveIndependentlyAndIgnoreDuplicateResponses() throws {
+        let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let store = CodexStore(context: container.mainContext)
+        for id in [1, 1, 2] {
+            store.receive("item/commandExecution/requestApproval", params: [:], requestID: id)
+        }
+        #expect(store.requests.count == 2)
+        let first = try #require(store.requests.first)
+        store.receive("serverRequest/resolved", params: ["requestId": 1], requestID: nil)
+        #expect(store.requests.map(\.id) == ["2"])
+        store.approve(first, allow: true)
+        #expect(store.errorMessage == nil)
+        #expect(store.requests.count == 1)
+        store.approve(try #require(store.requests.first), allow: false)
+        #expect(store.errorMessage != nil)
+        #expect(store.requests.map(\.id) == ["2"])
+    }
+}

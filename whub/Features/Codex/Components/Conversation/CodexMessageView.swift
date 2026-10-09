@@ -75,6 +75,7 @@ struct CodexHistoryView: View {
                                 Label(item.title, systemImage: item.status == "failed" ? "xmark.circle" : "terminal")
                                     .lineLimit(2)
                             }
+                            .focusEffectDisabled()
                         }
                     }
                 }

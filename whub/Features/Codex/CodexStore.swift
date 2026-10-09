@@ -35,6 +35,7 @@ struct CodexTurn: Identifiable {
     var remoteID: String?
     let prompt: String
     var images: [CodexImageAttachment] = []
+    var approvals: [CodexRequest] = []
     var items: [CodexItem] = []
     var status = "inProgress"
     var history: [CodexItem] { items.filter { !$0.isAnswer } }
@@ -78,6 +79,8 @@ struct CodexRequest: Identifiable {
     let rpcID: Any
     let method: String
     let params: [String: Any]
+    var outcome: String? = nil
+    var isApproval: Bool { method != "item/tool/requestUserInput" }
     var id: String { CodexStore.pretty(rpcID) }
 }
 
@@ -334,10 +337,27 @@ final class CodexStore: ObservableObject, Identifiable {
 
     func disconnect() { client.disconnect() }
 
-    func answer(_ request: CodexRequest, result: [String: Any]) {
+    func approve(_ request: CodexRequest, allow: Bool) {
+        let result: [String: Any] = request.method == "item/permissions/requestApproval"
+            ? ["permissions": allow ? (request.params["permissions"] as? [String: Any] ?? [:]) : [:], "scope": "turn"]
+            : ["decision": allow ? "accept" : "decline"]
+        answer(request, result: result, outcome: allow ? "承認済み" : "拒否済み")
+    }
+
+    func resolveRequest(_ id: String, outcome: String) {
+        requests.removeAll { $0.id == id }
+        for turn in turns.indices {
+            if let index = turns[turn].approvals.firstIndex(where: { $0.id == id && $0.outcome == nil }) {
+                turns[turn].approvals[index].outcome = outcome
+            }
+        }
+    }
+
+    func answer(_ request: CodexRequest, result: [String: Any], outcome: String? = nil) {
+        guard requests.contains(where: { $0.id == request.id }) else { return }
         do {
             try client.respond(id: request.rpcID, result: result)
-            requests.removeAll { $0.id == request.id }
+            resolveRequest(request.id, outcome: outcome ?? "回答済み")
         } catch { fail(error.localizedDescription) }
     }
 
@@ -350,7 +370,12 @@ final class CodexStore: ObservableObject, Identifiable {
                    let item = turns[index].items.first(where: { $0.id == params["itemId"] as? String }) {
                     details["changePreview"] = item.text
                 }
-                requests.append(CodexRequest(rpcID: requestID, method: method, params: details))
+                let request = CodexRequest(rpcID: requestID, method: method, params: details)
+                guard !requests.contains(where: { $0.id == request.id }) else { return }
+                requests.append(request)
+                if request.isApproval, let index = activeTurnIndex {
+                    turns[index].approvals.append(request)
+                }
             } else {
                 do { try client.rejectUnsupported(id: requestID) } catch { fail(error.localizedDescription) }
                 errorMessage = "このMVPでは未対応の要求です: \(method)。要求は許可していません。"
@@ -358,7 +383,7 @@ final class CodexStore: ObservableObject, Identifiable {
             return
         }
         if method == "serverRequest/resolved", let id = params["requestId"] {
-            requests.removeAll { $0.id == Self.pretty(id) }
+            resolveRequest(Self.pretty(id), outcome: "解決済み")
             return
         }
         guard params["threadId"] as? String == threadID, let index = activeTurnIndex else { return }
@@ -402,6 +427,7 @@ final class CodexStore: ObservableObject, Identifiable {
     }
 
     private func finish(_ status: String) {
+        for request in requests { resolveRequest(request.id, outcome: "終了（未回答）") }
         if let index = activeTurnIndex { turns[index].status = status }
         if status != "completed", let pendingInput {
             if draft.isEmpty { draft = pendingInput.text }
