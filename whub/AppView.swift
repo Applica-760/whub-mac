@@ -3,6 +3,8 @@ import SwiftUI
 struct AppView: View {
     enum Section: CaseIterable, Hashable {
         case workspace
+        case file
+        case terminal
         case browser
         case codex
         case overview
@@ -11,6 +13,8 @@ struct AppView: View {
         var label: String {
             switch self {
             case .workspace: "Workspace"
+            case .file: "File"
+            case .terminal: "Terminal"
             case .browser: "Browser"
             case .codex: "Codex"
             case .overview: "Overview"
@@ -21,6 +25,8 @@ struct AppView: View {
         var systemImage: String {
             switch self {
             case .workspace: "chevron.left.forwardslash.chevron.right"
+            case .file: "doc.text"
+            case .terminal: "terminal"
             case .browser: "globe"
             case .codex: "sparkles"
             case .overview: "rectangle.3.group"
@@ -33,6 +39,8 @@ struct AppView: View {
             switch self {
             case .overview: OverviewView()
             case .workspace: WorkspaceView()
+            case .file: FileViewerView().navigationTitle("File")
+            case .terminal: TerminalView().navigationTitle("Terminal")
             case .browser: BrowserView()
             case .codex: CodexView()
             case .motion: MotionView()
@@ -45,11 +53,14 @@ struct AppView: View {
 
     var body: some View {
         NavigationSplitView {
-            FileExplorerView { section = .workspace }
+            FileExplorerView {
+                if section != .file { section = .workspace }
+            }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 320, max: 640)
         } detail: {
             section.content()
         }
+        .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 1000, minHeight: 550)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {

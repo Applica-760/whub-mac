@@ -10,7 +10,8 @@ let package = Package(
         .executable(name: "whub-mac", targets: ["WhubCLI"]),
     ],
     targets: [
-        .target(name: "WhubCore"),
+        .target(name: "WhubCore", resources: [.copy("Resources/remote_agent.py"), .copy("Resources/remote_files.py")]),
         .executableTarget(name: "WhubCLI", dependencies: ["WhubCore"]),
+        .testTarget(name: "WhubCoreTests", dependencies: ["WhubCore"]),
     ]
 )

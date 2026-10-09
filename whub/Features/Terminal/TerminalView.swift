@@ -57,7 +57,7 @@ struct TerminalView: View {
         } message: {
             Text("このターミナルタブを閉じると、実行中のコマンドが中断されます。")
         }
-        .onChange(of: store.selectedSessionID) { _, _ in
+        .onChange(of: store.selectedSessionID, initial: true) { _, _ in
             DispatchQueue.main.async {
                 let terminal = store.selectedSession.terminal
                 terminal.window?.makeFirstResponder(terminal)
