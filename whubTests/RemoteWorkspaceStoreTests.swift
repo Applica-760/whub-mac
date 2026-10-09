@@ -42,7 +42,7 @@ struct RemoteWorkspaceStoreTests {
         #expect(rows.map(\.name) == ["a", "z", "a-2", "a-10", "a", "z", "a-2", "a-10"])
         #expect(rows[0] != rows[4])
         #expect(rows[0] != .local(URL(fileURLWithPath: "/same/projects/a")))
-        let explorer = FileExplorerStore()
+        let explorer = ExplorerStore()
         let localHost = try HostStore(context: fixture.container.mainContext).addLocal(name: "local", basePath: "/same")
         let project = try ProjectStore(context: fixture.container.mainContext).add(name: "a", gitURL: nil, host: localHost)
         let locations = explorer.availableLocations(projects: [project], remote: rows, basePath: localHost.basePath)
@@ -60,7 +60,7 @@ struct RemoteWorkspaceStoreTests {
     }
 
     @Test func basePathSelectionAndDisabledDirectories() {
-        let explorer = FileExplorerStore()
+        let explorer = ExplorerStore()
         let base = FileLocation.local(URL(fileURLWithPath: "/shared"))
         explorer.validateSelection(projects: [], remote: [], basePath: "/shared")
         #expect(explorer.selectedLocation == base)
@@ -91,7 +91,7 @@ struct RemoteWorkspaceStoreTests {
         }
         try await eventually { store.states[source.hostID] == .loaded }
         let locations = store.entries(for: [source])
-        let explorer = FileExplorerStore()
+        let explorer = ExplorerStore()
         let selected = try #require(locations.last)
         explorer.selectedLocation = selected
 

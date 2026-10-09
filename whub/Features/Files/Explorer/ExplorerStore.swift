@@ -3,7 +3,7 @@ import Foundation
 import SwiftData
 import WhubCore
 
-final class FileExplorerStore: ObservableObject {
+final class ExplorerStore: ObservableObject {
     @Published var selectedLocation: FileLocation? {
         didSet {
             guard selectedLocation != oldValue else { return }
@@ -15,6 +15,82 @@ final class FileExplorerStore: ObservableObject {
             directoryErrorMessage = nil
         }
     }
+    @Published private(set) var projects: [Project] = []
+    @Published private(set) var localBasePath: String?
+    @Published private(set) var remoteSources: [RemoteWorkspaceStore.Source] = []
+    let remoteWorkspace = RemoteWorkspaceStore()
+    private var hosts: [RemoteHost] = []
+    private var workspaceChanges: AnyCancellable?
+    private var worktreeLoadID: WorktreeLoadID?
+
+    var locations: [FileLocation] {
+        availableLocations(projects: projects, remote: remoteWorkspace.entries(for: remoteSources), basePath: localBasePath)
+    }
+    var canRefresh: Bool { selectedLocation != nil || !remoteSources.isEmpty }
+    var treeBasePath: String? { basePath(projects: projects) }
+
+    struct UpdateID: Equatable {
+        let projectNames: [String]
+        let worktrees: WorktreeLoadID
+        let localBasePath: String?
+        let sources: [RemoteWorkspaceStore.Source]
+        let hostNames: [String]
+        let selection: FileLocation?
+    }
+
+    struct WorktreeLoadID: Equatable {
+        let projectPaths: [String]
+        let worktreePaths: [String]
+        let refreshID: Int
+    }
+
+    func updateID(projects: [Project], hosts: [WhubCore.Host], connections: RemoteConnectionStore,
+                  refreshID: Int) -> UpdateID {
+        let local = projects.filter { $0.host is LocalHost }
+        let sources = RemoteWorkspaceStore.connectedSources(
+            hosts: hosts.compactMap { $0 as? RemoteHost }, connections: connections
+        )
+        return UpdateID(
+            projectNames: local.map(\.name),
+            worktrees: WorktreeLoadID(projectPaths: local.map(\.path),
+                                      worktreePaths: local.map { $0.host.worktreesPath }, refreshID: refreshID),
+            localBasePath: hosts.first { $0 is LocalHost }?.basePath,
+            sources: sources, hostNames: sources.map(\.hostName), selection: selectedLocation
+        )
+    }
+
+    func update(projects: [Project], hosts: [WhubCore.Host], connections: RemoteConnectionStore,
+                refreshID: Int, context: ModelContext, gitStore: GitStore) async {
+        let id = updateID(projects: projects, hosts: hosts, connections: connections, refreshID: refreshID)
+        self.projects = projects.filter { $0.host is LocalHost }
+        self.hosts = hosts.compactMap { $0 as? RemoteHost }
+        localBasePath = id.localBasePath
+        remoteSources = id.sources
+        remoteWorkspace.update(hosts: self.hosts, connections: connections, refreshID: refreshID)
+        if worktreeLoadID != id.worktrees {
+            worktreeLoadID = id.worktrees
+            loadWorktrees(projects: self.projects)
+        }
+        validateCurrentSelection()
+        remoteTree.update(location: selectedLocation, hosts: self.hosts,
+                          connections: connections, refreshID: refreshID)
+        await load(projects: self.projects, context: context, gitStore: gitStore)
+    }
+
+    private func validateCurrentSelection() {
+        validateSelection(projects: projects, remote: remoteWorkspace.entries(for: remoteSources), basePath: localBasePath)
+    }
+
+    func preview(_ location: FileLocation, viewer: FileViewerStore, connections: RemoteConnectionStore) {
+        viewer.remote.load(location, root: treeLocation, hosts: hosts, connections: connections)
+        viewer.preview(location)
+    }
+
+    func open(_ location: FileLocation, viewer: FileViewerStore, connections: RemoteConnectionStore) {
+        viewer.remote.load(location, root: treeLocation, hosts: hosts, connections: connections)
+        viewer.open(location)
+    }
+
     private var basePathURL: URL?
     var selectedRootURL: URL? { selectedLocation?.localURL }
 
@@ -37,6 +113,13 @@ final class FileExplorerStore: ObservableObject {
     private var localRootItems: [FileItem] = []
 
     init() {
+        workspaceChanges = remoteWorkspace.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self, self.isVisible else { return }
+                self.validateCurrentSelection()
+                self.objectWillChange.send()
+            }
+        }
         remoteTree.onChange = { [weak self] in
             // Outline callbacks may run while SwiftUI is updating its representable.
             DispatchQueue.main.async { self?.treeRevision += 1 }
@@ -84,8 +167,10 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func stopWatching() {
-        remoteTree.stop()
         isVisible = false
+        remoteWorkspace.stop()
+        remoteTree.stop()
+        worktreeLoadID = nil
         watcher.stop()
         if gitStore?.rootURL == rootURL { gitStore?.stop() }
     }

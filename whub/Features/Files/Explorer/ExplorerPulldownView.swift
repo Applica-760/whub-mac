@@ -3,40 +3,49 @@ import SwiftUI
 import WhubCore
 
 struct ExplorerPulldownView: View {
-    @Binding var selection: FileLocation?
-    let locations: [FileLocation]
-    let localBasePath: String?
-    let projects: [Project]
-    let worktreeURLs: [URL]
-    @ObservedObject var remoteStore: RemoteWorkspaceStore
-    let remoteSources: [RemoteWorkspaceStore.Source]
+    @ObservedObject var store: ExplorerStore
 
     var body: some View {
-        Picker("Project or Worktree", selection: $selection) {
-            if locations.isEmpty {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                picker
+                // Reserve the menu trigger position; the expanded menu overlays the explorer.
+                Color.clear.frame(width: 36, height: 36)
+            }
+            .padding(.horizontal)
+            .padding(.top)
+
+            Divider().padding(.horizontal)
+            RemoteWorkspaceStatusView(store: store.remoteWorkspace, sources: store.remoteSources)
+        }
+        .focusedSceneValue(
+            \.explorerPulldownSelection,
+            ExplorerPulldownSelection(locations: store.locations, selection: $store.selectedLocation)
+        )
+    }
+
+    private var picker: some View {
+        Picker("Project or Worktree", selection: $store.selectedLocation) {
+            if store.locations.isEmpty {
                 Text("---").tag(FileLocation?.none)
             }
-            if let localBasePath {
-                Text("BasePath").tag(Optional(FileLocation.local(URL(fileURLWithPath: localBasePath))))
+            if let basePath = store.localBasePath {
+                Text("BasePath").tag(Optional(FileLocation.local(URL(fileURLWithPath: basePath))))
                 Divider()
             }
-            ForEach(projects.filter { $0.host is LocalHost }) { project in
+            ForEach(store.projects) { project in
                 Text(project.name).tag(Optional(FileLocation.local(URL(fileURLWithPath: project.path))))
             }
-            ForEach(worktreeURLs, id: \.self) { url in
+            ForEach(store.worktreeURLs, id: \.self) { url in
                 Text(url.lastPathComponent).tag(Optional(FileLocation.local(url)))
             }
-            RemoteWorkspaceMenuItems(store: remoteStore, sources: remoteSources)
+            RemoteWorkspaceMenuItems(store: store.remoteWorkspace, sources: store.remoteSources)
         }
         .pickerStyle(.menu)
         .labelsHidden()
         .lineLimit(1)
         .truncationMode(.tail)
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-        .focusedSceneValue(
-            \.explorerPulldownSelection,
-            ExplorerPulldownSelection(locations: locations, selection: $selection)
-        )
     }
 }
 

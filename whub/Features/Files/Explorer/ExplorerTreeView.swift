@@ -2,8 +2,45 @@ import AppKit
 import SwiftUI
 import WhubCore
 
-struct FileTreeView: NSViewRepresentable {
-    @ObservedObject var store: FileExplorerStore
+struct ExplorerTreeView: View {
+    @ObservedObject var store: ExplorerStore
+    @ObservedObject var gitStore: GitStore
+    let onFilePreview: (FileLocation) -> Void
+    let onFileOpen: (FileLocation) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let message = store.errorMessage {
+                Text(message)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding()
+            } else {
+                if let message = gitStore.errorMessage {
+                    Text(message).foregroundStyle(.secondary).padding(.horizontal)
+                }
+                if let message = store.watchError {
+                    Text(message).foregroundStyle(.orange).padding(.horizontal)
+                }
+                if let message = store.directoryErrorMessage {
+                    Text(message).foregroundStyle(.secondary).padding(.horizontal)
+                }
+                if case .remote = store.selectedLocation {
+                    RemoteFileTreeStatusView(states: store.remoteTree.states)
+                }
+                ExplorerOutlineView(
+                    store: store, basePath: store.treeBasePath, gitChanges: gitStore.changes,
+                    onFilePreview: onFilePreview, onFileOpen: onFileOpen
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct ExplorerOutlineView: NSViewRepresentable {
+    @ObservedObject var store: ExplorerStore
     let basePath: String?
     let gitChanges: [URL: GitChange]
     let onFilePreview: (FileLocation) -> Void
@@ -48,11 +85,11 @@ struct FileTreeView: NSViewRepresentable {
         weak var outlineView: NSOutlineView?
         var onFilePreview: (FileLocation) -> Void
         var onFileOpen: (FileLocation) -> Void
-        private let store: FileExplorerStore
+        private let store: ExplorerStore
         private var renderedRootLocation: FileLocation?
         private var isRestoring = false
 
-        init(store: FileExplorerStore, onFilePreview: @escaping (FileLocation) -> Void, onFileOpen: @escaping (FileLocation) -> Void) {
+        init(store: ExplorerStore, onFilePreview: @escaping (FileLocation) -> Void, onFileOpen: @escaping (FileLocation) -> Void) {
             self.store = store
             self.onFilePreview = onFilePreview
             self.onFileOpen = onFileOpen
@@ -222,7 +259,7 @@ struct FileTreeView: NSViewRepresentable {
 
 private final class FileOutlineControl: NSOutlineView {
     var basePath: String?
-    weak var store: FileExplorerStore?
+    weak var store: ExplorerStore?
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
