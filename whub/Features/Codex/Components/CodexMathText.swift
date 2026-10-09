@@ -103,6 +103,11 @@ struct CodexMathSource {
 struct CodexMathText: View {
     let text: AttributedString
     var fontSize: CGFloat = 13
+    var weight: NSFont.Weight = .light
+    var alignment: NSTextAlignment = .left
+    var lineSpacing: CGFloat = 4
+    var monospaced = false
+    @Environment(\.codexSelectionOrder) private var selectionOrder
     @Environment(\.colorScheme) private var colorScheme
 
     private enum Segment {
@@ -125,46 +130,65 @@ struct CodexMathText: View {
         return result
     }
 
-    private func inlineText(_ source: AttributedString) -> Text {
-        var result = Text("")
+    private func attributed(_ source: AttributedString, display: Bool = false) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: "")
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        paragraph.lineSpacing = lineSpacing
         for run in source.runs {
-            let part: Text
-            if let formula = run[CodexFormulaAttribute.self], let rendered = render(formula, size: fontSize) {
-                part = Text(Image(nsImage: rendered.image))
-                    .baselineOffset(-rendered.descent)
-            } else {
-                part = Text(AttributedString(source[run.range]))
+            if let formula = run[CodexFormulaAttribute.self], let rendered = render(formula, size: display ? 20 : fontSize) {
+                let attachment = NSTextAttachment()
+                attachment.image = rendered.image
+                attachment.bounds = CGRect(x: 0, y: -rendered.descent, width: rendered.image.size.width, height: rendered.image.size.height)
+                let part = NSMutableAttributedString(attachment: attachment)
+                part.addAttribute(.codexFormulaSource, value: formula.source, range: NSRange(location: 0, length: part.length))
+                result.append(part)
+                continue
             }
-            result = Text("\(result)\(part)")
+            let intent = run.inlinePresentationIntent ?? []
+            let runWeight: NSFont.Weight = intent.contains(.stronglyEmphasized) ? .bold : weight
+            var font = monospaced || intent.contains(.code)
+                ? NSFont.monospacedSystemFont(ofSize: monospaced ? fontSize : 12, weight: runWeight)
+                : NSFont.systemFont(ofSize: fontSize, weight: runWeight)
+            if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
+            var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
+            if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            if intent.contains(.code) { attributes[.backgroundColor] = NSColor.secondaryLabelColor.withAlphaComponent(0.16) }
+            if let link = run.link { attributes[.link] = link }
+            result.append(NSAttributedString(string: String(source[run.range].characters), attributes: attributes))
         }
+        result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
         return result
     }
 
     var body: some View {
         let parts = segments
         if parts.count == 1, case .text(let source) = parts[0] {
-            inlineText(source)
-                .accessibilityLabel(Text(String(source.characters)))
+            CodexSelectableText(text: attributed(source), wraps: !monospaced)
         } else {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(parts.indices, id: \.self) { index in
                     switch parts[index] {
                     case .text(let source):
-                        inlineText(source)
-                            .accessibilityLabel(Text(String(source.characters)))
+                        CodexSelectableText(text: attributed(source), wraps: !monospaced)
+                            .environment(\.codexSelectionOrder, selectionOrder + [index])
                     case .display(let formula):
                         ScrollView(.horizontal) {
-                            if let rendered = render(formula, size: 20) {
-                                Image(nsImage: rendered.image).accessibilityLabel(Text(formula.source))
-                            } else {
-                                Text(formula.source).font(.system(size: fontSize, design: .monospaced))
-                            }
+                            let source = formulaText(formula)
+                            CodexSelectableText(text: attributed(source, display: true), wraps: false)
+                                .environment(\.codexSelectionOrder, selectionOrder + [index])
                         }
                         .padding(.vertical, 4)
                     }
                 }
             }
         }
+    }
+
+    private func formulaText(_ formula: CodexFormula) -> AttributedString {
+        var source = AttributedString(formula.source)
+        source[CodexFormulaAttribute.self] = formula
+        return source
     }
 
     private final class Rendered: NSObject {

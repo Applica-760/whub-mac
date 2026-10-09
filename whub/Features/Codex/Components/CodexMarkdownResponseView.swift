@@ -58,20 +58,29 @@ struct CodexMarkdownResponseView: View {
         let block: Block
         var ordered = false
         var width: CGFloat? = nil
+        @Environment(\.codexSelectionOrder) private var selectionOrder
+        @Environment(\.codexSelectionSource) private var selectionSource
 
         private var contents: some View {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(block.children) { BlockView(block: $0, width: width.map { $0 - (block.kind == .blockQuote ? 14 : 32) }) }
+                ForEach(Array(block.children.enumerated()), id: \.element.id) { index, child in
+                    BlockView(block: child, width: width.map { $0 - (block.kind == .blockQuote ? 14 : 32) })
+                        .environment(\.codexSelectionOrder, selectionOrder + [index])
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
 
-        @ViewBuilder var body: some View {
+        var body: some View {
+            rendered.environment(\.codexSelectionSource, selectionSource + ":" + String(block.id))
+        }
+
+        @ViewBuilder private var rendered: some View {
             switch block.kind {
             case .thematicBreak:
                 Divider().padding(.vertical, 6)
             case .header(let level):
-                CodexMathText(text: block.text, fontSize: [23.0, 20, 18, 16, 14, 13][min(max(level, 1), 6) - 1])
+                CodexMathText(text: block.text, fontSize: [23.0, 20, 18, 16, 14, 13][min(max(level, 1), 6) - 1], weight: .regular)
                     .font(.system(size: [23.0, 20, 18, 16, 14, 13][min(max(level, 1), 6) - 1],
                                   weight: .regular))
                     .foregroundStyle(level == 6 ? Color.secondary : Color.primary)
@@ -79,8 +88,9 @@ struct CodexMarkdownResponseView: View {
                     .padding(.bottom, level <= 2 ? 4 : 0)
             case .orderedList, .unorderedList:
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(block.children) { child in
+                    ForEach(Array(block.children.enumerated()), id: \.element.id) { index, child in
                         BlockView(block: child, ordered: block.kind == .orderedList, width: width)
+                            .environment(\.codexSelectionOrder, selectionOrder + [index])
                     }
                 }
             case .listItem(let ordinal):
@@ -101,8 +111,7 @@ struct CodexMarkdownResponseView: View {
                     }
             case .codeBlock:
                 ScrollView(.horizontal) {
-                    Text(String(block.text.characters))
-                        .font(.system(size: 12, design: .monospaced))
+                    CodexMathText(text: AttributedString(String(block.text.characters)), fontSize: 12, weight: .regular, lineSpacing: 0, monospaced: true)
                         .padding(12)
                 }
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
@@ -125,6 +134,8 @@ struct CodexMarkdownResponseView: View {
         let block: Block
         let columns: [PresentationIntent.TableColumn]
         var fixedWidth: CGFloat?
+        @Environment(\.codexSelectionSource) private var selectionSource
+        @Environment(\.codexSelectionOrder) private var selectionOrder
         @State private var availableWidth: CGFloat = 820
 
         private var columnWidth: CGFloat {
@@ -134,11 +145,15 @@ struct CodexMarkdownResponseView: View {
         var body: some View {
             ScrollView(.horizontal) {
                 Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
-                    ForEach(block.children) { row in
+                    ForEach(Array(block.children.enumerated()), id: \.element.id) { rowIndex, row in
                         GridRow {
                             ForEach(columns.indices, id: \.self) { index in
                                 let cell = row.children.first { $0.kind == .tableCell(columnIndex: index) }
-                                CodexMathText(text: cell?.text ?? AttributedString())
+                                CodexMathText(text: cell?.text ?? AttributedString(),
+                                              weight: row.kind == .tableHeaderRow ? .regular : .light,
+                                              alignment: columns[index].alignment == .right ? .right : columns[index].alignment == .center ? .center : .left, lineSpacing: 0)
+                                    .environment(\.codexSelectionOrder, selectionOrder + [rowIndex, index])
+                                    .environment(\.codexSelectionSource, selectionSource + ":" + String(cell?.id ?? -index - 1))
                                     .font(.system(size: 13, weight: row.kind == .tableHeaderRow ? .regular : .light))
                                     .multilineTextAlignment(columns[index].alignment == .right ? .trailing
                                         : columns[index].alignment == .center ? .center : .leading)
