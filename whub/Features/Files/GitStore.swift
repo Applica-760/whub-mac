@@ -7,6 +7,11 @@ final class GitStore: ObservableObject {
     @Published private(set) var changes: [URL: GitChange] = [:]
     @Published private(set) var rootURL: URL?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var diffChanges: [URL: GitChange] = [:]
+    @Published private(set) var diffError: String?
+    @Published private(set) var isLoadingDiff = false
+    @Published private(set) var isRepository = false
+    private var diffEnabled = false
     private(set) var managementDirectories: Set<URL> = []
     var onManagementDirectoriesChange: (() -> Void)?
     private var requestID = 0
@@ -26,12 +31,24 @@ final class GitStore: ObservableObject {
         managementDirectories = []
         changes = [:]
         errorMessage = nil
+        diffChanges = [:]
+        diffError = nil
+        isLoadingDiff = false
+        isRepository = false
     }
 
     func stop() {
         requestID += 1
         rootURL = nil
         onManagementDirectoriesChange = nil
+        isLoadingDiff = false
+    }
+
+    func setDiffEnabled(_ enabled: Bool) {
+        guard diffEnabled != enabled else { return }
+        diffEnabled = enabled
+        if !enabled { diffChanges = [:]; diffError = nil; isLoadingDiff = false }
+        refresh()
     }
 
     func managesStatus(for fileURL: URL) -> Bool {
@@ -43,6 +60,7 @@ final class GitStore: ObservableObject {
 
     func refresh() {
         guard rootURL != nil else { return }
+        if diffEnabled { isLoadingDiff = true }
         requestID += 1
         guard refreshTask == nil else { return }
         refreshTask = Task { [weak self] in await self?.load() }
@@ -62,17 +80,36 @@ final class GitStore: ObservableObject {
                 guard isCurrent() else { continue }
                 changes = loaded
                 errorMessage = nil
+                isRepository = true
+                if diffEnabled {
+                    do {
+                        let diffs = try await Git.fileChanges(at: url)
+                        guard isCurrent() else { continue }
+                        diffChanges = diffs
+                        diffError = nil
+                    } catch {
+                        guard isCurrent() else { continue }
+                        diffChanges = [:]
+                        diffError = error.localizedDescription
+                    }
+                }
             } catch GitError.notRepository {
                 guard isCurrent() else { continue }
                 managementDirectories = []
                 onManagementDirectoriesChange?()
                 changes = [:]
                 errorMessage = nil
+                diffChanges = [:]
+                diffError = nil
+                isRepository = false
             } catch {
                 guard isCurrent() else { continue }
                 changes = [:]
                 errorMessage = error.localizedDescription
+                diffChanges = [:]
+                diffError = error.localizedDescription
             }
+            isLoadingDiff = false
             break
         }
     }

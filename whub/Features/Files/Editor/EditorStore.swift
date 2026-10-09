@@ -2,9 +2,9 @@ import Combine
 import Foundation
 
 final class EditorStore: ObservableObject {
-    @Published private(set) var fileLocations: [FileLocation] = []
-    @Published private(set) var selectedLocation: FileLocation?
-    @Published private(set) var previewLocation: FileLocation?
+    @Published private(set) var tabs: [EditorTab] = []
+    @Published private(set) var selectedTab: EditorTab?
+    @Published private(set) var previewTab: EditorTab?
     let local = LocalEditorStore()
     let remote = RemoteViewerStore()
     private var changes: AnyCancellable?
@@ -21,59 +21,77 @@ final class EditorStore: ObservableObject {
 
     func refresh() {
         remote.refresh()
+        local.refreshDiffs()
     }
 
-    func open(_ location: FileLocation) {
-        guard local.fileStores[location] != nil || remote.states[location] != nil else { return }
-        if !fileLocations.contains(location) {
-            fileLocations.append(location)
+    func open(_ tab: EditorTab) {
+        guard isPrepared(tab) else { return }
+        if !tabs.contains(tab) {
+            tabs.append(tab)
         }
-        selectedLocation = location
-        if previewLocation == location { previewLocation = nil }
+        selectedTab = tab
+        if previewTab == tab { previewTab = nil }
     }
 
-    func preview(_ location: FileLocation) {
-        guard local.fileStores[location] != nil || remote.states[location] != nil else { return }
-        if fileLocations.contains(location) && previewLocation != location {
-            selectedLocation = location
+    func preview(_ tab: EditorTab) {
+        guard isPrepared(tab) else { return }
+        if tabs.contains(tab) && previewTab != tab {
+            selectedTab = tab
             return
         }
-        if let previewLocation, let index = fileLocations.firstIndex(of: previewLocation) {
-            if previewLocation != location {
-                local.close(previewLocation)
-                remote.close(previewLocation)
-            }
-            fileLocations[index] = location
-        } else if !fileLocations.contains(location) {
-            fileLocations.append(location)
+        if case let .file(previous) = previewTab, local.fileStores[previous]?.document.hasUnsavedChanges == true {
+            previewTab = nil
         }
-        previewLocation = location
-        selectedLocation = location
+        if let previewTab, let index = tabs.firstIndex(of: previewTab) {
+            if previewTab != tab {
+                release(previewTab)
+            }
+            tabs[index] = tab
+        } else if !tabs.contains(tab) {
+            tabs.append(tab)
+        }
+        previewTab = tab
+        selectedTab = tab
     }
 
-    func close(_ location: FileLocation) {
-        guard !isClosing, fileLocations.contains(location) else { return }
+    func close(_ tab: EditorTab) {
+        guard !isClosing, tabs.contains(tab) else { return }
         isClosing = true
         defer { isClosing = false }
-        guard local.fileStores[location]?.confirmClose() != false else { return }
-        guard let index = fileLocations.firstIndex(of: location) else { return }
-        fileLocations.remove(at: index)
-        local.close(location)
-        remote.close(location)
-        if previewLocation == location { previewLocation = nil }
-        guard selectedLocation == location else { return }
-        selectedLocation = index < fileLocations.count ? fileLocations[index] : fileLocations.last
+        if case let .file(file) = tab, local.fileStores[file]?.confirmClose() == false { return }
+        guard let index = tabs.firstIndex(of: tab) else { return }
+        tabs.remove(at: index)
+        release(tab)
+        if previewTab == tab { previewTab = nil }
+        guard selectedTab == tab else { return }
+        selectedTab = index < tabs.count ? tabs[index] : tabs.last
     }
 
-    func move(_ location: FileLocation, before target: FileLocation?) {
-        guard let reordered = reorderedTabs(fileLocations, moving: location, before: target, identifiedBy: \.self)
+    func move(_ tab: EditorTab, before target: EditorTab?) {
+        guard let reordered = reorderedTabs(tabs, moving: tab, before: target, identifiedBy: \.self)
         else { return }
-        fileLocations = reordered
-        if previewLocation == location { previewLocation = nil }
+        tabs = reordered
+        if previewTab == tab { previewTab = nil }
     }
 
-    func select(_ location: FileLocation) {
-        guard fileLocations.contains(location) else { return }
-        selectedLocation = location
+    private func isPrepared(_ tab: EditorTab) -> Bool {
+        switch tab {
+        case let .file(location): local.fileStores[location] != nil || remote.states[location] != nil
+        case let .diff(url): local.diffStores[url] != nil
+        }
+    }
+
+    private func release(_ tab: EditorTab) {
+        switch tab {
+        case let .file(location):
+            local.close(location)
+            remote.close(location)
+        case let .diff(url): local.closeDiff(at: url)
+        }
+    }
+
+    func select(_ tab: EditorTab) {
+        guard tabs.contains(tab) else { return }
+        selectedTab = tab
     }
 }

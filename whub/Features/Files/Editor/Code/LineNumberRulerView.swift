@@ -5,8 +5,10 @@ final class LineNumberRulerView: NSRulerView {
     private(set) var hunks: [LineDiffHunk] = []
     private var lineStarts = [0]
     private var lineCount = 0
+    private var diffLines: [DiffLine]?
 
-    func update(source: String, hunks: [LineDiffHunk]) {
+    func update(source: String, hunks: [LineDiffHunk], diffLines: [DiffLine]? = nil) {
+        self.diffLines = diffLines
         var lineStarts = [0]
         for (offset, character) in source.utf16.enumerated() where character == 10 {
             lineStarts.append(offset + 1)
@@ -57,7 +59,22 @@ final class LineNumberRulerView: NSRulerView {
         for line in first...last {
             guard let lineRect = lineRect(line, textView: textView, layoutManager: layoutManager) else { continue }
             let rulerRect = convert(lineRect, from: textView)
-            let number = String(line + 1) as NSString
+            let numberValue: Int
+            if let diffLines {
+                guard diffLines.indices.contains(line), let value = diffLines[line].number else { continue }
+                numberValue = value
+                let color: NSColor? = switch diffLines[line].change {
+                case .added: .systemGreen
+                case .deleted: .systemRed
+                case .modified: .systemOrange
+                case nil: nil
+                }
+                if let color {
+                    color.setFill()
+                    NSRect(x: bounds.maxX - 4, y: rulerRect.minY, width: 3, height: rulerRect.height).fill()
+                }
+            } else { numberValue = line + 1 }
+            let number = String(numberValue) as NSString
             let size = number.size(withAttributes: attributes)
             number.draw(
                 at: NSPoint(x: bounds.maxX - 13 - size.width, y: rulerRect.midY - size.height / 2),

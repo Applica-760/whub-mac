@@ -2,6 +2,11 @@ import AppKit
 import SwiftUI
 import WhubCore
 
+nonisolated enum EditorTab: Hashable, Sendable {
+    case file(FileLocation)
+    case diff(URL)
+}
+
 struct EditorTabBarView: View {
     @EnvironmentObject private var store: EditorStore
     @EnvironmentObject private var gitStore: GitStore
@@ -10,8 +15,8 @@ struct EditorTabBarView: View {
 
     var body: some View {
         TabBarContainer(
-            ids: store.fileLocations,
-            selection: store.selectedLocation,
+            ids: store.tabs,
+            selection: store.selectedTab,
             select: selectTab,
             close: { location in
                 tabFocus.activate()
@@ -20,39 +25,47 @@ struct EditorTabBarView: View {
             canClose: { _ in true },
             move: store.move,
             isShortcutTarget: tabFocus.contains
-        ) { location, isSelected, actions in
-            if let fileStore = store.local.fileStores[location], let fileURL = location.localURL {
-                let titleColor: Color? = switch gitStore.changes[fileURL.standardizedFileURL] {
-                case .added: Color(nsColor: .systemGreen)
-                case .modified, .deleted: Color(nsColor: .systemOrange)
-                case nil: nil
+        ) { tab, isSelected, actions in
+            switch tab {
+            case let .diff(url):
+                TabBar(title: url.lastPathComponent + " · Diff", icon: Image(systemName: "arrow.left.arrow.right"),
+                       isSelected: isSelected, isPreview: tab == store.previewTab,
+                       openAction: { store.open(tab) }, action: actions.select, closeAction: actions.close)
+                    .help(url.path + " — HEAD ↔ 保存済み")
+            case let .file(location):
+                if let fileStore = store.local.fileStores[location], let fileURL = location.localURL {
+                    let titleColor: Color? = switch gitStore.changes[fileURL.standardizedFileURL] {
+                    case .added: Color(nsColor: .systemGreen)
+                    case .modified, .deleted: Color(nsColor: .systemOrange)
+                    case nil: nil
+                    }
+                    TabBar(
+                        title: location.name,
+                        icon: IconList.image(for: fileURL),
+                        isSelected: isSelected,
+                        isPreview: tab == store.previewTab,
+                        titleColor: titleColor,
+                        status: fileStore.diskMessage != nil ? (.orange, "外部変更・読み込みエラー")
+                            : fileStore.document.hasUnsavedChanges ? (.primary, "未保存") : nil,
+                        openAction: { store.open(tab) },
+                        action: actions.select,
+                        closeAction: actions.close
+                    )
+                } else if case .remote = location {
+                    TabBar(title: location.name, icon: Image(systemName: "network"),
+                           isSelected: isSelected, isPreview: tab == store.previewTab,
+                           openAction: { store.open(tab) }, action: actions.select, closeAction: actions.close)
+                        .help(location.path)
                 }
-                TabBar(
-                    title: location.name,
-                    icon: IconList.image(for: fileURL),
-                    isSelected: isSelected,
-                    isPreview: location == store.previewLocation,
-                    titleColor: titleColor,
-                    status: fileStore.diskMessage != nil ? (.orange, "外部変更・読み込みエラー")
-                        : fileStore.document.hasUnsavedChanges ? (.primary, "未保存") : nil,
-                    openAction: { store.open(location) },
-                    action: actions.select,
-                    closeAction: actions.close
-                )
-            } else if case .remote = location {
-                TabBar(title: location.name, icon: Image(systemName: "network"),
-                       isSelected: isSelected, isPreview: location == store.previewLocation,
-                       openAction: { store.open(location) }, action: actions.select, closeAction: actions.close)
-                    .help(location.path)
             }
         }
     }
 
-    private func selectTab(_ location: FileLocation) {
+    private func selectTab(_ tab: EditorTab) {
         tabFocus.activate()
-        store.select(location)
+        store.select(tab)
         DispatchQueue.main.async {
-            guard store.selectedLocation == location,
+            guard store.selectedTab == tab, case let .file(location) = tab,
                   let editor = store.file(for: location)?.editorViews[editorID]?.documentView,
                   let window = editor.window, tabFocus.contains(window) else { return }
             window.makeFirstResponder(editor)

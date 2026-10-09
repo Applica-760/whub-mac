@@ -4,6 +4,8 @@ import WhubCore
 
 struct ExplorerMenuView: View {
     let canRefresh: Bool
+    let canShowDiff: Bool
+    @Binding var showsDiff: Bool
     let refresh: () -> Void
     @Query(sort: \WhubCore.Host.name) private var allHosts: [WhubCore.Host]
     @EnvironmentObject private var connections: RemoteConnectionStore
@@ -36,6 +38,17 @@ struct ExplorerMenuView: View {
                     .focused($triggerFocused)
 
                 if isPresented {
+                    HStack(spacing: 12) {
+                        Text(showsDiff ? "通常Explorer" : "差分Explorer")
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        roundButton(showsDiff ? "通常Explorer" : "差分Explorer",
+                                    icon: showsDiff ? "folder" : "arrow.left.arrow.right") {
+                            showsDiff.toggle()
+                            dismiss()
+                        }
+                        .disabled(!canShowDiff)
+                        .glassEffectID("diff", in: glassNamespace)
+                    }
                     HStack(spacing: 12) {
                         Text("リロード")
                             .frame(maxWidth: .infinity, alignment: .trailing)
