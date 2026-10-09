@@ -21,6 +21,25 @@ public enum GitError: LocalizedError {
 }
 
 public enum Git {
+    public static func needsStatusRefresh(
+        changedPaths: [String], worktreeRoots: [String], managementDirectories: Set<URL>
+    ) -> Bool {
+        changedPaths.contains { path in
+            if worktreeRoots.contains(where: { path == $0 + "/.git" }) { return true }
+            if managementDirectories.isEmpty,
+               worktreeRoots.contains(where: { path.hasPrefix($0 + "/.git/") }) { return true }
+            return managementDirectories.contains { directory in
+                let root = directory.path
+                if path == root || root.hasPrefix(path + "/") { return true }
+                guard path.hasPrefix(root + "/") else { return false }
+                let name = path.dropFirst(root.count + 1).split(separator: "/").first ?? ""
+                return ["HEAD", "index", "commondir", "config", "config.worktree",
+                        "refs", "packed-refs", "reftable", "info"].contains(String(name))
+                    || name.hasPrefix("sharedindex.")
+            }
+        }
+    }
+
     public static func managementDirectories(at directory: URL) async throws -> Set<URL> {
         try await Task.detached(priority: .utility) {
             var directories: Set<URL> = []

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Zero-based, half-open line ranges; an empty range marks an insertion or deletion point.
-public struct GitDiffHunk: Sendable, Equatable {
+public struct LineDiffHunk: Sendable, Equatable {
     public let oldLines: Range<Int>
     public let newLines: Range<Int>
 }
@@ -32,7 +32,7 @@ public extension Git {
         }.value
     }
 
-    static func diff(from original: String, to source: String) -> [GitDiffHunk] {
+    static func diff(from original: String, to source: String) -> [LineDiffHunk] {
         func lines(_ text: String) -> [String] {
             guard !text.isEmpty else { return [] }
             var lines = text.components(separatedBy: "\n")
@@ -51,7 +51,7 @@ public extension Git {
             case let .insert(offset, _, _): inserted.insert(offset)
             }
         }
-        var hunks: [GitDiffHunk] = []
+        var hunks: [LineDiffHunk] = []
         var oldIndex = 0
         var newIndex = 0
         while oldIndex < old.count || newIndex < new.count {
@@ -62,7 +62,7 @@ public extension Git {
                     if removed.contains(oldIndex) { oldIndex += 1 }
                     if inserted.contains(newIndex) { newIndex += 1 }
                 } while removed.contains(oldIndex) || inserted.contains(newIndex)
-                hunks.append(GitDiffHunk(oldLines: oldStart..<oldIndex, newLines: newStart..<newIndex))
+                hunks.append(LineDiffHunk(oldLines: oldStart..<oldIndex, newLines: newStart..<newIndex))
             } else {
                 oldIndex += 1
                 newIndex += 1
@@ -71,7 +71,7 @@ public extension Git {
         return hunks
     }
 
-    static func diff(at fileURL: URL) async throws -> [GitDiffHunk] {
+    static func diff(at fileURL: URL) async throws -> [LineDiffHunk] {
         try await Task.detached(priority: .utility) {
             let fileURL = fileURL.standardizedFileURL
             let directory = fileURL.deletingLastPathComponent()
@@ -100,15 +100,15 @@ public extension Git {
         }.value
     }
 
-    private static func allAddedLines(in fileURL: URL) throws -> [GitDiffHunk] {
+    private static func allAddedLines(in fileURL: URL) throws -> [LineDiffHunk] {
         let data = try Data(contentsOf: fileURL)
         let lineCount = data.reduce(0) { $0 + ($1 == 10 ? 1 : 0) } + (data.isEmpty || data.last == 10 ? 0 : 1)
-        return lineCount == 0 ? [] : [GitDiffHunk(oldLines: 0..<0, newLines: 0..<lineCount)]
+        return lineCount == 0 ? [] : [LineDiffHunk(oldLines: 0..<0, newLines: 0..<lineCount)]
     }
 
-    private static func parseDiff(_ data: Data) throws -> [GitDiffHunk] {
+    private static func parseDiff(_ data: Data) throws -> [LineDiffHunk] {
         let pattern = try NSRegularExpression(pattern: #"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@"#)
-        var hunks: [GitDiffHunk] = []
+        var hunks: [LineDiffHunk] = []
         for line in String(decoding: data, as: UTF8.self).split(separator: "\n") where line.hasPrefix("@@ ") {
             let header = String(line)
             guard let match = pattern.firstMatch(in: header, range: NSRange(header.startIndex..., in: header)) else {
@@ -128,7 +128,7 @@ public extension Git {
                   oldLower <= Int.max - oldCount, newLower <= Int.max - newCount else {
                 throw GitError.invalidOutput
             }
-            hunks.append(GitDiffHunk(
+            hunks.append(LineDiffHunk(
                 oldLines: oldLower..<(oldLower + oldCount),
                 newLines: newLower..<(newLower + newCount)
             ))
