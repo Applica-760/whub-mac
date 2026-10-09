@@ -15,6 +15,7 @@ struct FileTreeView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let outlineView = FileOutlineControl()
+        outlineView.store = store
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         column.resizingMask = .autoresizingMask
         outlineView.addTableColumn(column)
@@ -121,7 +122,18 @@ struct FileTreeView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-            (item as? FileItem)?.isDirectory == true
+            guard let item = item as? FileItem else { return false }
+            return item.isDirectory && !store.isUnavailable(item)
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
+            guard let item = item as? FileItem else { return false }
+            return !store.isUnavailable(item)
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {
+            guard let item = item as? FileItem else { return false }
+            return !store.isUnavailable(item)
         }
 
         func outlineViewItemWillExpand(_ notification: Notification) {
@@ -155,12 +167,19 @@ struct FileTreeView: NSViewRepresentable {
             guard let item = item as? FileItem else { return nil }
             let identifier = NSUserInterfaceItemIdentifier("file")
             let cell = (outlineView.makeView(withIdentifier: identifier, owner: nil) as? NSTableCellView) ?? makeCell(identifier: identifier)
-            cell.textField?.stringValue = item.location.name
+            let unavailable = store.isUnavailable(item)
+            cell.textField?.attributedStringValue = NSAttributedString(
+                string: item.location.name,
+                attributes: unavailable ? [.strikethroughStyle: NSUnderlineStyle.single.rawValue] : [:]
+            )
+            cell.toolTip = unavailable ? "上部のメニューからProjectまたはWorktreeを選択してください。" : nil
             cell.textField?.textColor = switch item.location.localURL.flatMap({ store.decorations[$0.standardizedFileURL] }) {
             case .added: .systemGreen
             case .modified, .deleted: .systemOrange
             case nil: item.location.name.hasPrefix(".") ? .secondaryLabelColor : .labelColor
             }
+            if unavailable { cell.textField?.textColor = .disabledControlTextColor }
+            cell.imageView?.alphaValue = unavailable ? 0.4 : 1
             if let url = item.location.localURL {
                 cell.imageView?.image = NSWorkspace.shared.icon(forFile: url.path)
             } else {
@@ -203,6 +222,7 @@ struct FileTreeView: NSViewRepresentable {
 
 private final class FileOutlineControl: NSOutlineView {
     var basePath: String?
+    weak var store: FileExplorerStore?
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
@@ -244,6 +264,7 @@ private final class FileOutlineControl: NSOutlineView {
             return
         }
 
+        guard store?.isUnavailable(item) != true else { return }
         selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         if isItemExpanded(item) {
             collapseItem(item)
