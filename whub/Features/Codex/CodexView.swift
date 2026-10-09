@@ -7,40 +7,14 @@ struct CodexView: View {
     @State private var pendingCloseID: CodexStore.ID?
     @State private var books: [CodexStore.ID: CodexBookPagination] = [:]
 
-    // Restore after comparing the notebook area with and without tabs.
-    private let showsTabBar = false
-
     var body: some View {
-        VStack(spacing: 8) {
-            if showsTabBar {
-                TabBarContainer(
-                    ids: store.sessions.map(\.id),
-                    selection: store.selectedSessionID,
-                    select: { id in
-                        tabFocus.activate()
-                        store.select(id)
-                    },
-                    close: requestClose,
-                    canClose: { _ in store.sessions.count > 1 },
-                    move: store.move,
-                    isShortcutTarget: { pendingCloseID == nil && tabFocus.contains($0) }
-                ) { id, isSelected, actions in
-                    if let index = store.sessions.firstIndex(where: { $0.id == id }) {
-                        CodexConversationTab(
-                            session: store.sessions[index], title: "Codex \(index + 1)",
-                            isSelected: isSelected, canClose: store.sessions.count > 1, actions: actions
-                        )
-                    }
-                }
-            }
-            if let book = books[store.selectedSessionID] {
-                CodexSessionView(book: book)
-                    .environmentObject(store.selectedSession)
-                    .id(store.selectedSessionID)
-            } else {
-                Color.clear.frame(maxHeight: .infinity)
+        CodexSessionView(book: books[store.selectedSessionID]) {
+            CodexTabBar(sessions: store.sessions, selection: store.selectedSessionID) { id in
+                tabFocus.activate()
+                store.select(id)
             }
         }
+        .environmentObject(store.selectedSession)
         .task(id: store.selectedSessionID) {
             if books[store.selectedSessionID] == nil { books[store.selectedSessionID] = CodexBookPagination() }
         }
@@ -48,6 +22,12 @@ struct CodexView: View {
             books = books.filter { ids.contains($0.key) }
         }
         .background(TabPaneFocusView(focus: tabFocus))
+        .background(TabBarShortcuts(
+            ids: store.sessions.map(\.id), selection: store.selectedSessionID,
+            select: { id in tabFocus.activate(); store.select(id) }, close: requestClose,
+            canClose: { _ in store.sessions.count > 1 },
+            isShortcutTarget: { pendingCloseID == nil && tabFocus.contains($0) }
+        ))
         .padding(.horizontal)
         .padding(.top, 8)
         .navigationTitle("Codex")
@@ -77,41 +57,38 @@ struct CodexView: View {
     }
 }
 
-private struct CodexConversationTab: View {
-    @ObservedObject var session: CodexStore
-    let title: String
-    let isSelected: Bool
-    let canClose: Bool
-    let actions: TabBarActions
-
-    var body: some View {
-        TabBar(
-            title: title, icon: Image(systemName: "sparkles"),
-            isSelected: isSelected, isCloseDisabled: !canClose,
-            status: !session.requests.isEmpty ? (.orange, "回答・承認待ち")
-                : session.isBusy ? (.blue, "作業中") : nil,
-            action: actions.select, closeAction: actions.close
-        )
-    }
-}
-
-private struct CodexSessionView: View {
+private struct CodexSessionView<Tabs: View>: View {
     @EnvironmentObject private var store: CodexStore
-    @ObservedObject var book: CodexBookPagination
+    let book: CodexBookPagination?
+    @ViewBuilder let tabs: () -> Tabs
     @State private var confirmsReset = false
     @State private var composerClearance: CGFloat = 64
 
     var body: some View {
         VStack(spacing: 0) {
-            CodexBookView(book: book, composerClearance: composerClearance)
+            ZStack {
+                if let book {
+                    CodexBookView(book: book, composerClearance: composerClearance)
+                        .id(store.id)
+                } else {
+                    Color.clear.frame(maxHeight: .infinity)
+                }
+            }
                 .overlay(alignment: .bottom) {
                     CodexInputView {
                         if store.turns.isEmpty { store.reset() } else { confirmsReset = true }
                     }
-                    .padding(.horizontal, 56)
+                    .id(store.id)
+                    .padding(.horizontal, 212)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
                         composerClearance = $0 + 4
                     }
+                }
+                .overlay(alignment: .bottomLeading) {
+                    tabs()
+                        .frame(width: 156, height: 36)
+                        .padding(.leading, 56)
+                        .padding(.bottom, 16)
                 }
             if !store.requests.isEmpty {
                 ScrollView {
@@ -135,6 +112,7 @@ private struct CodexSessionView: View {
                 .padding(.horizontal, 24).padding(.vertical, 8)
             }
         }
+        .onChange(of: store.id) { _, _ in confirmsReset = false }
         .alert("新しい会話を始めますか？", isPresented: $confirmsReset) {
             Button("キャンセル", role: .cancel) {}
             Button("新しい会話") { store.reset() }
