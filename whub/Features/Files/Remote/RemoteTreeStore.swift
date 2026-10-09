@@ -3,7 +3,7 @@ import SwiftData
 import WhubCore
 
 @MainActor
-final class RemoteFileTreeStore {
+final class RemoteTreeStore {
     struct Source: Equatable {
         let root: FileLocation
         let sessionID: ObjectIdentifier
@@ -15,15 +15,15 @@ final class RemoteFileTreeStore {
 
     private(set) var source: Source?
     private(set) var states: [String: State] = [:]
-    private(set) var rootItems: [FileItem] = []
-    private var items: [FileLocation: FileItem] = [:]
+    private(set) var rootItems: [ExplorerItem] = []
+    private var items: [FileLocation: ExplorerItem] = [:]
     private var jobs: [String: Task<Void, Never>] = [:]
     private var generation = UUID()
     private var refreshID: Int?
     private var list: (@MainActor (String) async throws -> [RemoteFileEntry])?
     var onChange: (() -> Void)?
 
-    var cachedItems: [FileItem] { Array(items.values) }
+    var cachedItems: [ExplorerItem] { Array(items.values) }
 
     func update(location: FileLocation?, hosts: [RemoteHost], connections: RemoteConnectionStore, refreshID: Int) {
         guard let location,
@@ -59,11 +59,11 @@ final class RemoteFileTreeStore {
         }
     }
 
-    func children(for item: FileItem?) -> [FileItem] {
+    func children(for item: ExplorerItem?) -> [ExplorerItem] {
         item.map { $0.children ?? [] } ?? rootItems
     }
 
-    func loadChildren(of item: FileItem) {
+    func loadChildren(of item: ExplorerItem) {
         guard item.isDirectory, items[item.location] === item, let root = source?.root else { return }
         let prefix = root.path == "/" ? "/" : root.path + "/"
         guard item.location.path.hasPrefix(prefix),
@@ -90,7 +90,7 @@ final class RemoteFileTreeStore {
                     let location = parent.appending(entry.name)
                     let directory = entry.kind == .directory
                     if let existing = self.items[location], existing.isDirectory == directory { return existing }
-                    let item = FileItem(location: location, isDirectory: directory)
+                    let item = ExplorerItem(location: location, isDirectory: directory)
                     self.items[location] = item
                     return item
                 }.sorted {

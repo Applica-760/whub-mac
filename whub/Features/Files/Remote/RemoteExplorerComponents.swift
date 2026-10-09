@@ -45,7 +45,7 @@ struct RemoteWorkspaceStatusView: View {
 }
 
 struct RemoteFileTreeStatusView: View {
-    let states: [String: RemoteFileTreeStore.State]
+    let states: [String: RemoteTreeStore.State]
 
     var body: some View {
         ForEach(states.keys.sorted(), id: \.self) { path in

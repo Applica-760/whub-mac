@@ -48,14 +48,15 @@ struct AppView: View {
         }
     }
 
+    @EnvironmentObject private var files: FilesStore
     @Binding var section: Section
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         NavigationSplitView {
-            ExplorerView {
+            ExplorerView(onFileSelect: {
                 section = .file
-            }
+            }, store: files.explorer)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 320, max: 640)
         } detail: {
             section.content()

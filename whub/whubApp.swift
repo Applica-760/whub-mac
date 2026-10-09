@@ -6,8 +6,7 @@ import WhubCore
 @main
 struct whubApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var gitStore = GitStore()
-    @StateObject private var fileViewerStore = FileViewerStore()
+    @StateObject private var files = FilesStore()
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
     @StateObject private var codexStore: CodexTabsStore
@@ -32,8 +31,9 @@ struct whubApp: App {
         WindowGroup {
             AppView(section: $section)
                 .containerBackground(.thinMaterial, for: .window)
-                .environmentObject(fileViewerStore)
-                .environmentObject(gitStore)
+                .environmentObject(files)
+                .environmentObject(files.viewer)
+                .environmentObject(files.git)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
                 .environmentObject(codexStore)
@@ -43,7 +43,7 @@ struct whubApp: App {
                     codexStore.disconnect()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                    fileViewerStore.checkForExternalChanges()
+                    files.checkForExternalChanges()
                 }
         }
         .windowResizability(.contentMinSize)
@@ -82,7 +82,7 @@ struct whubApp: App {
                     .keyboardShortcut(.leftArrow, modifiers: [.command, .shift])
                 Button("Next Page") { moveSection(by: 1) }
                     .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
-                Button("Reload Files") { fileViewerStore.refresh() }
+                Button("Reload Files") { files.refresh() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Previous Project or Worktree") { explorerPulldownSelection?.move(by: -1) }
                     .keyboardShortcut(.upArrow, modifiers: [.command, .shift])
