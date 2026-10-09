@@ -6,7 +6,7 @@ final class EditorStore: ObservableObject {
     @Published private(set) var selectedTab: EditorTab?
     @Published private(set) var previewTab: EditorTab?
     let local = LocalEditorStore()
-    let remote = RemoteViewerStore()
+    let remote = RemoteEditorStore()
     private var changes: AnyCancellable?
     private var isClosing = false
 

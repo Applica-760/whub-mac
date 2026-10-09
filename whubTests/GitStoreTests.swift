@@ -267,11 +267,11 @@ struct GitStoreTests {
         host.layoutSubtreeIfNeeded()
         defer { withExtendedLifetime(host) {} }
         try await eventually {
-            document.editorViews.values.contains {
+            document.editorViews.views.values.contains {
                 ($0.verticalRulerView as? LineNumberRulerView)?.hunks.isEmpty == false
             }
         }
-        let ruler = try #require(document.editorViews.values.first?.verticalRulerView as? LineNumberRulerView)
+        let ruler = try #require(document.editorViews.views.values.first?.verticalRulerView as? LineNumberRulerView)
         for arguments in [["add", "first.swift"], ["commit", "--quiet", "-m", "baseline"]] {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/git")

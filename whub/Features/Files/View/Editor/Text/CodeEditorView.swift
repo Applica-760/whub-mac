@@ -16,7 +16,7 @@ struct CodeEditorView: NSViewRepresentable {
     var onScrollView: ((NSScrollView) -> Void)? = nil
 
     func makeNSView(context: Context) -> NSScrollView {
-        if let scrollView = state.editorViews[editorID] { return scrollView }
+        if let scrollView = state.editorViews.views[editorID] { return scrollView }
         let layoutManager = NSLayoutManager()
         state.textStorage.addLayoutManager(layoutManager)
         let container = NSTextContainer(size: .zero)
@@ -57,7 +57,7 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = true
         scrollView.tile()
-        state.editorViews[editorID] = scrollView
+        state.editorViews.views[editorID] = scrollView
         return scrollView
     }
 
@@ -68,9 +68,7 @@ struct CodeEditorView: NSViewRepresentable {
         onScrollView?(scrollView)
         (scrollView.verticalRulerView as? LineNumberRulerView)?.update(source: textView.string, hunks: hunks, diffLines: diffLines)
         guard state.textStorage.string == source,
-              !state.editorViews.values.contains(where: {
-                  ($0.documentView as? NSTextView)?.hasMarkedText() == true
-              }) else { return }
+              !state.editorViews.hasMarkedText else { return }
         let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         codeHighlighter?.setTheme(
             dark ? "night-owl" : "xcode",
@@ -216,7 +214,7 @@ struct LocalCodeEditorView: View {
 }
 
 struct RemoteViewerView: View {
-    @ObservedObject var store: RemoteViewerStore
+    @ObservedObject var store: RemoteEditorStore
     let location: FileLocation
     let editorID: String
 
@@ -265,4 +263,19 @@ private struct CodeLoadID: Equatable {
     let fileURL: URL
     let refreshID: Int
     let diskRevision: Int
+}
+
+final class CodeEditorViews {
+    // shortcut: retain editors until the file closes; evict closed scenes if window churn matters.
+    var views: [String: NSScrollView] = [:]
+
+    var hasMarkedText: Bool {
+        views.values.contains { ($0.documentView as? NSTextView)?.hasMarkedText() == true }
+    }
+
+    func breakUndoCoalescing() {
+        for scrollView in views.values {
+            (scrollView.documentView as? NSTextView)?.breakUndoCoalescing()
+        }
+    }
 }

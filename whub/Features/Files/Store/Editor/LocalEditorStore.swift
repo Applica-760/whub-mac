@@ -31,7 +31,7 @@ final class LocalEditorStore: ObservableObject {
         }
     }
     private var fileChanges: AnyCancellable?
-    private lazy var watcher = LocalFileWatcher { [weak self] event in
+    private lazy var watcher = FileWatcher { [weak self] event in
         guard let self else { return }
         switch event {
         case let .changed(paths):

@@ -4,7 +4,7 @@ import SwiftData
 import WhubCore
 
 @MainActor
-final class RemoteViewerStore: ObservableObject {
+final class RemoteEditorStore: ObservableObject {
     @Published private(set) var fileStores: [FileLocation: RemoteFileStore] = [:] {
         didSet {
             fileChanges = Publishers.MergeMany(fileStores.values.map(\.objectWillChange))

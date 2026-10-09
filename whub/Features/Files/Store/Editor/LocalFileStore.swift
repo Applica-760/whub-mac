@@ -1,4 +1,3 @@
-import AppKit
 import Combine
 import Foundation
 
@@ -48,30 +47,19 @@ final class LocalFileStore: ObservableObject {
 
     func confirmClose() -> Bool {
         guard !isSaving else { return false }
-        guard !document.editorViews.values.contains(where: {
-            ($0.documentView as? NSTextView)?.hasMarkedText() == true
-        }) else { NSSound.beep(); return false }
+        guard !document.editorViews.hasMarkedText else { EditorDialogs.beep(); return false }
         guard document.hasUnsavedChanges else { return true }
-        let alert = NSAlert()
-        alert.messageText = "\(fileURL.lastPathComponent)の変更を保存しますか？"
-        alert.informativeText = "保存せずに閉じると、編集内容は失われます。"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "保存")
-        alert.addButton(withTitle: "保存せずに閉じる").keyEquivalent = ""
-        alert.addButton(withTitle: "キャンセル").keyEquivalent = "\u{1b}"
-        switch alert.runModal() {
-        case .alertFirstButtonReturn: return saveWithConfirmation() && !document.hasUnsavedChanges
-        case .alertSecondButtonReturn: return true
-        default: return false
+        switch EditorDialogs.confirmClose(fileName: fileURL.lastPathComponent) {
+        case .save: return saveWithConfirmation() && !document.hasUnsavedChanges
+        case .discard: return true
+        case .cancel: return false
         }
     }
 
     @discardableResult
     func saveWithConfirmation() -> Bool {
         guard !isSaving else { return false }
-        guard !document.editorViews.values.contains(where: {
-            ($0.documentView as? NSTextView)?.hasMarkedText() == true
-        }) else { NSSound.beep(); return false }
+        guard !document.editorViews.hasMarkedText else { EditorDialogs.beep(); return false }
         isSaving = true
         defer { isSaving = false }
         var overwriteData: Data?
@@ -81,23 +69,17 @@ final class LocalFileStore: ObservableObject {
                     try save(overwriting: overwriteData)
                     return true
                 } catch let LocalFileStore.SaveError.changedOnDisk(data) {
-                    let alert = NSAlert()
-                    alert.messageText = "ファイルが外部で変更されています"
-                    alert.informativeText = "\(fileURL.lastPathComponent)の編集内容を上書き保存するか、ディスクの最新内容を採用してください。"
-                    alert.addButton(withTitle: "上書き")
-                    alert.addButton(withTitle: "最新内容を採用")
-                    alert.addButton(withTitle: "キャンセル")
-                    switch alert.runModal() {
-                    case .alertFirstButtonReturn: overwriteData = data
-                    case .alertSecondButtonReturn:
+                    switch EditorDialogs.confirmOverwrite(fileName: fileURL.lastPathComponent) {
+                    case .overwrite: overwriteData = data
+                    case .adoptLatest:
                         try adoptLatest()
                         return true
-                    default: return false
+                    case .cancel: return false
                     }
                 }
             }
         } catch {
-            NSAlert(error: error).runModal()
+            EditorDialogs.show(error: error)
             return false
         }
     }
@@ -152,9 +134,7 @@ final class LocalFileStore: ObservableObject {
                 diskMessage = "ファイルが外部で変更されています。未保存の編集内容は保持されています。"
                 return
             }
-            guard !document.editorViews.values.contains(where: {
-                ($0.documentView as? NSTextView)?.hasMarkedText() == true
-            }) else {
+            guard !document.editorViews.hasMarkedText else {
                 diskMessage = "ファイルが外部で変更されています。入力確定後に再確認します。"
                 return
             }
