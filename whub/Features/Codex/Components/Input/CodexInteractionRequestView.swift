@@ -1,5 +1,22 @@
 import SwiftUI
 
+struct CodexInteractionRequestsView: View {
+    let requests: [CodexRequest]
+    let respond: (CodexRequest, [String: Any]) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(requests) { request in
+                    CodexInteractionRequestView(request: request) { respond(request, $0) }
+                }
+            }.padding(12)
+        }
+        .frame(maxHeight: 260)
+        .background(.orange.opacity(0.08))
+    }
+}
+
 struct CodexInteractionRequestView: View {
     let request: CodexRequest
     let respond: ([String: Any]) -> Void
