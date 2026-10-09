@@ -6,12 +6,16 @@ import WhubCore
 struct FileExplorerView: View {
     let onFileSelect: () -> Void
     @Query(sort: \Project.name) private var projects: [Project]
-    @Query(sort: \RemoteHost.name) private var hosts: [RemoteHost]
+    @Query(sort: \WhubCore.Host.name) private var allHosts: [WhubCore.Host]
     @EnvironmentObject private var connections: RemoteConnectionStore
     @StateObject private var remoteStore = RemoteWorkspaceStore()
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var fileViewerStore: FileViewerStore
     @StateObject private var store = FileExplorerStore()
+
+    private var hosts: [RemoteHost] {
+        allHosts.compactMap { $0 as? RemoteHost }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
