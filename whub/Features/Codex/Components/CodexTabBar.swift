@@ -3,6 +3,7 @@ import SwiftUI
 struct CodexTabBar: View {
     let sessions: [CodexStore]
     let selection: CodexStore.ID
+    let completedSessionIDs: Set<CodexStore.ID>
     let select: (CodexStore.ID) -> Void
     @Namespace private var glassNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -50,7 +51,8 @@ struct CodexTabBar: View {
                 overflow(0..<range.lowerBound)
                 ForEach(visible, id: \.element.id) { index, session in
                     CodexRoundTab(session: session, number: index + 1,
-                                  isSelected: session.id == selection) {
+                                  isSelected: session.id == selection,
+                                  hasCompleted: completedSessionIDs.contains(session.id)) {
                         select(session.id)
                     }
                     .frame(width: 32, height: 36)
@@ -65,9 +67,16 @@ struct CodexTabBar: View {
     }
 
     private func overflow(_ range: Range<Int>) -> some View {
-        Menu {
+        let hasCompleted = range.contains { completedSessionIDs.contains(sessions[$0].id) }
+        return Menu {
             ForEach(Array(range), id: \.self) { index in
-                Button("Codex \(index + 1)") { select(sessions[index].id) }
+                Button { select(sessions[index].id) } label: {
+                    if completedSessionIDs.contains(sessions[index].id) {
+                        Label("Codex \(index + 1)・完了", systemImage: "checkmark.circle.fill")
+                    } else {
+                        Text("Codex \(index + 1)")
+                    }
+                }
             }
         } label: {
             Image(systemName: "ellipsis").font(.caption)
@@ -76,10 +85,17 @@ struct CodexTabBar: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .frame(width: 16)
+        .overlay(alignment: .bottomTrailing) {
+            if hasCompleted {
+                Circle().fill(.green).frame(width: 5, height: 5).allowsHitTesting(false)
+            }
+        }
         .opacity(range.isEmpty ? 0 : 1)
         .allowsHitTesting(!range.isEmpty)
         .accessibilityHidden(range.isEmpty)
         .accessibilityLabel("隠れた会話を選択")
+        .accessibilityValue(hasCompleted ? "完了した応答があります" : "")
+        .help(hasCompleted ? "完了した応答があります" : "隠れた会話を選択")
     }
 }
 
@@ -87,10 +103,13 @@ private struct CodexRoundTab: View {
     @ObservedObject var session: CodexStore
     let number: Int
     let isSelected: Bool
+    let hasCompleted: Bool
     let select: () -> Void
 
-    private var status: String {
-        !session.requests.isEmpty ? "回答・承認待ち" : session.isBusy ? "作業中" : ""
+    private var status: (color: Color, label: String)? {
+        if !session.requests.isEmpty { return (.orange, "回答・承認待ち") }
+        if session.isBusy { return (.blue, "作業中") }
+        return hasCompleted ? (.green, "完了") : nil
     }
 
     var body: some View {
@@ -102,15 +121,15 @@ private struct CodexRoundTab: View {
         }
         .buttonStyle(.plain)
         .overlay(alignment: .bottomTrailing) {
-            if !status.isEmpty {
-                Circle().fill(session.requests.isEmpty ? Color.blue : .orange)
+            if let status {
+                Circle().fill(status.color)
                     .frame(width: 5, height: 5)
                     .allowsHitTesting(false)
             }
         }
         .accessibilityLabel("Codex \(number)")
-        .accessibilityValue(status)
+        .accessibilityValue(status?.label ?? "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .help(status.isEmpty ? "Codex \(number)" : "Codex \(number)・\(status)")
+        .help("Codex \(number)" + (status.map { "・" + $0.label } ?? ""))
     }
 }

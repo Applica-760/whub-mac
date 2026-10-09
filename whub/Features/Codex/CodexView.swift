@@ -9,7 +9,8 @@ struct CodexView: View {
 
     var body: some View {
         CodexSessionView(book: books[store.selectedSessionID]) {
-            CodexTabBar(sessions: store.sessions, selection: store.selectedSessionID) { id in
+            CodexTabBar(sessions: store.sessions, selection: store.selectedSessionID,
+                        completedSessionIDs: store.completedSessionIDs) { id in
                 tabFocus.activate()
                 store.select(id)
             }

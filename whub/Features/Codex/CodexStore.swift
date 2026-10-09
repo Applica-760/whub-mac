@@ -106,6 +106,7 @@ final class CodexStore: ObservableObject, Identifiable {
     @Published private(set) var model = "Codexの既存設定"
     @Published private(set) var errorMessage: String?
     private(set) var threadID: String?
+    var onCompletionChange: ((Bool) -> Void)?
     private let client = CodexClient()
     private let context: ModelContext
     private var stopRequested = false
@@ -220,6 +221,7 @@ final class CodexStore: ObservableObject, Identifiable {
             return
         }
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        onCompletionChange?(false)
         draft = ""
         errorMessage = nil
         stopRequested = false
@@ -279,6 +281,7 @@ final class CodexStore: ObservableObject, Identifiable {
 
     func reset() {
         guard !isBusy else { return }
+        onCompletionChange?(false)
         client.disconnect()
         threadID = nil
         needsResume = false
@@ -342,6 +345,9 @@ final class CodexStore: ObservableObject, Identifiable {
                 turns[index].items[last].phase = "final_answer"
             }
             finish(turn["status"] as? String ?? "completed")
+            if turn["status"] as? String == "completed", turn["error"] as? [String: Any] == nil {
+                onCompletionChange?(true)
+            }
         case "error":
             let error = params["error"] as? [String: Any]
             errorMessage = error?["message"] as? String ?? "Codexの実行中にエラーが発生しました。"
