@@ -3,7 +3,7 @@ import Highlighter
 import SwiftUI
 import WhubCore
 
-struct CodeViewerView: View {
+struct CodeEditorView: View {
     let fileURL: URL
     let source: String
     let refreshID: Int

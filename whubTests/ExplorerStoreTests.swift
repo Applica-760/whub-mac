@@ -70,7 +70,7 @@ struct ExplorerStoreTests {
         let connections = RemoteConnectionStore()
         let files = FilesStore()
         let store = files.explorer
-        let viewer = files.viewer
+        let editor = files.editor
         await store.update(projects: [], hosts: [host], connections: connections,
                            refreshID: 0, context: container.mainContext)
         #expect(!store.canRefresh)
@@ -80,16 +80,16 @@ struct ExplorerStoreTests {
         store.remoteTree.update(source: .init(root: root, sessionID: ObjectIdentifier(session)), refreshID: 0) { _ in [] }
         defer { store.stopWatching() }
         let file = root.appending("file.swift")
-        defer { viewer.close(file) }
+        defer { editor.close(file) }
         files.preview(file, hosts: [host], connections: connections)
-        #expect(viewer.previewLocation == file)
-        #expect(viewer.selectedLocation == file)
-        if case .disconnected = viewer.remote.states[file] {} else {
+        #expect(editor.previewLocation == file)
+        #expect(editor.selectedLocation == file)
+        if case .disconnected = editor.remote.states[file] {} else {
             Issue.record("正しい閲覧ルートでRemote取得を準備できていません")
         }
         files.open(file, hosts: [host], connections: connections)
-        #expect(viewer.previewLocation == nil)
-        #expect(viewer.fileLocations == [file])
+        #expect(editor.previewLocation == nil)
+        #expect(editor.fileLocations == [file])
     }
 
     private func modelContainer() throws -> ModelContainer {

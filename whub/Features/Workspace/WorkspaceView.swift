@@ -3,7 +3,7 @@ import SwiftUI
 struct WorkspaceView: View {
     var body: some View {
         HSplitView {
-            FileViewerView()
+            EditorView()
                 .frame(minWidth: 300)
             TerminalView()
                 .frame(minWidth: 300)

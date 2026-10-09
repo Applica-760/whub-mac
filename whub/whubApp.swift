@@ -32,7 +32,7 @@ struct whubApp: App {
             AppView(section: $section)
                 .containerBackground(.thinMaterial, for: .window)
                 .environmentObject(files)
-                .environmentObject(files.viewer)
+                .environmentObject(files.editor)
                 .environmentObject(files.git)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)

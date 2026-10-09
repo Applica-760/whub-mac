@@ -10,7 +10,7 @@ import WhubCore
 @testable import whub
 
 @Suite @MainActor
-struct FileViewerStoreTests {
+struct EditorStoreTests {
     private func eventually(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(3)
         while !condition() {
@@ -21,23 +21,23 @@ struct FileViewerStoreTests {
 
     @Test func remoteReadsAndReadOnly() async throws {
         let fixture = try ViewerFixture()
-        let viewer = FileViewerStore()
+        let editor = EditorStore()
         let root = fixture.root()
         let location = root.appending("src/a.swift")
         var requests = 0
-        viewer.remote.load(location, root: root) { _, rootPath, path in
+        editor.remote.load(location, root: root) { _, rootPath, path in
             #expect(rootPath == "/project")
             #expect(path == "src/a.swift")
             requests += 1
             return "let 日本語 = 1\n"
         }
-        viewer.preview(location)
-        viewer.remote.load(location, root: root) { _, _, _ in
+        editor.preview(location)
+        editor.remote.load(location, root: root) { _, _, _ in
             Issue.record("重複取得")
             return "wrong"
         }
-        try await eventually { viewer.remote.file(for: location) != nil }
-        let file = try #require(viewer.remote.file(for: location))
+        try await eventually { editor.remote.file(for: location) != nil }
+        let file = try #require(editor.remote.file(for: location))
         #expect(file.textStorage.string == "let 日本語 = 1\n")
         #expect(requests == 1)
         #expect(!file.isEditable)
@@ -57,56 +57,56 @@ struct FileViewerStoreTests {
         #expect(!text.isEditable)
         #expect(text.isSelectable)
         #expect(!text.validateMenuItem(NSMenuItem(title: "Save", action: #selector(CodeTextView.saveDocument(_:)), keyEquivalent: "s")))
-        viewer.open(location)
-        #expect(viewer.previewLocation == nil)
+        editor.open(location)
+        #expect(editor.previewLocation == nil)
         let otherRoot = fixture.root(second: true)
         let other = otherRoot.appending("src/a.swift")
-        viewer.remote.load(other, root: otherRoot) { _, _, _ in "other" }
-        viewer.open(other)
-        try await eventually { viewer.remote.file(for: other) != nil }
-        #expect(viewer.fileLocations == [location, other])
-        #expect(viewer.remote.file(for: other)?.textStorage.string == "other")
-        viewer.move(other, before: location)
-        #expect(viewer.fileLocations == [other, location])
-        viewer.close(location)
-        viewer.close(other)
-        #expect(viewer.remote.states.isEmpty)
+        editor.remote.load(other, root: otherRoot) { _, _, _ in "other" }
+        editor.open(other)
+        try await eventually { editor.remote.file(for: other) != nil }
+        #expect(editor.fileLocations == [location, other])
+        #expect(editor.remote.file(for: other)?.textStorage.string == "other")
+        editor.move(other, before: location)
+        #expect(editor.fileLocations == [other, location])
+        editor.close(location)
+        editor.close(other)
+        #expect(editor.remote.states.isEmpty)
     }
 
     @Test(arguments: [true, false])
     func lateResultAfterPreviewReplacement(succeeds: Bool) async throws {
         let fixture = try ViewerFixture()
-        let viewer = FileViewerStore()
+        let editor = EditorStore()
         let root = fixture.root()
         let old = root.appending("old")
         let next = root.appending("next")
         let gate = ViewerGate()
         var returned = false
-        viewer.remote.load(old, root: root) { _, _, _ in
+        editor.remote.load(old, root: root) { _, _, _ in
             await gate.wait()
             returned = true
             if succeeds { return "old" }
             throw RemoteSessionError.disconnected
         }
-        viewer.preview(old)
+        editor.preview(old)
         try await eventually { gate.waiting }
-        viewer.remote.load(next, root: root) { _, _, _ in "next" }
-        viewer.preview(next)
-        #expect(viewer.remote.states[old] == nil)
-        viewer.remote.load(old, root: root) { _, _, _ in "new" }
-        viewer.open(old)
-        try await eventually { viewer.remote.file(for: old) != nil }
+        editor.remote.load(next, root: root) { _, _, _ in "next" }
+        editor.preview(next)
+        #expect(editor.remote.states[old] == nil)
+        editor.remote.load(old, root: root) { _, _, _ in "new" }
+        editor.open(old)
+        try await eventually { editor.remote.file(for: old) != nil }
         gate.release()
         try await eventually { returned }
-        #expect(viewer.remote.file(for: old)?.textStorage.string == "new")
-        #expect(viewer.selectedLocation == old)
-        viewer.close(old)
-        viewer.close(next)
+        #expect(editor.remote.file(for: old)?.textStorage.string == "new")
+        #expect(editor.selectedLocation == old)
+        editor.close(old)
+        editor.close(next)
     }
 
     @Test func failureAndInvalidRoot() async throws {
         let fixture = try ViewerFixture()
-        let store = RemoteFileViewerStore()
+        let store = RemoteViewerStore()
         let root = fixture.root()
         let file = root.appending("missing")
         store.load(file, root: root) { _, _, _ in throw RemoteSessionError.disconnected }
@@ -126,11 +126,11 @@ struct FileViewerStoreTests {
 
     @Test func refreshAndFailureRetainReadOnlyFile() async throws {
         let fixture = try ViewerFixture()
-        let viewer = FileViewerStore()
+        let editor = EditorStore()
         let root = fixture.root()
         let location = root.appending("file")
         var reads = 0
-        viewer.remote.load(location, root: root) { _, rootPath, path in
+        editor.remote.load(location, root: root) { _, rootPath, path in
             #expect(rootPath == "/project")
             #expect(path == "file")
             reads += 1
@@ -141,31 +141,31 @@ struct FileViewerStoreTests {
             default: return ""
             }
         }
-        viewer.open(location)
-        try await eventually { viewer.remote.file(for: location) != nil }
-        let file = try #require(viewer.remote.file(for: location))
-        viewer.refresh()
+        editor.open(location)
+        try await eventually { editor.remote.file(for: location) != nil }
+        let file = try #require(editor.remote.file(for: location))
+        editor.refresh()
         try await eventually { file.textStorage.string == "second" }
-        #expect(viewer.remote.file(for: location) === file)
-        #expect(viewer.selectedLocation == location)
+        #expect(editor.remote.file(for: location) === file)
+        #expect(editor.selectedLocation == location)
         #expect(!file.isEditable)
-        viewer.refresh()
-        try await eventually { if case .failed = viewer.remote.states[location] { return true }; return false }
+        editor.refresh()
+        try await eventually { if case .failed = editor.remote.states[location] { return true }; return false }
         #expect(file.textStorage.string == "second")
-        #expect(viewer.remote.file(for: location) === file)
-        viewer.refresh()
+        #expect(editor.remote.file(for: location) === file)
+        editor.refresh()
         try await eventually { file.textStorage.string.isEmpty }
         #expect(reads == 4)
-        viewer.close(location)
-        viewer.refresh()
-        #expect(viewer.remote.states.isEmpty)
+        editor.close(location)
+        editor.refresh()
+        #expect(editor.remote.states.isEmpty)
         #expect(reads == 4)
     }
 
     @Test(arguments: [true, false])
     func reconnectDiscardsOldSessionResult(succeeds: Bool) async throws {
         let fixture = try ViewerFixture()
-        let store = RemoteFileViewerStore()
+        let store = RemoteViewerStore()
         let root = fixture.root()
         let location = root.appending("file")
         let firstSession = NSObject()
@@ -209,7 +209,7 @@ struct FileViewerStoreTests {
 
     @Test func refreshAndCloseDiscardPendingResult() async throws {
         let fixture = try ViewerFixture()
-        let store = RemoteFileViewerStore()
+        let store = RemoteViewerStore()
         let root = fixture.root()
         let location = root.appending("file")
         let gate = ViewerGate()
@@ -243,23 +243,23 @@ struct FileViewerStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("local.txt")
         try Data("original".utf8).write(to: url)
-        let viewer = FileViewerStore()
+        let editor = EditorStore()
         let location = FileLocation.local(url)
-        viewer.preview(location)
-        let file = try #require(viewer.fileStores[location])
+        editor.preview(location)
+        let file = try #require(editor.fileStores[location])
         #expect(file.isEditable)
         file.updateReadOnly(source: "must not replace local content")
         #expect(file.textStorage.string == "original")
         file.content = .text("edited")
         #expect(file.hasUnsavedChanges)
-        viewer.open(location)
+        editor.open(location)
         try file.save()
         #expect(try String(contentsOf: url, encoding: .utf8) == "edited")
         #expect(!file.hasUnsavedChanges)
-        #expect(viewer.previewLocation == nil)
-        viewer.close(location)
-        #expect(viewer.fileLocations.isEmpty)
-        #expect(viewer.selectedLocation == nil)
+        #expect(editor.previewLocation == nil)
+        editor.close(location)
+        #expect(editor.fileLocations.isEmpty)
+        #expect(editor.selectedLocation == nil)
     }
 }
 
