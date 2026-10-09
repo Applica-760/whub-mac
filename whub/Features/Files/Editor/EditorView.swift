@@ -9,12 +9,12 @@ struct EditorView: View {
         VStack(spacing: 8) {
             EditorTabBarView(tabFocus: tabFocus, editorID: editorID)
 
-            if let message = store.watchError {
+            if let message = store.local.watchError {
                 Text(message).foregroundStyle(.orange)
             }
 
             WidgetFrame {
-                if let location = store.selectedLocation, let state = store.fileStores[location] {
+                if let location = store.selectedLocation, let state = store.local.fileStores[location] {
                     FileContent(state: state, editorID: editorID) { [weak store] in
                         if store?.previewLocation == location { store?.open(location) }
                     }
@@ -36,7 +36,7 @@ struct EditorView: View {
 }
 
 private struct FileContent: View {
-    @ObservedObject var state: FileStore
+    @ObservedObject var state: LocalFileStore
     let editorID: String
     let onEdit: () -> Void
 
@@ -52,14 +52,12 @@ private struct FileContent: View {
     }
 
     @ViewBuilder private var fileContent: some View {
-        switch state.content {
+        switch state.document.content {
         case let .text(source):
-            if let fileURL = state.fileURL {
-                CodeEditorView(fileURL: fileURL, source: source, refreshID: 0,
+            LocalCodeEditorView(fileURL: state.fileURL, source: source, refreshID: 0,
                                state: state, editorID: editorID, onEdit: onEdit)
-            }
         case .binary:
-            if let fileURL = state.fileURL { BinaryView(fileURL: fileURL) }
+            BinaryView(fileURL: state.fileURL)
         case let .error(message):
             Text(message).foregroundStyle(.secondary)
         }

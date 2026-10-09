@@ -21,7 +21,7 @@ struct EditorTabBarView: View {
             move: store.move,
             isShortcutTarget: tabFocus.contains
         ) { location, isSelected, actions in
-            if let fileStore = store.fileStores[location], let fileURL = location.localURL {
+            if let fileStore = store.local.fileStores[location], let fileURL = location.localURL {
                 let titleColor: Color? = switch gitStore.changes[fileURL.standardizedFileURL] {
                 case .added: Color(nsColor: .systemGreen)
                 case .modified, .deleted: Color(nsColor: .systemOrange)
@@ -34,7 +34,7 @@ struct EditorTabBarView: View {
                     isPreview: location == store.previewLocation,
                     titleColor: titleColor,
                     status: fileStore.diskMessage != nil ? (.orange, "外部変更・読み込みエラー")
-                        : fileStore.hasUnsavedChanges ? (.primary, "未保存") : nil,
+                        : fileStore.document.hasUnsavedChanges ? (.primary, "未保存") : nil,
                     openAction: { store.open(location) },
                     action: actions.select,
                     closeAction: actions.close
@@ -53,7 +53,7 @@ struct EditorTabBarView: View {
         store.select(location)
         DispatchQueue.main.async {
             guard store.selectedLocation == location,
-                  let editor = (store.fileStores[location] ?? store.remote.file(for: location))?.editorViews[editorID]?.documentView,
+                  let editor = store.file(for: location)?.editorViews[editorID]?.documentView,
                   let window = editor.window, tabFocus.contains(window) else { return }
             window.makeFirstResponder(editor)
         }
