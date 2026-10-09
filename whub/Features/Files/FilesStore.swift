@@ -43,14 +43,23 @@ final class FilesStore: ObservableObject {
     }
 
     func preview(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore) {
-        editor.remote.load(location, root: explorer.treeLocation,
-                           hosts: hosts.compactMap { $0 as? RemoteHost }, connections: connections)
+        prepare(location, hosts: hosts, connections: connections)
         editor.preview(location)
     }
 
     func open(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore) {
-        editor.remote.load(location, root: explorer.treeLocation,
-                           hosts: hosts.compactMap { $0 as? RemoteHost }, connections: connections)
+        prepare(location, hosts: hosts, connections: connections)
         editor.open(location)
     }
+
+    private func prepare(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore) {
+        switch location {
+        case .local:
+            editor.local.load(location)
+        case .remote:
+            editor.remote.load(location, root: explorer.treeLocation,
+                               hosts: hosts.compactMap { $0 as? RemoteHost }, connections: connections)
+        }
+    }
+
 }
