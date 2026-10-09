@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftData
 import Testing
@@ -91,6 +92,42 @@ struct ExplorerStoreTests {
         files.open(file, hosts: [host], connections: connections)
         #expect(editor.previewLocation == nil)
         #expect(editor.fileLocations == [file])
+    }
+
+    @Test func eachOutlineRendersSharedTreeUpdates() throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/ExplorerStoreTests/" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data().write(to: directory.appendingPathComponent("first.swift"))
+        let store = ExplorerStore()
+        store.selectedLocation = .local(directory)
+        store.localTree.setRoot(directory)
+        let first = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in }, onFileOpen: { _ in })
+        let second = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in }, onFileOpen: { _ in })
+        let outlines = [NSOutlineView(), NSOutlineView()]
+        for (coordinator, outline) in zip([first, second], outlines) {
+            outline.addTableColumn(NSTableColumn(identifier: .init("name")))
+            outline.dataSource = coordinator
+            outline.delegate = coordinator
+            coordinator.outlineView = outline
+            coordinator.update(basePath: nil, gitChanges: [:])
+            #expect(outline.numberOfRows == 1)
+        }
+        try Data().write(to: directory.appendingPathComponent("second.swift"))
+        store.refresh()
+        first.update(basePath: nil, gitChanges: [:])
+        second.update(basePath: nil, gitChanges: [:])
+        #expect(outlines.allSatisfy { $0.numberOfRows == 2 })
+        // A recreated outline must render even when the shared data is already current.
+        let recreated = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in }, onFileOpen: { _ in })
+        let outline = NSOutlineView()
+        outline.addTableColumn(NSTableColumn(identifier: .init("name")))
+        outline.dataSource = recreated
+        outline.delegate = recreated
+        recreated.outlineView = outline
+        recreated.update(basePath: nil, gitChanges: [:])
+        #expect(outline.numberOfRows == 2)
     }
 
     private func modelContainer() throws -> ModelContainer {

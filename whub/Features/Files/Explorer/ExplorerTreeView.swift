@@ -39,7 +39,7 @@ struct ExplorerTreeView: View {
     }
 }
 
-private struct ExplorerOutlineView: NSViewRepresentable {
+struct ExplorerOutlineView: NSViewRepresentable {
     @ObservedObject var store: ExplorerStore
     let basePath: String?
     let gitChanges: [URL: GitChange]
@@ -86,6 +86,7 @@ private struct ExplorerOutlineView: NSViewRepresentable {
         var onFilePreview: (FileLocation) -> Void
         var onFileOpen: (FileLocation) -> Void
         private let store: ExplorerStore
+        private var renderedRevision: Int?
         private var renderedRootLocation: FileLocation?
         private var isRestoring = false
 
@@ -109,7 +110,9 @@ private struct ExplorerOutlineView: NSViewRepresentable {
             let topLocation = (outlineView.item(atRow: topRow) as? ExplorerItem)?.location
             let topOffset = topRow >= 0 ? origin.y - outlineView.rect(ofRow: topRow).minY : 0
 
-            guard store.updateTree(gitChanges: gitChanges) else { return }
+            _ = store.updateTree(gitChanges: gitChanges)
+            guard renderedRevision != store.contentRevision else { return }
+            renderedRevision = store.contentRevision
             renderedRootLocation = store.treeLocation
             isRestoring = true
             defer { isRestoring = false }

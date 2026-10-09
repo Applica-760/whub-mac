@@ -106,6 +106,7 @@ final class ExplorerStore: ObservableObject {
             DispatchQueue.main.async { self?.treeRevision += 1 }
         }
     }
+    private(set) var contentRevision = 0
     private(set) var decorations: [URL: GitChange] = [:]
     private var treeRootLocation: FileLocation?
     private var loadedTreeRevision = -1
@@ -176,6 +177,7 @@ final class ExplorerStore: ObservableObject {
             treeRootLocation = treeLocation
             loadedTreeRevision = treeRevision
             decorations = [:]
+            contentRevision += 1
             return true
         }
         let refreshed = localTree.updateTree()
@@ -184,6 +186,7 @@ final class ExplorerStore: ObservableObject {
         treeRootLocation = treeLocation
         loadedTreeRevision = treeRevision
         decorations = nextDecorations
+        contentRevision += 1
         return true
     }
 
