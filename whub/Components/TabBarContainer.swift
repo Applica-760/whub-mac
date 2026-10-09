@@ -116,18 +116,8 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
                 close(id)
                 return true
             }
-            guard let window = event.window, isShortcutTarget(window),
-                  event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                  let key = event.charactersIgnoringModifiers else { return false }
-            if key == "w", let selection {
-                if canClose(selection) { close(selection) }
-                return true
-            }
-            guard key.count == 1, let digit = Int(key), (1...9).contains(digit) else {
-                return false
-            }
-            if ids.indices.contains(digit - 1) { select(ids[digit - 1]) }
-            return true
+            return TabBarShortcuts(ids: ids, selection: selection, select: select, close: close,
+                                   canClose: canClose, isShortcutTarget: isShortcutTarget).handle(event)
         })
         .task(id: scrollDirection) {
             let direction = scrollDirection
@@ -227,6 +217,35 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
         draft = nil
         settling = false
         dragWidths = [:]
+    }
+}
+
+struct TabBarShortcuts<ID: Hashable>: View {
+    let ids: [ID]
+    let selection: ID?
+    let select: (ID) -> Void
+    let close: (ID) -> Void
+    let canClose: (ID) -> Bool
+    let isShortcutTarget: (NSWindow) -> Bool
+
+    var body: some View {
+        TabBarEventMonitor { event, _ in handle(event) }
+    }
+
+    func handle(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              let window = event.window, isShortcutTarget(window),
+              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+              let key = event.charactersIgnoringModifiers else { return false }
+        if key == "w", let selection {
+            if canClose(selection) { close(selection) }
+            return true
+        }
+        guard key.count == 1, let digit = Int(key), (1...9).contains(digit) else {
+            return false
+        }
+        if ids.indices.contains(digit - 1) { select(ids[digit - 1]) }
+        return true
     }
 }
 
