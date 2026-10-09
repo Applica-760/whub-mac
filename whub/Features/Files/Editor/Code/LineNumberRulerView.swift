@@ -2,7 +2,7 @@ import AppKit
 import WhubCore
 
 final class LineNumberRulerView: NSRulerView {
-    private var hunks: [LineDiffHunk] = []
+    private(set) var hunks: [LineDiffHunk] = []
     private var lineStarts = [0]
     private var lineCount = 0
 

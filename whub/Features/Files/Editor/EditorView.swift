@@ -3,6 +3,7 @@ import SwiftUI
 struct EditorView: View {
     @State private var tabFocus = TabPaneFocus()
     @EnvironmentObject private var store: EditorStore
+    @EnvironmentObject private var files: FilesStore
     @SceneStorage("fileEditorID") private var editorID = UUID().uuidString
 
     var body: some View {
@@ -15,7 +16,7 @@ struct EditorView: View {
 
             WidgetFrame {
                 if let location = store.selectedLocation, let state = store.local.fileStores[location] {
-                    FileContent(state: state, editorID: editorID) { [weak store] in
+                    FileContent(state: state, editorID: editorID, refreshID: files.refreshID) { [weak store] in
                         if store?.previewLocation == location { store?.open(location) }
                     }
                     .id(location)
@@ -38,6 +39,7 @@ struct EditorView: View {
 private struct FileContent: View {
     @ObservedObject var state: LocalFileStore
     let editorID: String
+    let refreshID: Int
     let onEdit: () -> Void
 
     var body: some View {
@@ -54,7 +56,7 @@ private struct FileContent: View {
     @ViewBuilder private var fileContent: some View {
         switch state.document.content {
         case let .text(source):
-            LocalCodeEditorView(fileURL: state.fileURL, source: source, refreshID: 0,
+            LocalCodeEditorView(fileURL: state.fileURL, source: source, refreshID: refreshID,
                                state: state, editorID: editorID, onEdit: onEdit)
         case .binary:
             BinaryView(fileURL: state.fileURL)
