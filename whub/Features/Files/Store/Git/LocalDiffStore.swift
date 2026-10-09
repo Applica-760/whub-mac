@@ -14,7 +14,7 @@ final class LocalDiffStore: ObservableObject {
     private var revision = 0
     private var task: Task<Void, Never>?
     private var stopped = false
-    private lazy var watcher = LocalFileWatcher { [weak self] event in
+    private lazy var watcher = FileWatcher { [weak self] event in
         guard let self else { return }
         if case let .changed(paths) = event {
             let targets = [fileURL.standardizedFileURL.path, fileURL.resolvingSymlinksInPath().path]

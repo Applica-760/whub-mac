@@ -16,8 +16,7 @@ final class FileStore: ObservableObject {
     let isEditable: Bool
     let textStorage: NSTextStorage
     let undoManager = UndoManager()
-    // ponytail: retain editors until the file closes; evict closed scenes if window churn matters.
-    var editorViews: [String: NSScrollView] = [:]
+    let editorViews = CodeEditorViews()
     var onContentChange: (() -> Void)?
     var saveAction: (() -> Void)?
     var canSave: (() -> Bool)?
@@ -52,9 +51,7 @@ final class FileStore: ObservableObject {
 
     func markSaved(source: String) {
         savedSource = source
-        for scrollView in editorViews.values {
-            (scrollView.documentView as? NSTextView)?.breakUndoCoalescing()
-        }
+        editorViews.breakUndoCoalescing()
     }
 
     func replace(source: String) {

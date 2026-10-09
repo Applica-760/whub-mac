@@ -115,8 +115,8 @@ struct EditorStoreTests {
         let renderer = NSHostingView(rootView: content)
         renderer.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         renderer.layoutSubtreeIfNeeded()
-        try await eventually { file.editorViews["readonly"] != nil }
-        let text = try #require(file.editorViews["readonly"]?.documentView as? CodeTextView)
+        try await eventually { file.editorViews.views["readonly"] != nil }
+        let text = try #require(file.editorViews.views["readonly"]?.documentView as? CodeTextView)
         #expect(!text.isEditable)
         #expect(text.isSelectable)
         #expect(!text.validateMenuItem(NSMenuItem(title: "Save", action: #selector(CodeTextView.saveDocument(_:)), keyEquivalent: "s")))
@@ -169,7 +169,7 @@ struct EditorStoreTests {
 
     @Test func failureAndInvalidRoot() async throws {
         let fixture = try ViewerFixture()
-        let store = RemoteViewerStore()
+        let store = RemoteEditorStore()
         let root = fixture.root()
         let file = root.appending("missing")
         store.load(file, root: root) { _, _, _ in throw RemoteSessionError.disconnected }
@@ -228,7 +228,7 @@ struct EditorStoreTests {
     @Test(arguments: [true, false])
     func reconnectDiscardsOldSessionResult(succeeds: Bool) async throws {
         let fixture = try ViewerFixture()
-        let store = RemoteViewerStore()
+        let store = RemoteEditorStore()
         let root = fixture.root()
         let location = root.appending("file")
         let firstSession = NSObject()
@@ -272,7 +272,7 @@ struct EditorStoreTests {
 
     @Test func refreshAndCloseDiscardPendingResult() async throws {
         let fixture = try ViewerFixture()
-        let store = RemoteViewerStore()
+        let store = RemoteEditorStore()
         let root = fixture.root()
         let location = root.appending("file")
         let gate = ViewerGate()

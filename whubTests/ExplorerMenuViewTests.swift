@@ -5,7 +5,7 @@ import Testing
 @testable import whub
 
 @Suite @MainActor
-struct ExplorerMenuStoreTests {
+struct ExplorerMenuViewTests {
     private struct ConnectionFailure: LocalizedError {
         var errorDescription: String? { "接続失敗" }
     }
@@ -18,13 +18,13 @@ struct ExplorerMenuStoreTests {
             attempts += 1
             throw ConnectionFailure()
         })
-        let store = ExplorerMenuStore(connections: connections)
-        #expect(store.hosts(from: [local, host]).map(\.persistentModelID) == [host.persistentModelID])
-        #expect(store.title(for: host) == "serverを接続")
-        await store.perform(for: host)
-        #expect(store.status(for: host) == "接続失敗")
-        #expect(store.isEnabled(for: host))
-        await store.perform(for: host)
+        let menu = ExplorerMenuView.HostMenu(connections: connections)
+        #expect(menu.hosts(from: [local, host]).map(\.persistentModelID) == [host.persistentModelID])
+        #expect(menu.title(for: host) == "serverを接続")
+        await menu.perform(for: host)
+        #expect(menu.status(for: host) == "接続失敗")
+        #expect(menu.isEnabled(for: host))
+        await menu.perform(for: host)
         #expect(attempts == 2)
     }
 
@@ -34,8 +34,8 @@ struct ExplorerMenuStoreTests {
             try await Task.sleep(for: .seconds(30))
             throw ConnectionFailure()
         })
-        let store = ExplorerMenuStore(connections: connections)
-        let connecting = Task { await store.perform(for: host) }
+        let menu = ExplorerMenuView.HostMenu(connections: connections)
+        let connecting = Task { await menu.perform(for: host) }
         defer { connecting.cancel() }
         let deadline = ContinuousClock.now + .seconds(3)
         while connections.state(for: host) != .connecting {
@@ -45,10 +45,10 @@ struct ExplorerMenuStoreTests {
             }
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(store.title(for: host) == "serverをキャンセル")
-        await store.perform(for: host)
+        #expect(menu.title(for: host) == "serverをキャンセル")
+        await menu.perform(for: host)
         await connecting.value
         #expect(connections.state(for: host) == .disconnected)
-        #expect(store.status(for: host) == "未接続")
+        #expect(menu.status(for: host) == "未接続")
     }
 }

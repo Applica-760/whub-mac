@@ -66,7 +66,7 @@ struct EditorTabBarView: View {
         store.select(tab)
         DispatchQueue.main.async {
             guard store.selectedTab == tab, case let .file(location) = tab,
-                  let editor = store.file(for: location)?.editorViews[editorID]?.documentView,
+                  let editor = store.file(for: location)?.editorViews.views[editorID]?.documentView,
                   let window = editor.window, tabFocus.contains(window) else { return }
             window.makeFirstResponder(editor)
         }
