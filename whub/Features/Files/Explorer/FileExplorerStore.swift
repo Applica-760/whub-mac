@@ -9,10 +9,7 @@ final class FileExplorerStore: ObservableObject {
             guard selectedLocation != oldValue else { return }
             remoteTree.stop()
             watcher.stop()
-            gitRequestID += 1
-            gitDirectories = []
-            viewerStore?.gitRootURL = nil
-            viewerStore?.gitChanges = [:]
+            gitStore?.reset()
             rootURL = nil
             watchError = nil
             directoryErrorMessage = nil
@@ -24,7 +21,6 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var worktreeURLs: [URL] = []
     @Published private(set) var rootURL: URL?
     @Published private(set) var errorMessage: String?
-    @Published private(set) var gitErrorMessage: String?
     @Published private(set) var watchError: String?
     @Published private(set) var directoryErrorMessage: String?
     @Published private(set) var treeRevision = 0
@@ -51,10 +47,7 @@ final class FileExplorerStore: ObservableObject {
     private var treeRootLocation: FileLocation?
     private var loadedTreeRevision = -1
     private var isVisible = false
-    private weak var viewerStore: FileViewerStore?
-    private var gitDirectories: Set<URL> = []
-    private var gitRefreshTask: Task<Void, Never>?
-    private var gitRequestID = 0
+    private weak var gitStore: GitStore?
     private lazy var watcher = FileChangeWatcher { [weak self] event in
         self?.handleChanges(event)
     }
@@ -73,8 +66,8 @@ final class FileExplorerStore: ObservableObject {
         }
         if treeChanged { refreshTree() }
         if treeChanged || Git.needsStatusRefresh(
-            changedPaths: paths, worktreeRoots: roots, managementDirectories: gitDirectories
-        ) { refreshGit() }
+            changedPaths: paths, worktreeRoots: roots, managementDirectories: gitStore?.managementDirectories ?? []
+        ) { gitStore?.refresh() }
     }
 
     var cachedItems: [FileItem] {
@@ -82,63 +75,24 @@ final class FileExplorerStore: ObservableObject {
         return Array(itemsByURL.values)
     }
 
-    func startWatching(viewerStore: FileViewerStore) {
-        self.viewerStore = viewerStore
+    func startWatching(gitStore: GitStore) {
+        self.gitStore = gitStore
         isVisible = true
-        viewerStore.gitRootURL = rootURL
+        gitStore.onManagementDirectoriesChange = { [weak self] in self?.updateWatching() }
+        gitStore.setRoot(rootURL)
         refresh()
     }
 
     func stopWatching() {
         remoteTree.stop()
         isVisible = false
-        gitRequestID += 1
         watcher.stop()
-        if viewerStore?.gitRootURL == rootURL { viewerStore?.gitRootURL = nil }
+        if gitStore?.rootURL == rootURL { gitStore?.stop() }
     }
 
     func refresh() {
         refreshTree()
-        refreshGit()
-    }
-
-    private func refreshGit() {
-        guard isVisible, rootURL != nil, viewerStore != nil else { return }
-        gitRequestID += 1
-        guard gitRefreshTask == nil else { return }
-        gitRefreshTask = Task { [weak self] in await self?.loadGit() }
-    }
-
-    private func loadGit() async {
-        defer { gitRefreshTask = nil }
-        while isVisible, let url = rootURL, let viewerStore, viewerStore.gitRootURL == url {
-            let requestID = gitRequestID
-            func isCurrent() -> Bool {
-                isVisible && rootURL == url && gitRequestID == requestID
-                    && viewerStore.gitRootURL == url
-            }
-            do {
-                let directories = try await Git.managementDirectories(at: url)
-                guard isCurrent() else { continue }
-                gitDirectories = directories
-                updateWatching()
-                let changes = try await Git.changes(at: url)
-                guard isCurrent() else { continue }
-                viewerStore.gitChanges = changes
-                gitErrorMessage = nil
-            } catch GitError.notRepository {
-                guard isCurrent() else { continue }
-                gitDirectories = []
-                updateWatching()
-                viewerStore.gitChanges = [:]
-                gitErrorMessage = nil
-            } catch {
-                guard isCurrent() else { continue }
-                viewerStore.gitChanges = [:]
-                gitErrorMessage = error.localizedDescription
-            }
-            break
-        }
+        gitStore?.refresh()
     }
 
     func refreshTree() {
@@ -150,7 +104,7 @@ final class FileExplorerStore: ObservableObject {
     private func updateWatching() {
         guard isVisible, let rootURL else { return }
         do {
-            try watcher.start(paths: Set(gitDirectories.map(\.path)).union([rootURL.path]))
+            try watcher.start(paths: Set((gitStore?.managementDirectories ?? []).map(\.path)).union([rootURL.path]))
             watchError = nil
         } catch {
             watchError = error.localizedDescription
@@ -202,11 +156,10 @@ final class FileExplorerStore: ObservableObject {
         .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 
-    func load(projects: [Project], context: ModelContext, viewerStore: FileViewerStore) async {
-        self.viewerStore = viewerStore
-        if rootURL == nil { viewerStore.gitChanges = [:] }
+    func load(projects: [Project], context: ModelContext, gitStore: GitStore) async {
+        self.gitStore = gitStore
+        if rootURL == nil { gitStore.reset() }
         errorMessage = nil
-        gitErrorMessage = nil
         guard let selectedRootURL else {
             return
         }
@@ -223,7 +176,7 @@ final class FileExplorerStore: ObservableObject {
             guard isCurrent() else { return }
             let url = URL(fileURLWithPath: path)
             rootURL = url
-            viewerStore.gitRootURL = url
+            gitStore.setRoot(url)
             refresh()
         } catch {
             guard isCurrent() else { return }
