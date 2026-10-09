@@ -23,27 +23,15 @@ struct FileExplorerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Picker("Project or Worktree", selection: $store.selectedLocation) {
-                    if availableLocations.isEmpty {
-                        Text("---").tag(FileLocation?.none)
-                    }
-                    if let localBasePath {
-                        Text("BasePath").tag(Optional(FileLocation.local(URL(fileURLWithPath: localBasePath))))
-                        Divider()
-                    }
-                    ForEach(projects.filter { $0.host is LocalHost }) { project in
-                        Text(project.name).tag(Optional(FileLocation.local(URL(fileURLWithPath: project.path))))
-                    }
-                    ForEach(store.worktreeURLs, id: \.self) { url in
-                        Text(url.lastPathComponent).tag(Optional(FileLocation.local(url)))
-                    }
-                    RemoteWorkspaceMenuItems(store: remoteStore, sources: remoteSources)
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                ExplorerPulldownView(
+                    selection: $store.selectedLocation,
+                    locations: availableLocations,
+                    localBasePath: localBasePath,
+                    projects: projects,
+                    worktreeURLs: store.worktreeURLs,
+                    remoteStore: remoteStore,
+                    remoteSources: remoteSources
+                )
 
                 // Reserve the trigger position; expanded actions overlay the explorer.
                 Color.clear.frame(width: 36, height: 36)
@@ -101,7 +89,7 @@ struct FileExplorerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topTrailing) {
             GeometryReader { geometry in
-                ExplorerActionsView(
+                ExplorerMenuView(
                     availableWidth: min(280, max(36, geometry.size.width - 32)),
                     canRefresh: store.selectedLocation != nil || !remoteSources.isEmpty
                 ) {
@@ -111,10 +99,6 @@ struct FileExplorerView: View {
                 .padding(16)
             }
         }
-        .focusedSceneValue(
-            \.projectNavigation,
-            ProjectNavigation(locations: availableLocations, selection: $store.selectedLocation)
-        )
         .onAppear {
             updateRemote()
             updateRemoteTree()
