@@ -8,7 +8,7 @@ struct CodexView: View {
     @State private var books: [CodexStore.ID: CodexBookPagination] = [:]
 
     var body: some View {
-        CodexSessionView(book: books[store.selectedSessionID]) {
+        CodexSessionView(book: books[store.selectedSessionID], focus: tabFocus) {
             CodexTabBar(sessions: store.sessions, selection: store.selectedSessionID,
                         completedSessionIDs: store.completedSessionIDs) { id in
                 tabFocus.activate()
@@ -61,6 +61,7 @@ struct CodexView: View {
 private struct CodexSessionView<Tabs: View>: View {
     @EnvironmentObject private var store: CodexStore
     let book: CodexBookPagination?
+    let focus: TabPaneFocus
     @ViewBuilder let tabs: () -> Tabs
     @State private var confirmsReset = false
     @State private var composerClearance: CGFloat = 64
@@ -69,7 +70,7 @@ private struct CodexSessionView<Tabs: View>: View {
         VStack(spacing: 0) {
             ZStack {
                 if let book {
-                    CodexBookView(book: book, composerClearance: composerClearance)
+                    CodexBookView(book: book, focus: focus, composerClearance: composerClearance)
                         .id(store.id)
                 } else {
                     Color.clear.frame(maxHeight: .infinity)
@@ -91,8 +92,8 @@ private struct CodexSessionView<Tabs: View>: View {
                         .padding(.leading, 56)
                         .padding(.bottom, 16)
                 }
-            if !store.requests.isEmpty {
-                CodexInteractionRequestsView(requests: store.requests) { request, result in
+            if store.requests.contains(where: { !$0.isApproval }) {
+                CodexInteractionRequestsView(requests: store.requests.filter { !$0.isApproval }) { request, result in
                     store.answer(request, result: result)
                 }
             }
