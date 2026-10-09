@@ -30,7 +30,7 @@ struct CodexView: View {
         ))
         .padding(.horizontal)
         .padding(.top, 8)
-        .navigationTitle("Codex")
+        .navigationTitle("AgentBook")
         .alert("実行中の会話があります", isPresented: Binding(
             get: { pendingCloseID != nil },
             set: { if !$0 { pendingCloseID = nil } }
