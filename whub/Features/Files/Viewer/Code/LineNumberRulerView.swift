@@ -2,11 +2,11 @@ import AppKit
 import WhubCore
 
 final class LineNumberRulerView: NSRulerView {
-    private var hunks: [GitDiffHunk] = []
+    private var hunks: [LineDiffHunk] = []
     private var lineStarts = [0]
     private var lineCount = 0
 
-    func update(source: String, hunks: [GitDiffHunk]) {
+    func update(source: String, hunks: [LineDiffHunk]) {
         var lineStarts = [0]
         for (offset, character) in source.utf16.enumerated() where character == 10 {
             lineStarts.append(offset + 1)

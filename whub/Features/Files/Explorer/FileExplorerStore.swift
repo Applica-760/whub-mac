@@ -72,20 +72,9 @@ final class FileExplorerStore: ObservableObject {
             }
         }
         if treeChanged { refreshTree() }
-        if treeChanged || paths.contains(where: { path in
-            if roots.contains(where: { path == $0 + "/.git" }) { return true }
-            if gitDirectories.isEmpty,
-               roots.contains(where: { path.hasPrefix($0 + "/.git/") }) { return true }
-            return gitDirectories.contains { directory in
-                let root = directory.path
-                if path == root || root.hasPrefix(path + "/") { return true }
-                guard path.hasPrefix(root + "/") else { return false }
-                let name = path.dropFirst(root.count + 1).split(separator: "/").first ?? ""
-                return ["HEAD", "index", "commondir", "config", "config.worktree",
-                        "refs", "packed-refs", "reftable", "info"].contains(String(name))
-                    || name.hasPrefix("sharedindex.")
-            }
-        }) { refreshGit() }
+        if treeChanged || Git.needsStatusRefresh(
+            changedPaths: paths, worktreeRoots: roots, managementDirectories: gitDirectories
+        ) { refreshGit() }
     }
 
     var cachedItems: [FileItem] {
@@ -252,7 +241,7 @@ final class FileExplorerStore: ObservableObject {
             return true
         }
         let refreshed = loadedTreeRevision != treeRevision
-        let nextDecorations = Self.decorations(for: gitChanges, under: rootURL)
+        let nextDecorations = TreeDiff.changes(for: gitChanges, under: rootURL)
         guard rootChanged || refreshed || decorations != nextDecorations else { return false }
         if rootChanged { itemsByURL.removeAll() }
         treeRootLocation = treeLocation
@@ -319,22 +308,6 @@ final class FileExplorerStore: ObservableObject {
             guard let self, rootURL == root, treeRevision == revision else { return }
             if directoryErrorMessage != message { directoryErrorMessage = message }
         }
-    }
-
-    private static func decorations(for gitChanges: [URL: GitChange], under rootURL: URL?) -> [URL: GitChange] {
-        guard let rootURL else { return [:] }
-        let root = rootURL.standardizedFileURL
-        var result = gitChanges
-        for (url, change) in gitChanges {
-            var parent = url.deletingLastPathComponent()
-            while parent == root || parent.path.hasPrefix(root.path + "/") {
-                let current = result[parent]
-                result[parent] = (current == nil || current == .added) && change == .added ? .added : .modified
-                if parent == root { break }
-                parent = parent.deletingLastPathComponent()
-            }
-        }
-        return result
     }
 }
 

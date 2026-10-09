@@ -13,7 +13,7 @@ struct CodeViewerView: View {
     @EnvironmentObject private var store: FileViewerStore
     @State private var baseline: CodeDiffBaseline?
     @State private var diffSource: String?
-    @State private var hunks: [GitDiffHunk] = []
+    @State private var hunks: [LineDiffHunk] = []
     @State private var diffErrorMessage: String?
 
     var body: some View {
@@ -97,7 +97,7 @@ struct CodeTextContent: NSViewRepresentable {
     let onEdit: () -> Void
     let source: String
     let language: String?
-    let hunks: [GitDiffHunk]
+    let hunks: [LineDiffHunk]
 
     func makeNSView(context: Context) -> NSScrollView {
         if let scrollView = state.editorViews[editorID] { return scrollView }
