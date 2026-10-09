@@ -14,8 +14,8 @@ final class LocalTreeStore: ObservableObject {
     var managementDirectories: Set<URL> = [] {
         didSet { updateWatching() }
     }
-    var onChanges: ((FileChangeWatcher.Event, Bool) -> Void)?
-    private lazy var watcher = FileChangeWatcher { [weak self] event in self?.handleChanges(event) }
+    var onChanges: ((LocalFileWatcher.Event, Bool) -> Void)?
+    private lazy var watcher = LocalFileWatcher { [weak self] event in self?.handleChanges(event) }
     var cachedItems: [ExplorerItem] { Array(itemsByURL.values) }
 
     func setRoot(_ url: URL?) {
@@ -36,7 +36,7 @@ final class LocalTreeStore: ObservableObject {
         revision += 1
     }
 
-    private func handleChanges(_ event: FileChangeWatcher.Event) {
+    private func handleChanges(_ event: LocalFileWatcher.Event) {
         guard let rootURL else { return }
         var treeChanged = false
         defer { onChanges?(event, treeChanged) }

@@ -1,7 +1,7 @@
 import CoreServices
 import Foundation
 
-final class FileChangeWatcher {
+final class LocalFileWatcher {
     enum Event {
         case changed([String])
         case rescan
@@ -56,7 +56,7 @@ final class FileChangeWatcher {
         )
         guard let stream = FSEventStreamCreate(nil, { _, info, count, rawPaths, flags, _ in
             guard let info else { return }
-            let watcher = Unmanaged<FileChangeWatcher>.fromOpaque(info).takeUnretainedValue()
+            let watcher = Unmanaged<LocalFileWatcher>.fromOpaque(info).takeUnretainedValue()
             let paths = unsafeBitCast(rawPaths, to: NSArray.self) as! [String]
             let rescanFlags = FSEventStreamEventFlags(
                 kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagRootChanged

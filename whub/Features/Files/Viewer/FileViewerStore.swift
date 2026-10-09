@@ -23,7 +23,7 @@ final class FileViewerStore: ObservableObject {
 
     private var fileChanges: AnyCancellable?
     private var isClosing = false
-    private lazy var watcher = FileChangeWatcher { [weak self] event in
+    private lazy var watcher = LocalFileWatcher { [weak self] event in
         guard let self else { return }
         switch event {
         case let .changed(paths):
