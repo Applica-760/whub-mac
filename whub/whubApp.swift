@@ -9,6 +9,7 @@ struct whubApp: App {
     @StateObject private var fileViewerStore = FileViewerStore()
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
+    @StateObject private var codexStore: CodexTabsStore
     @StateObject private var remoteConnections = RemoteConnectionStore()
     @State private var section = AppView.Section.workspace
     @FocusedValue(\.projectNavigation) private var projectNavigation
@@ -20,6 +21,7 @@ struct whubApp: App {
             let container = try Container.make()
             workspaceContainer = container
             _terminalStore = StateObject(wrappedValue: TerminalStore(context: container.mainContext))
+            _codexStore = StateObject(wrappedValue: CodexTabsStore(context: container.mainContext))
         } catch {
             fatalError("Unable to open workspace store: \(error)")
         }
@@ -32,8 +34,12 @@ struct whubApp: App {
                 .environmentObject(fileViewerStore)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
+                .environmentObject(codexStore)
                 .environmentObject(remoteConnections)
                 .onAppear { appDelegate.remoteConnections = remoteConnections }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    codexStore.disconnect()
+                }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                     fileViewerStore.checkForExternalChanges()
                 }
@@ -46,11 +52,12 @@ struct whubApp: App {
                     switch section {
                     case .workspace, .terminal: terminalStore.add()
                     case .browser: browserStore.add()
+                    case .codex: codexStore.add()
                     default: break
                     }
                 }
                 .keyboardShortcut("t", modifiers: .command)
-                .disabled(section != .workspace && section != .terminal && section != .browser)
+                .disabled(section != .workspace && section != .terminal && section != .browser && section != .codex)
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {

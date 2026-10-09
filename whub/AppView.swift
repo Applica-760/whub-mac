@@ -6,6 +6,7 @@ struct AppView: View {
         case file
         case terminal
         case browser
+        case codex
         case overview
         case motion
 
@@ -15,6 +16,7 @@ struct AppView: View {
             case .file: "File"
             case .terminal: "Terminal"
             case .browser: "Browser"
+            case .codex: "Codex"
             case .overview: "Overview"
             case .motion: "Motion"
             }
@@ -26,6 +28,7 @@ struct AppView: View {
             case .file: "doc.text"
             case .terminal: "terminal"
             case .browser: "globe"
+            case .codex: "sparkles"
             case .overview: "rectangle.3.group"
             case .motion: "hand.draw"
             }
@@ -39,6 +42,7 @@ struct AppView: View {
             case .file: FileViewerView().navigationTitle("File")
             case .terminal: TerminalView().navigationTitle("Terminal")
             case .browser: BrowserView()
+            case .codex: CodexView()
             case .motion: MotionView()
             }
         }
