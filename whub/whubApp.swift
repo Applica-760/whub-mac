@@ -6,6 +6,7 @@ import WhubCore
 @main
 struct whubApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var gitStore = GitStore()
     @StateObject private var fileViewerStore = FileViewerStore()
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
@@ -32,6 +33,7 @@ struct whubApp: App {
             AppView(section: $section)
                 .containerBackground(.thinMaterial, for: .window)
                 .environmentObject(fileViewerStore)
+                .environmentObject(gitStore)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
                 .environmentObject(codexStore)

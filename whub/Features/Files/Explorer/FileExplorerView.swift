@@ -11,6 +11,7 @@ struct FileExplorerView: View {
     @StateObject private var remoteStore = RemoteWorkspaceStore()
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var fileViewerStore: FileViewerStore
+    @EnvironmentObject private var gitStore: GitStore
     @StateObject private var store = FileExplorerStore()
 
     private var localBasePath: String? { allHosts.first { $0 is LocalHost }?.basePath }
@@ -61,7 +62,7 @@ struct FileExplorerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding()
             } else {
-                if let gitErrorMessage = store.gitErrorMessage {
+                if let gitErrorMessage = gitStore.errorMessage {
                     Text(gitErrorMessage)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
@@ -82,7 +83,7 @@ struct FileExplorerView: View {
                 FileTreeView(
                     store: store,
                     basePath: store.basePath(projects: projects),
-                    gitChanges: fileViewerStore.gitChanges,
+                    gitChanges: gitStore.changes,
                     onFilePreview: { location in
                         fileViewerStore.remote.load(location, root: store.treeLocation, hosts: hosts, connections: connections)
                         fileViewerStore.preview(location)
@@ -118,7 +119,7 @@ struct FileExplorerView: View {
             updateRemote()
             updateRemoteTree()
             store.validateSelection(projects: projects, remote: remoteEntries, basePath: localBasePath)
-            store.startWatching(viewerStore: fileViewerStore)
+            store.startWatching(gitStore: gitStore)
         }
         .onDisappear {
             store.stopWatching()
@@ -150,7 +151,7 @@ struct FileExplorerView: View {
             location: store.selectedLocation,
             refreshID: fileViewerStore.refreshID
         )) {
-            await store.load(projects: projects, context: context, viewerStore: fileViewerStore)
+            await store.load(projects: projects, context: context, gitStore: gitStore)
         }
     }
 

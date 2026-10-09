@@ -3,6 +3,7 @@ import SwiftUI
 import WhubCore
 
 struct FileViewerView: View {
+    @EnvironmentObject private var gitStore: GitStore
     @State private var tabFocus = TabPaneFocus()
     @EnvironmentObject private var store: FileViewerStore
     @SceneStorage("fileEditorID") private var editorID = UUID().uuidString
@@ -22,7 +23,7 @@ struct FileViewerView: View {
                 isShortcutTarget: tabFocus.contains
             ) { location, isSelected, actions in
                 if let fileStore = store.fileStores[location], let fileURL = location.localURL {
-                    let titleColor: Color? = switch store.gitChanges[fileURL.standardizedFileURL] {
+                    let titleColor: Color? = switch gitStore.changes[fileURL.standardizedFileURL] {
                     case .added: Color(nsColor: .systemGreen)
                     case .modified, .deleted: Color(nsColor: .systemOrange)
                     case nil: nil

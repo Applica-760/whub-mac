@@ -10,16 +10,13 @@ struct CodeViewerView: View {
     let state: FileStore
     let editorID: String
     let onEdit: () -> Void
-    @EnvironmentObject private var store: FileViewerStore
-    @State private var baseline: CodeDiffBaseline?
-    @State private var diffSource: String?
-    @State private var hunks: [LineDiffHunk] = []
-    @State private var diffErrorMessage: String?
+    @EnvironmentObject private var gitStore: GitStore
+    @StateObject private var diffStore = GitLineStore()
 
     var body: some View {
         VStack(spacing: 0) {
-            if let diffErrorMessage {
-                Text(diffErrorMessage)
+            if let errorMessage = diffStore.errorMessage {
+                Text(errorMessage)
                     .foregroundStyle(.secondary)
             }
             CodeTextContent(
@@ -28,58 +25,21 @@ struct CodeViewerView: View {
                 onEdit: onEdit,
                 source: source,
                 language: codeLanguages[fileURL.pathExtension.lowercased()],
-                hunks: baseline?.fileURL == fileURL && diffSource == source ? hunks : []
+                hunks: diffStore.hunks(for: fileURL, source: source)
             )
         }
         .background(Color(white: 0.07).opacity(0.75))
         .task(id: CodeLoadID(fileURL: fileURL, refreshID: refreshID, diskRevision: state.diskRevision)) {
-            baseline = nil
-            diffSource = nil
-            hunks = []
-            diffErrorMessage = nil
-            do {
-                let loaded = try await Git.baselineText(at: fileURL)
-                guard !Task.isCancelled else { return }
-                if let loaded { baseline = CodeDiffBaseline(fileURL: fileURL, source: loaded) }
-                if !store.managesGitStatus(for: fileURL) {
-                    let changes = try await Git.changes(at: fileURL.deletingLastPathComponent())
-                    guard !Task.isCancelled else { return }
-                    if !store.managesGitStatus(for: fileURL) {
-                        store.gitChanges[fileURL.standardizedFileURL] = changes[fileURL.standardizedFileURL]
-                    }
-                }
-            } catch GitError.notRepository {
-                guard !Task.isCancelled else { return }
-                if !store.managesGitStatus(for: fileURL) {
-                    store.gitChanges.removeValue(forKey: fileURL.standardizedFileURL)
-                }
-                return
-            } catch {
-                guard !Task.isCancelled else { return }
-                diffErrorMessage = error.localizedDescription
-            }
+            await diffStore.load(fileURL: fileURL, gitStore: gitStore)
         }
-        .task(id: CodeDiffID(baseline: baseline, source: source)) {
-            guard let baseline, baseline.fileURL == fileURL else { return }
-            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
-            let calculation = Task.detached(priority: .utility) {
-                Git.diff(from: baseline.source, to: source)
-            }
-            let loaded = await calculation.value
-            guard !Task.isCancelled else { return }
-            hunks = loaded
-            diffSource = source
+        .task(id: CodeDiffID(baseline: diffStore.baseline, source: source)) {
+            await diffStore.update(source: source)
         }
     }
 }
 
-private struct CodeDiffBaseline: Equatable {
-    let fileURL: URL
-    let source: String
-}
-
 private struct CodeDiffID: Equatable {
-    let baseline: CodeDiffBaseline?
+    let baseline: GitLineStore.Baseline?
     let source: String
 }
 
