@@ -12,26 +12,25 @@ struct CodexMessageView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if showsHeader {
+            if showsHeader && !isUser {
                 HStack {
-                    Text(isUser ? "あなた" : "Codex")
+                    Text("Codex")
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Spacer()
-                    if !isUser {
-                        ZStack {
-                            if history.contains(where: { $0.status == "inProgress" }) {
-                                ProgressView().controlSize(.mini)
-                                    .accessibilityLabel("応答を生成中")
-                            }
+                    ZStack {
+                        if history.contains(where: { $0.status == "inProgress" }) {
+                            ProgressView().controlSize(.mini)
+                                .accessibilityLabel("応答を生成中")
                         }
-                        .frame(width: 16, height: 16)
-                        Button("作業履歴", systemImage: "terminal") { showsHistory.toggle() }
-                            .font(.caption).buttonStyle(.plain)
-                            .popover(isPresented: $showsHistory) { CodexHistoryView(turns: history) }
-                        Button("回答をコピー", systemImage: "doc.on.doc", action: copy)
-                            .labelStyle(.iconOnly).buttonStyle(.plain)
                     }
+                    .frame(width: 16, height: 16)
+                    Button("作業履歴", systemImage: "terminal") { showsHistory.toggle() }
+                        .font(.caption).buttonStyle(.plain)
+                        .popover(isPresented: $showsHistory) { CodexHistoryView(turns: history) }
+                    Button("回答をコピー", systemImage: "doc.on.doc", action: copy)
+                        .labelStyle(.iconOnly).buttonStyle(.plain)
                 }
+                .background(CodexSelectionExclusion())
             }
             CodexMarkdownResponseView.BlockView(block: block, width: width.map { $0 - (isUser ? 24 : 0) })
         }

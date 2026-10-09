@@ -6,6 +6,7 @@ struct CodexBookView: View {
     @EnvironmentObject private var store: CodexStore
     @ObservedObject var book: CodexBookPagination
     var composerClearance: CGFloat = 64
+    @State private var selection = CodexBookSelection()
     @State private var readingFocus = TabPaneFocus()
 
     var body: some View {
@@ -38,6 +39,7 @@ struct CodexBookView: View {
                 book.configure(viewport: size)
                 book.update(store.turns)
             }
+            .background(CodexSelectionSurface(selection: selection, bottomInset: composerClearance))
             .background(TabPaneFocusView(focus: readingFocus))
             .background(CodexPageKeys { event in
                 guard let window = event.window, readingFocus.contains(window),
@@ -46,6 +48,8 @@ struct CodexBookView: View {
                 return true
             })
         }
+        .environment(\.codexBookSelection, selection)
+        .onChange(of: book.spread) { _, _ in selection.clear() }
         .onReceive(store.$turns.throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)) {
             book.update($0)
         }
@@ -61,6 +65,8 @@ struct CodexBookView: View {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(answer, forType: .string)
                     }
+                    .environment(\.codexSelectionOrder, [index, fragment.id])
+                    .environment(\.codexSelectionSource, fragment.turnID.uuidString)
                     .frame(width: book.contentWidth, height: fragment.naturalHeight, alignment: .topLeading)
                     .scaleEffect(fragment.scale, anchor: .topLeading)
                     .offset(x: 16, y: 16 + fragment.y)
