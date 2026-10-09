@@ -39,7 +39,7 @@ struct AppView: View {
             switch self {
             case .overview: OverviewView()
             case .workspace: WorkspaceView()
-            case .file: FileViewerView().navigationTitle("File")
+            case .file: EditorView().navigationTitle("File")
             case .terminal: TerminalView().navigationTitle("Terminal")
             case .browser: BrowserView()
             case .codex: CodexView()

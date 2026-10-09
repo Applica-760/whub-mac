@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct BinaryViewerView: View {
+struct BinaryView: View {
     let fileURL: URL
 
     var body: some View {

@@ -1,7 +1,7 @@
 import SwiftUI
 
-struct RemoteFileViewerView: View {
-    @ObservedObject var store: RemoteFileViewerStore
+struct RemoteViewerView: View {
+    @ObservedObject var store: RemoteViewerStore
     let location: FileLocation
     let editorID: String
 

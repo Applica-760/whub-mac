@@ -4,7 +4,7 @@ import SwiftData
 import WhubCore
 
 @MainActor
-final class RemoteFileViewerStore: ObservableObject {
+final class RemoteViewerStore: ObservableObject {
     enum State {
         case loading
         case loaded(FileStore)

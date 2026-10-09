@@ -5,7 +5,7 @@ import WhubCore
 @MainActor
 final class FilesStore: ObservableObject {
     let explorer = ExplorerStore()
-    let viewer = FileViewerStore()
+    let editor = EditorStore()
     let git = GitStore()
     @Published private(set) var refreshID = 0
     private var rootChanges: AnyCancellable?
@@ -31,26 +31,26 @@ final class FilesStore: ObservableObject {
     }
 
     func checkForExternalChanges() {
-        viewer.checkForExternalChanges()
+        editor.checkForExternalChanges()
         explorer.refresh()
         git.refresh()
     }
 
     func refresh() {
         refreshID += 1
-        viewer.refresh()
+        editor.refresh()
         git.refresh()
     }
 
     func preview(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore) {
-        viewer.remote.load(location, root: explorer.treeLocation,
+        editor.remote.load(location, root: explorer.treeLocation,
                            hosts: hosts.compactMap { $0 as? RemoteHost }, connections: connections)
-        viewer.preview(location)
+        editor.preview(location)
     }
 
     func open(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore) {
-        viewer.remote.load(location, root: explorer.treeLocation,
+        editor.remote.load(location, root: explorer.treeLocation,
                            hosts: hosts.compactMap { $0 as? RemoteHost }, connections: connections)
-        viewer.open(location)
+        editor.open(location)
     }
 }

@@ -3,7 +3,7 @@ import Combine
 import Foundation
 import WhubCore
 
-final class FileViewerStore: ObservableObject {
+final class EditorStore: ObservableObject {
     @Published private(set) var fileLocations: [FileLocation] = []
     @Published private(set) var selectedLocation: FileLocation?
     @Published private(set) var previewLocation: FileLocation?
@@ -14,7 +14,7 @@ final class FileViewerStore: ObservableObject {
             updateWatching()
         }
     }
-    let remote = RemoteFileViewerStore()
+    let remote = RemoteViewerStore()
     private var remoteChanges: AnyCancellable?
 
     init() {
