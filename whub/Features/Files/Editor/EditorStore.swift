@@ -1,63 +1,22 @@
-import AppKit
 import Combine
 import Foundation
-import WhubCore
 
 final class EditorStore: ObservableObject {
     @Published private(set) var fileLocations: [FileLocation] = []
     @Published private(set) var selectedLocation: FileLocation?
     @Published private(set) var previewLocation: FileLocation?
-    @Published private(set) var fileStores: [FileLocation: FileStore] = [:] {
-        didSet {
-            fileChanges = Publishers.MergeMany(fileStores.values.map(\.objectWillChange))
-                .sink { [weak self] _ in self?.objectWillChange.send() }
-            updateWatching()
-        }
-    }
+    let local = LocalEditorStore()
     let remote = RemoteViewerStore()
-    private var remoteChanges: AnyCancellable?
+    private var changes: AnyCancellable?
+    private var isClosing = false
 
     init() {
-        remoteChanges = remote.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        changes = Publishers.Merge(local.objectWillChange, remote.objectWillChange)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
-    private var fileChanges: AnyCancellable?
-    private var isClosing = false
-    private lazy var watcher = LocalFileWatcher { [weak self] event in
-        guard let self else { return }
-        switch event {
-        case let .changed(paths):
-            checkForExternalChanges(paths: paths)
-        case .rescan:
-            checkForExternalChanges()
-        }
-        DispatchQueue.main.async { [weak self] in self?.updateWatching() }
-    }
-    @Published private(set) var watchError: String?
-
-    func checkForExternalChanges(paths: [String]? = nil) {
-        for (location, file) in fileStores {
-            guard let url = location.localURL else { continue }
-            let targets = [url.standardizedFileURL.path, url.resolvingSymlinksInPath().path]
-            if let paths, !paths.contains(where: { path in
-                targets.contains { $0 == path || $0.hasPrefix(path + "/") }
-            }) { continue }
-            file.checkForExternalChanges()
-        }
-    }
-
-    private func updateWatching() {
-        let paths = Set(fileStores.keys.compactMap(\.localURL).flatMap { url in
-            [url.standardizedFileURL, url.resolvingSymlinksInPath()]
-                .map { $0.deletingLastPathComponent().path }
-        })
-        watchError = nil
-        do {
-            let changed = try watcher.start(paths: paths)
-            if changed && !paths.isEmpty { checkForExternalChanges() }
-        } catch {
-            watchError = error.localizedDescription
-        }
+    func file(for location: FileLocation) -> FileStore? {
+        local.fileStores[location]?.document ?? remote.file(for: location)
     }
 
     func refresh() {
@@ -66,7 +25,7 @@ final class EditorStore: ObservableObject {
 
     func open(_ location: FileLocation) {
         guard location.localURL != nil || remote.states[location] != nil else { return }
-        loadIfNeeded(location)
+        local.load(location)
         if !fileLocations.contains(location) {
             fileLocations.append(location)
         }
@@ -82,14 +41,14 @@ final class EditorStore: ObservableObject {
         }
         if let previewLocation, let index = fileLocations.firstIndex(of: previewLocation) {
             if previewLocation != location {
-                fileStores.removeValue(forKey: previewLocation)
+                local.close(previewLocation)
                 remote.close(previewLocation)
             }
             fileLocations[index] = location
         } else if !fileLocations.contains(location) {
             fileLocations.append(location)
         }
-        loadIfNeeded(location)
+        local.load(location)
         previewLocation = location
         selectedLocation = location
     }
@@ -98,19 +57,14 @@ final class EditorStore: ObservableObject {
         guard !isClosing, fileLocations.contains(location) else { return }
         isClosing = true
         defer { isClosing = false }
-        guard fileStores[location]?.confirmClose() != false else { return }
+        guard local.fileStores[location]?.confirmClose() != false else { return }
         guard let index = fileLocations.firstIndex(of: location) else { return }
         fileLocations.remove(at: index)
-        fileStores.removeValue(forKey: location)
+        local.close(location)
         remote.close(location)
         if previewLocation == location { previewLocation = nil }
         guard selectedLocation == location else { return }
         selectedLocation = index < fileLocations.count ? fileLocations[index] : fileLocations.last
-    }
-
-    private func loadIfNeeded(_ location: FileLocation) {
-        guard fileStores[location] == nil, let url = location.localURL else { return }
-        fileStores[location] = FileStore(fileURL: url)
     }
 
     func move(_ location: FileLocation, before target: FileLocation?) {

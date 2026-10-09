@@ -3,55 +3,9 @@ import Highlighter
 import SwiftUI
 import WhubCore
 
-struct CodeEditorView: View {
-    let fileURL: URL
-    let source: String
-    let refreshID: Int
-    let state: FileStore
-    let editorID: String
-    let onEdit: () -> Void
-    @EnvironmentObject private var gitStore: GitStore
-    @StateObject private var diffStore = GitLineStore()
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if let errorMessage = diffStore.errorMessage {
-                Text(errorMessage)
-                    .foregroundStyle(.secondary)
-            }
-            CodeTextContent(
-                state: state,
-                editorID: editorID,
-                onEdit: onEdit,
-                source: source,
-                language: codeLanguages[fileURL.pathExtension.lowercased()],
-                hunks: diffStore.hunks(for: fileURL, source: source)
-            )
-        }
-        .background(Color(white: 0.07).opacity(0.75))
-        .task(id: CodeLoadID(fileURL: fileURL, refreshID: refreshID, diskRevision: state.diskRevision)) {
-            await diffStore.load(fileURL: fileURL, gitStore: gitStore)
-        }
-        .task(id: CodeDiffID(baseline: diffStore.baseline, source: source)) {
-            await diffStore.update(source: source)
-        }
-    }
-}
-
-private struct CodeDiffID: Equatable {
-    let baseline: GitLineStore.Baseline?
-    let source: String
-}
-
-private struct CodeLoadID: Equatable {
-    let fileURL: URL
-    let refreshID: Int
-    let diskRevision: Int
-}
-
 @MainActor private let codeHighlighter = Highlighter()
 
-struct CodeTextContent: NSViewRepresentable {
+struct CodeEditorView: NSViewRepresentable {
     let state: FileStore
     let editorID: String
     let onEdit: () -> Void
@@ -162,7 +116,7 @@ final class CodeTextView: NSTextView {
     override var undoManager: UndoManager? { fileStore?.undoManager }
 
     @objc func saveDocument(_ sender: Any?) {
-        fileStore?.saveWithConfirmation()
+        fileStore?.saveAction?()
     }
 
     @objc func undo(_ sender: Any?) { undoManager?.undo() }
@@ -172,7 +126,7 @@ final class CodeTextView: NSTextView {
         switch menuItem.action {
         case #selector(undo(_:)): return undoManager?.canUndo == true
         case #selector(redo(_:)): return undoManager?.canRedo == true
-        case #selector(saveDocument(_:)): return fileStore?.isEditable == true && fileStore?.savedSource != nil && fileStore?.isSaving != true
+        case #selector(saveDocument(_:)): return fileStore?.isEditable == true && fileStore?.canSave?() == true
         default: return super.validateMenuItem(menuItem)
         }
     }

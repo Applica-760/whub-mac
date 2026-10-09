@@ -9,35 +9,23 @@ final class FileStore: ObservableObject {
         case error(String)
     }
 
-    let fileURL: URL?
     @Published var content: Content {
-        didSet {
-            guard diskMessage != nil else { return }
-            DispatchQueue.main.async { [weak self] in self?.checkForExternalChanges() }
-        }
+        didSet { onContentChange?() }
     }
-    @Published private(set) var diskMessage: String?
     @Published private(set) var savedSource: String?
-    @Published private(set) var diskRevision = 0
-    private var savedData: Data?
-    private(set) var isSaving = false
+    let isEditable: Bool
     let textStorage: NSTextStorage
     let undoManager = UndoManager()
     // ponytail: retain editors until the file closes; evict closed scenes if window churn matters.
     var editorViews: [String: NSScrollView] = [:]
+    var onContentChange: (() -> Void)?
+    var saveAction: (() -> Void)?
+    var canSave: (() -> Bool)?
 
-    init(fileURL: URL) {
-        self.fileURL = fileURL
-        let loadedContent: Content
-        do {
-            let data = try Data(contentsOf: fileURL)
-            savedData = data
-            loadedContent = String(data: data, encoding: .utf8).map(Content.text) ?? .binary
-        } catch {
-            loadedContent = .error(error.localizedDescription)
-        }
-        content = loadedContent
-        if case let .text(source) = loadedContent {
+    init(content: Content, isEditable: Bool) {
+        self.content = content
+        self.isEditable = isEditable
+        if case let .text(source) = content {
             savedSource = source
             textStorage = NSTextStorage(string: source)
         } else {
@@ -46,11 +34,8 @@ final class FileStore: ObservableObject {
         }
     }
 
-    init(source: String) {
-        fileURL = nil
-        content = .text(source)
-        savedSource = source
-        textStorage = NSTextStorage(string: source)
+    convenience init(source: String) {
+        self.init(content: .text(source), isEditable: false)
     }
 
     func updateReadOnly(source: String) {
@@ -58,167 +43,24 @@ final class FileStore: ObservableObject {
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: source)
         savedSource = source
         content = .text(source)
-        diskRevision += 1
     }
-
-    var isEditable: Bool { fileURL != nil }
 
     var hasUnsavedChanges: Bool {
         guard isEditable, case let .text(source) = content else { return false }
         return source != savedSource
     }
 
-    enum SaveError: LocalizedError {
-        case changedOnDisk(Data)
-        case unsupportedText
-
-        var errorDescription: String? {
-            switch self {
-            case .changedOnDisk: "ファイルが外部で変更されています。"
-            case .unsupportedText: "UTF-8テキストとして読み込めません。編集内容は保持されています。"
-            }
-        }
-    }
-
-    func confirmClose() -> Bool {
-        guard let fileURL else { return true }
-        guard !isSaving else { return false }
-        guard !editorViews.values.contains(where: {
-            ($0.documentView as? NSTextView)?.hasMarkedText() == true
-        }) else { NSSound.beep(); return false }
-        guard hasUnsavedChanges else { return true }
-        let alert = NSAlert()
-        alert.messageText = "\(fileURL.lastPathComponent)の変更を保存しますか？"
-        alert.informativeText = "保存せずに閉じると、編集内容は失われます。"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "保存")
-        alert.addButton(withTitle: "保存せずに閉じる").keyEquivalent = ""
-        alert.addButton(withTitle: "キャンセル").keyEquivalent = "\u{1b}"
-        switch alert.runModal() {
-        case .alertFirstButtonReturn: return saveWithConfirmation() && !hasUnsavedChanges
-        case .alertSecondButtonReturn: return true
-        default: return false
-        }
-    }
-
-    @discardableResult
-    func saveWithConfirmation() -> Bool {
-        guard let fileURL else { return false }
-        guard !isSaving else { return false }
-        guard !editorViews.values.contains(where: {
-            ($0.documentView as? NSTextView)?.hasMarkedText() == true
-        }) else { NSSound.beep(); return false }
-        isSaving = true
-        defer { isSaving = false }
-        var overwriteData: Data?
-        do {
-            while true {
-                do {
-                    try save(overwriting: overwriteData)
-                    return true
-                } catch let FileStore.SaveError.changedOnDisk(data) {
-                    let alert = NSAlert()
-                    alert.messageText = "ファイルが外部で変更されています"
-                    alert.informativeText = "\(fileURL.lastPathComponent)の編集内容を上書き保存するか、ディスクの最新内容を採用してください。"
-                    alert.addButton(withTitle: "上書き")
-                    alert.addButton(withTitle: "最新内容を採用")
-                    alert.addButton(withTitle: "キャンセル")
-                    switch alert.runModal() {
-                    case .alertFirstButtonReturn: overwriteData = data
-                    case .alertSecondButtonReturn:
-                        try adoptLatest()
-                        return true
-                    default: return false
-                    }
-                }
-            }
-        } catch {
-            NSAlert(error: error).runModal()
-            return false
-        }
-    }
-
-
-    func save(overwriting diskData: Data? = nil) throws {
-        guard let fileURL, case let .text(source) = content, let savedData else { throw SaveError.unsupportedText }
-        let target = fileURL.resolvingSymlinksInPath()
-        let current = try Data(contentsOf: target)
-        guard current == (diskData ?? savedData) else { throw SaveError.changedOnDisk(current) }
-        guard source != savedSource || diskData != nil else { return }
-        guard FileManager.default.isWritableFile(atPath: target.path) else {
-            throw CocoaError(.fileWriteNoPermission)
-        }
-        var output = source
-        let original = String(data: savedData, encoding: .utf8) ?? ""
-        let withoutCRLF = original.replacingOccurrences(of: "\r\n", with: "")
-        let lineEnding: String? = if original.contains("\r\n") && !withoutCRLF.contains("\r") && !withoutCRLF.contains("\n") {
-            "\r\n"
-        } else if !original.contains("\n") && original.contains("\r") {
-            "\r"
-        } else if !original.contains("\r") {
-            "\n"
-        } else {
-            nil
-        }
-        if let lineEnding {
-            output = source.replacingOccurrences(of: "\r\n", with: "\n")
-                .replacingOccurrences(of: "\r", with: "\n")
-                .replacingOccurrences(of: "\n", with: lineEnding)
-        }
-        var data = Data(output.utf8)
-        if savedData.starts(with: [0xef, 0xbb, 0xbf]) { data.insert(contentsOf: [0xef, 0xbb, 0xbf], at: 0) }
-        try data.write(to: target, options: .atomic)
-        self.savedData = data
-        diskMessage = nil
+    func markSaved(source: String) {
         savedSource = source
-        diskRevision += 1
         for scrollView in editorViews.values {
             (scrollView.documentView as? NSTextView)?.breakUndoCoalescing()
         }
     }
 
-    func adoptLatest() throws {
-        guard let fileURL else { throw SaveError.unsupportedText }
-        let data = try Data(contentsOf: fileURL)
-        guard let source = String(data: data, encoding: .utf8) else { throw SaveError.unsupportedText }
-        apply(data: data, source: source)
-    }
-
-    func checkForExternalChanges() {
-        guard let fileURL else { return }
-        do {
-            let data = try Data(contentsOf: fileURL)
-            guard data != savedData else { diskMessage = nil; return }
-            guard !hasUnsavedChanges else {
-                diskMessage = "ファイルが外部で変更されています。未保存の編集内容は保持されています。"
-                return
-            }
-            guard !editorViews.values.contains(where: {
-                ($0.documentView as? NSTextView)?.hasMarkedText() == true
-            }) else {
-                diskMessage = "ファイルが外部で変更されています。入力確定後に再確認します。"
-                return
-            }
-            guard let source = String(data: data, encoding: .utf8) else {
-                diskMessage = "外部変更後のファイルをUTF-8として読み込めません。"
-                return
-            }
-            apply(data: data, source: source)
-        } catch {
-            diskMessage = "ファイルを再読み込みできません：\(error.localizedDescription)"
-        }
-    }
-
-    private func apply(data: Data, source: String) {
-        for scrollView in editorViews.values {
-            (scrollView.documentView as? NSTextView)?.breakUndoCoalescing()
-        }
+    func replace(source: String) {
+        markSaved(source: source)
         undoManager.removeAllActions()
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: source)
-        savedData = data
-        savedSource = source
-        diskMessage = nil
         content = .text(source)
-        diskRevision += 1
     }
 }

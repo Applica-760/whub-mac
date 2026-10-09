@@ -42,12 +42,9 @@ struct EditorStoreTests {
         #expect(requests == 1)
         #expect(!file.isEditable)
         #expect(!file.hasUnsavedChanges)
-        #expect(!file.saveWithConfirmation())
-        #expect(throws: FileStore.SaveError.self) { try file.save() }
-        #expect(throws: FileStore.SaveError.self) { try file.adoptLatest() }
-        file.checkForExternalChanges()
-        #expect(file.diskMessage == nil)
-        let content = CodeTextContent(state: file, editorID: "readonly", onEdit: {}, source: file.textStorage.string,
+        #expect(file.saveAction == nil)
+        #expect(file.canSave == nil)
+        let content = CodeEditorView(state: file, editorID: "readonly", onEdit: {}, source: file.textStorage.string,
                                       language: "swift", hunks: [])
         let renderer = NSHostingView(rootView: content)
         renderer.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
@@ -236,6 +233,63 @@ struct EditorStoreTests {
         #expect(reads == 2)
     }
 
+    @Test func localConflictPreservesEditsAndAdoptsLatest() throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("file.txt")
+        try Data("original".utf8).write(to: url)
+        let local = LocalFileStore(fileURL: url)
+        let document = local.document
+        document.content = .text("my edits")
+        try Data("external".utf8).write(to: url)
+        local.checkForExternalChanges()
+        #expect(local.diskMessage != nil)
+        #expect(document.hasUnsavedChanges)
+        #expect(throws: LocalFileStore.SaveError.self) { try local.save() }
+        #expect(try String(contentsOf: url, encoding: .utf8) == "external")
+        #expect(document.savedSource == "original")
+        try local.adoptLatest()
+        #expect(document.textStorage.string == "external")
+        #expect(!document.hasUnsavedChanges)
+        #expect(local.diskMessage == nil)
+        let revision = local.diskRevision
+        try Data([0xff, 0xfe]).write(to: url)
+        #expect(throws: LocalFileStore.SaveError.self) { try local.adoptLatest() }
+        #expect(document.textStorage.string == "external")
+        #expect(local.diskRevision == revision)
+    }
+
+    @Test func localSaveCommandPreservesEncodingAndWatcherUpdatesDocument() async throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("file.txt")
+        let bom = Data([0xef, 0xbb, 0xbf])
+        try (bom + Data("first\r\n".utf8)).write(to: url)
+        let editor = EditorStore()
+        let location = FileLocation.local(url)
+        editor.open(location)
+        let local = try #require(editor.local.fileStores[location])
+        let document = local.document
+        #expect(editor.file(for: location) === document)
+        document.content = .text("second\n")
+        let text = CodeTextView()
+        text.fileStore = document
+        #expect(text.validateMenuItem(NSMenuItem(title: "Save", action: #selector(CodeTextView.saveDocument(_:)), keyEquivalent: "s")))
+        text.saveDocument(nil)
+        #expect(try Data(contentsOf: url) == bom + Data("second\r\n".utf8))
+        #expect(!document.hasUnsavedChanges)
+        try Data("updated externally".utf8).write(to: url)
+        try await eventually { document.textStorage.string == "updated externally" }
+        #expect(local.diskMessage == nil)
+        editor.close(location)
+        #expect(editor.local.fileStores.isEmpty)
+        #expect(editor.file(for: location) == nil)
+    }
+
     @Test func localEditingAndTabs() throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/ViewerTests/" + UUID().uuidString)
@@ -246,14 +300,15 @@ struct EditorStoreTests {
         let editor = EditorStore()
         let location = FileLocation.local(url)
         editor.preview(location)
-        let file = try #require(editor.fileStores[location])
+        let localFile = try #require(editor.local.fileStores[location])
+        let file = localFile.document
         #expect(file.isEditable)
         file.updateReadOnly(source: "must not replace local content")
         #expect(file.textStorage.string == "original")
         file.content = .text("edited")
         #expect(file.hasUnsavedChanges)
         editor.open(location)
-        try file.save()
+        try localFile.save()
         #expect(try String(contentsOf: url, encoding: .utf8) == "edited")
         #expect(!file.hasUnsavedChanges)
         #expect(editor.previewLocation == nil)

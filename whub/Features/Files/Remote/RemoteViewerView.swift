@@ -30,7 +30,7 @@ struct RemoteViewerView: View {
                 EmptyView()
             }
             if let file = store.file(for: location), case let .text(source) = file.content {
-                CodeTextContent(state: file, editorID: editorID, onEdit: {}, source: source,
+                CodeEditorView(state: file, editorID: editorID, onEdit: {}, source: source,
                                 language: codeLanguages[(location.name as NSString).pathExtension.lowercased()], hunks: [])
                     .background(Color(white: 0.07).opacity(0.75))
             } else {

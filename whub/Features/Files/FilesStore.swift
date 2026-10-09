@@ -31,7 +31,7 @@ final class FilesStore: ObservableObject {
     }
 
     func checkForExternalChanges() {
-        editor.checkForExternalChanges()
+        editor.local.checkForExternalChanges()
         explorer.refresh()
         git.refresh()
     }
