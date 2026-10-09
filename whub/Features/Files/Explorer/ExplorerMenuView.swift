@@ -3,7 +3,6 @@ import SwiftUI
 import WhubCore
 
 struct ExplorerMenuView: View {
-    let availableWidth: CGFloat
     let canRefresh: Bool
     let refresh: () -> Void
     @Query(sort: \WhubCore.Host.name) private var allHosts: [WhubCore.Host]
@@ -20,6 +19,14 @@ struct ExplorerMenuView: View {
     }
 
     var body: some View {
+        GeometryReader { geometry in
+            menu(availableWidth: min(280, max(36, geometry.size.width - 32)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(16)
+        }
+    }
+
+    private func menu(availableWidth: CGFloat) -> some View {
         GlassEffectContainer(spacing: 16) {
             VStack(alignment: .trailing, spacing: 12) {
                 trigger
