@@ -13,7 +13,7 @@ struct whubApp: App {
     @StateObject private var codexStore: CodexTabsStore
     @StateObject private var remoteConnections = RemoteConnectionStore()
     @State private var section = AppView.Section.workspace
-    @FocusedValue(\.projectNavigation) private var projectNavigation
+    @FocusedValue(\.explorerPulldownSelection) private var explorerPulldownSelection
     private let workspaceContainer: ModelContainer
 
     init() {
@@ -84,12 +84,12 @@ struct whubApp: App {
                     .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
                 Button("Reload Files") { fileViewerStore.refresh() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
-                Button("Previous Project or Worktree") { projectNavigation?.move(by: -1) }
+                Button("Previous Project or Worktree") { explorerPulldownSelection?.move(by: -1) }
                     .keyboardShortcut(.upArrow, modifiers: [.command, .shift])
-                    .disabled(projectNavigation == nil)
-                Button("Next Project or Worktree") { projectNavigation?.move(by: 1) }
+                    .disabled(explorerPulldownSelection == nil)
+                Button("Next Project or Worktree") { explorerPulldownSelection?.move(by: 1) }
                     .keyboardShortcut(.downArrow, modifiers: [.command, .shift])
-                    .disabled(projectNavigation == nil)
+                    .disabled(explorerPulldownSelection == nil)
             }
         }
 

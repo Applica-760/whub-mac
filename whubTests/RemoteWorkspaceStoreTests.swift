@@ -48,7 +48,7 @@ struct RemoteWorkspaceStoreTests {
         let locations = explorer.availableLocations(projects: [project], remote: rows, basePath: localHost.basePath)
         #expect(locations == [.local(URL(fileURLWithPath: localHost.basePath)), .local(URL(fileURLWithPath: project.path))] + rows)
         explorer.selectedLocation = locations[1]
-        let navigation = ProjectNavigation(locations: locations, selection: Binding(
+        let navigation = ExplorerPulldownSelection(locations: locations, selection: Binding(
             get: { explorer.selectedLocation }, set: { explorer.selectedLocation = $0 }
         ))
         navigation.move(by: 1)

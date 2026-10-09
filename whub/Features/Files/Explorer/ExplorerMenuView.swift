@@ -2,7 +2,7 @@ import SwiftData
 import SwiftUI
 import WhubCore
 
-struct ExplorerActionsView: View {
+struct ExplorerMenuView: View {
     let availableWidth: CGFloat
     let canRefresh: Bool
     let refresh: () -> Void
@@ -15,8 +15,8 @@ struct ExplorerActionsView: View {
     @FocusState private var triggerFocused: Bool
     @Namespace private var glassNamespace
 
-    private var hosts: [RemoteHost] {
-        allHosts.compactMap { $0 as? RemoteHost }
+    private var store: ExplorerMenuStore {
+        ExplorerMenuStore(connections: connections)
     }
 
     var body: some View {
@@ -43,7 +43,7 @@ struct ExplorerActionsView: View {
                     }
                     .transition(.identity)
 
-                    ForEach(hosts) { host in
+                    ForEach(store.hosts(from: allHosts)) { host in
                         hostRow(host)
                             .transition(.identity)
                     }
@@ -129,51 +129,26 @@ struct ExplorerActionsView: View {
     }
 
     private func hostRow(_ host: RemoteHost) -> some View {
-        let state = connections.state(for: host)
-        let title = "\(host.name)を\(actionTitle(state))"
+        let title = store.title(for: host)
+        let status = store.status(for: host)
         return HStack(spacing: 12) {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(title).lineLimit(1)
-                Text(statusTitle(state))
+                Text(status)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
-            .help("\(title) — \(statusTitle(state))")
+            .help("\(title) — \(status)")
             .transition(.opacity)
 
             roundButton(title, icon: "network") {
-                Task {
-                    switch state {
-                    case .connecting, .connected: await connections.disconnect(host)
-                    case .disconnected, .failed: await connections.connect(host)
-                    case .disconnecting: break
-                    }
-                }
+                Task { await store.perform(for: host) }
             }
-            .disabled(state == .disconnecting)
+            .disabled(!store.isEnabled(for: host))
             .glassEffectID(host.persistentModelID, in: glassNamespace)
             .glassEffectTransition(.matchedGeometry)
-        }
-    }
-
-    private func actionTitle(_ state: RemoteConnectionStore.State) -> String {
-        switch state {
-        case .disconnected, .failed: "接続"
-        case .connecting: "キャンセル"
-        case .connected: "切断"
-        case .disconnecting: "切断中"
-        }
-    }
-
-    private func statusTitle(_ state: RemoteConnectionStore.State) -> String {
-        switch state {
-        case .disconnected: "未接続"
-        case .connecting: "接続中…"
-        case .connected: "接続済み"
-        case .disconnecting: "切断中…"
-        case let .failed(message): message
         }
     }
 
