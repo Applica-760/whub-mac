@@ -70,3 +70,47 @@ extension FocusedValues {
         set { self[ExplorerPulldownSelectionKey.self] = newValue }
     }
 }
+
+struct RemoteWorkspaceMenuItems: View {
+    @ObservedObject var store: RemoteWorkspaceStore
+    let sources: [RemoteWorkspaceStore.Source]
+
+    var body: some View {
+        ForEach(sources, id: \.hostID) { source in
+            let entries = store.entries(for: [source])
+            if !entries.isEmpty {
+                Divider()
+                Section {
+                    ForEach(entries, id: \.self) { entry in
+                        Text(entry.name).tag(Optional(entry))
+                    }
+                } header: {
+                    Text(source.hostName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+struct RemoteWorkspaceStatusView: View {
+    @ObservedObject var store: RemoteWorkspaceStore
+    let sources: [RemoteWorkspaceStore.Source]
+
+    var body: some View {
+        ForEach(sources, id: \.hostID) { source in
+            if let state = store.states[source.hostID] {
+                switch state {
+                case .loading:
+                    Text("\(source.hostName)：一覧を取得中…")
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+                case let .failed(message):
+                    Text("\(source.hostName)：\(message)")
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+                case .loaded: EmptyView()
+                }
+            }
+        }
+    }
+}
