@@ -24,8 +24,7 @@ final class EditorStore: ObservableObject {
     }
 
     func open(_ location: FileLocation) {
-        guard location.localURL != nil || remote.states[location] != nil else { return }
-        local.load(location)
+        guard local.fileStores[location] != nil || remote.states[location] != nil else { return }
         if !fileLocations.contains(location) {
             fileLocations.append(location)
         }
@@ -34,7 +33,7 @@ final class EditorStore: ObservableObject {
     }
 
     func preview(_ location: FileLocation) {
-        guard location.localURL != nil || remote.states[location] != nil else { return }
+        guard local.fileStores[location] != nil || remote.states[location] != nil else { return }
         if fileLocations.contains(location) && previewLocation != location {
             selectedLocation = location
             return
@@ -48,7 +47,6 @@ final class EditorStore: ObservableObject {
         } else if !fileLocations.contains(location) {
             fileLocations.append(location)
         }
-        local.load(location)
         previewLocation = location
         selectedLocation = location
     }

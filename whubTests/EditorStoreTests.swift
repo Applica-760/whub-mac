@@ -269,9 +269,11 @@ struct EditorStoreTests {
         let url = directory.appendingPathComponent("file.txt")
         let bom = Data([0xef, 0xbb, 0xbf])
         try (bom + Data("first\r\n".utf8)).write(to: url)
-        let editor = EditorStore()
+        let files = FilesStore()
+        let editor = files.editor
+        let connections = RemoteConnectionStore()
         let location = FileLocation.local(url)
-        editor.open(location)
+        files.open(location, hosts: [], connections: connections)
         let local = try #require(editor.local.fileStores[location])
         let document = local.document
         #expect(editor.file(for: location) === document)
@@ -297,9 +299,12 @@ struct EditorStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("local.txt")
         try Data("original".utf8).write(to: url)
-        let editor = EditorStore()
+        let files = FilesStore()
+        let editor = files.editor
+        let connections = RemoteConnectionStore()
         let location = FileLocation.local(url)
-        editor.preview(location)
+        files.preview(location, hosts: [], connections: connections)
+        #expect(editor.remote.states.isEmpty)
         let localFile = try #require(editor.local.fileStores[location])
         let file = localFile.document
         #expect(file.isEditable)
@@ -307,7 +312,8 @@ struct EditorStoreTests {
         #expect(file.textStorage.string == "original")
         file.content = .text("edited")
         #expect(file.hasUnsavedChanges)
-        editor.open(location)
+        files.open(location, hosts: [], connections: connections)
+        #expect(editor.local.fileStores[location] === localFile)
         try localFile.save()
         #expect(try String(contentsOf: url, encoding: .utf8) == "edited")
         #expect(!file.hasUnsavedChanges)

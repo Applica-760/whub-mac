@@ -82,6 +82,7 @@ struct ExplorerStoreTests {
         let file = root.appending("file.swift")
         defer { editor.close(file) }
         files.preview(file, hosts: [host], connections: connections)
+        #expect(editor.local.fileStores.isEmpty)
         #expect(editor.previewLocation == file)
         #expect(editor.selectedLocation == file)
         if case .disconnected = editor.remote.states[file] {} else {
