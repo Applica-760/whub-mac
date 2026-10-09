@@ -5,6 +5,7 @@ import SwiftData
 final class CodexTabsStore: ObservableObject {
     @Published private(set) var sessions: [CodexStore]
     @Published private(set) var selectedSessionID: CodexStore.ID
+    @Published private(set) var completedSessionIDs: Set<CodexStore.ID> = []
     private let context: ModelContext
 
     init(context: ModelContext) {
@@ -12,6 +13,7 @@ final class CodexTabsStore: ObservableObject {
         let session = CodexStore(context: context)
         sessions = [session]
         selectedSessionID = session.id
+        observe(session)
     }
 
     var selectedSession: CodexStore {
@@ -20,6 +22,7 @@ final class CodexTabsStore: ObservableObject {
 
     func add() {
         let session = CodexStore(context: context)
+        observe(session)
         sessions.append(session)
         selectedSessionID = session.id
     }
@@ -27,14 +30,25 @@ final class CodexTabsStore: ObservableObject {
     func select(_ id: CodexStore.ID) {
         guard sessions.contains(where: { $0.id == id }) else { return }
         selectedSessionID = id
+        completedSessionIDs.remove(id)
     }
 
     func remove(_ id: CodexStore.ID) {
         guard sessions.count > 1, let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         sessions[index].disconnect()
         sessions.remove(at: index)
+        completedSessionIDs.remove(id)
         if selectedSessionID == id {
-            selectedSessionID = sessions[min(index, sessions.count - 1)].id
+            select(sessions[min(index, sessions.count - 1)].id)
+        }
+    }
+
+    private func observe(_ session: CodexStore) {
+        let id = session.id
+        session.onCompletionChange = { [weak self] completed in
+            guard let self, self.sessions.contains(where: { $0.id == id }) else { return }
+            if completed { self.completedSessionIDs.insert(id) }
+            else { self.completedSessionIDs.remove(id) }
         }
     }
 
