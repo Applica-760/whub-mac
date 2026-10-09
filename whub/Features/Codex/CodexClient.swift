@@ -32,18 +32,16 @@ final class CodexClient {
     }
 
     private func startConnection(directory: URL) async throws {
-        let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
-            + ["/opt/homebrew/bin", "/usr/local/bin", NSHomeDirectory() + "/.local/bin"]
-        guard let executable = paths.map({ $0 + "/codex" }).first(where: FileManager.default.isExecutableFile(atPath:)) else {
-            throw CodexError(message: "Codex CLIが見つかりません。ターミナルでcodexをインストールしてください。")
-        }
+        let connection = generation
+        let (executable, path) = try await Self.resolveExecutable(directory: directory)
+        guard generation == connection else { throw CancellationError() }
         let child = Process()
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         child.executableURL = URL(fileURLWithPath: executable)
         child.currentDirectoryURL = directory
         child.arguments = ["app-server", "--listen", "stdio://"]
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = (paths + ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]).joined(separator: ":")
+        environment["PATH"] = path
         child.environment = environment
         child.standardInput = stdin
         child.standardOutput = stdout
@@ -51,7 +49,6 @@ final class CodexClient {
         try child.run()
         process = child
         input = stdin.fileHandleForWriting
-        let connection = generation
         readers = [
             Task { [weak self] in
                 do {
@@ -89,6 +86,40 @@ final class CodexClient {
             disconnect()
             throw error
         }
+    }
+
+    static func resolveExecutable(directory: URL) async throws -> (executable: String, path: String) {
+        let shell = Process()
+        let output = Pipe()
+        // Use the same login shell as TerminalSession; startup output is not part of the result.
+        shell.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        shell.arguments = ["-lic", "printf '\\000%s\\000%s\\000' \"$(command -v codex)\" \"$PATH\""]
+        shell.currentDirectoryURL = directory
+        shell.standardInput = FileHandle.nullDevice
+        shell.standardOutput = output
+        shell.standardError = FileHandle.nullDevice
+        let stream = chunks(output.fileHandleForReading)
+        try shell.run()
+        let reader = Task { await stream.reduce(into: Data()) { $0.append($1) } }
+        let timeout = Task {
+            do { try await Task.sleep(for: .seconds(10)) } catch { return }
+            reader.cancel()
+        }
+        defer {
+            timeout.cancel()
+            if shell.isRunning { shell.terminate() }
+            try? output.fileHandleForReading.close()
+        }
+        let data = await reader.value
+        let fields = String(decoding: data, as: UTF8.self).components(separatedBy: "\0")
+        guard fields.count >= 4 else {
+            throw CodexError(message: "シェルからCodexの実行パスを取得できませんでした。ターミナルの起動設定を確認してください。")
+        }
+        let executable = fields[fields.count - 3]
+        guard executable.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: executable) else {
+            throw CodexError(message: "Codex CLIが見つかりません。新しいターミナルでcommand -v codexを確認してください。")
+        }
+        return (executable, fields[fields.count - 2])
     }
 
     // Each pipe has its own reader; a quiet stderr must not block stdout.
