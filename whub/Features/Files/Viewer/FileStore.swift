@@ -9,7 +9,7 @@ final class FileStore: ObservableObject {
         case error(String)
     }
 
-    let fileURL: URL
+    let fileURL: URL?
     @Published var content: Content {
         didSet {
             guard diskMessage != nil else { return }
@@ -46,8 +46,25 @@ final class FileStore: ObservableObject {
         }
     }
 
+    init(source: String) {
+        fileURL = nil
+        content = .text(source)
+        savedSource = source
+        textStorage = NSTextStorage(string: source)
+    }
+
+    func updateReadOnly(source: String) {
+        guard !isEditable, source != savedSource else { return }
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: source)
+        savedSource = source
+        content = .text(source)
+        diskRevision += 1
+    }
+
+    var isEditable: Bool { fileURL != nil }
+
     var hasUnsavedChanges: Bool {
-        guard case let .text(source) = content else { return false }
+        guard isEditable, case let .text(source) = content else { return false }
         return source != savedSource
     }
 
@@ -64,6 +81,7 @@ final class FileStore: ObservableObject {
     }
 
     func confirmClose() -> Bool {
+        guard let fileURL else { return true }
         guard !isSaving else { return false }
         guard !editorViews.values.contains(where: {
             ($0.documentView as? NSTextView)?.hasMarkedText() == true
@@ -85,6 +103,7 @@ final class FileStore: ObservableObject {
 
     @discardableResult
     func saveWithConfirmation() -> Bool {
+        guard let fileURL else { return false }
         guard !isSaving else { return false }
         guard !editorViews.values.contains(where: {
             ($0.documentView as? NSTextView)?.hasMarkedText() == true
@@ -121,7 +140,7 @@ final class FileStore: ObservableObject {
 
 
     func save(overwriting diskData: Data? = nil) throws {
-        guard case let .text(source) = content, let savedData else { throw SaveError.unsupportedText }
+        guard let fileURL, case let .text(source) = content, let savedData else { throw SaveError.unsupportedText }
         let target = fileURL.resolvingSymlinksInPath()
         let current = try Data(contentsOf: target)
         guard current == (diskData ?? savedData) else { throw SaveError.changedOnDisk(current) }
@@ -159,12 +178,14 @@ final class FileStore: ObservableObject {
     }
 
     func adoptLatest() throws {
+        guard let fileURL else { throw SaveError.unsupportedText }
         let data = try Data(contentsOf: fileURL)
         guard let source = String(data: data, encoding: .utf8) else { throw SaveError.unsupportedText }
         apply(data: data, source: source)
     }
 
     func checkForExternalChanges() {
+        guard let fileURL else { return }
         do {
             let data = try Data(contentsOf: fileURL)
             guard data != savedData else { diskMessage = nil; return }

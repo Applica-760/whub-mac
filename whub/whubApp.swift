@@ -10,6 +10,7 @@ struct whubApp: App {
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
     @StateObject private var codexStore: CodexTabsStore
+    @StateObject private var remoteConnections = RemoteConnectionStore()
     @State private var section = AppView.Section.workspace
     @FocusedValue(\.projectNavigation) private var projectNavigation
     private let workspaceContainer: ModelContainer
@@ -34,6 +35,8 @@ struct whubApp: App {
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
                 .environmentObject(codexStore)
+                .environmentObject(remoteConnections)
+                .onAppear { appDelegate.remoteConnections = remoteConnections }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                     codexStore.disconnect()
                 }
@@ -41,19 +44,20 @@ struct whubApp: App {
                     fileViewerStore.checkForExternalChanges()
                 }
         }
+        .windowResizability(.contentMinSize)
         .modelContainer(workspaceContainer)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("新規タブ") {
                     switch section {
-                    case .workspace: terminalStore.add()
+                    case .workspace, .terminal: terminalStore.add()
                     case .browser: browserStore.add()
                     case .codex: codexStore.add()
                     default: break
                     }
                 }
                 .keyboardShortcut("t", modifiers: .command)
-                .disabled(section != .workspace && section != .browser && section != .codex)
+                .disabled(section != .workspace && section != .terminal && section != .browser && section != .codex)
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
@@ -102,13 +106,24 @@ struct whubApp: App {
 
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate {
+    weak var remoteConnections: RemoteConnectionStore?
+    private var isTerminating = false
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isTerminating else { return .terminateLater }
         let alert = NSAlert()
         alert.messageText = "whubを終了しますか？"
         alert.informativeText = "未保存の編集内容は失われ、実行中のコマンドは中断されます。"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "キャンセル").keyEquivalent = "\r"
         alert.addButton(withTitle: "終了").keyEquivalent = ""
-        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+        guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        guard let remoteConnections else { return .terminateNow }
+        isTerminating = true
+        Task {
+            await remoteConnections.shutdown()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }
