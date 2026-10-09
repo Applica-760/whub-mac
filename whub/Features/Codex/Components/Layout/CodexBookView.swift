@@ -60,7 +60,7 @@ struct CodexBookView: View {
             Color.clear
             if book.pages.indices.contains(index) {
                 ForEach(book.pages[index].fragments) { fragment in
-                    CodexMessageView(block: fragment.block, isUser: fragment.isUser, showsHeader: fragment.showsHeader, width: book.contentWidth, history: store.turns.filter { $0.id == fragment.turnID }) {
+                    CodexMessageView(block: fragment.block, isUser: fragment.isUser, showsHeader: fragment.showsHeader, images: fragment.images, width: book.contentWidth, history: store.turns.filter { $0.id == fragment.turnID }) {
                         let answer = store.turns.first { $0.id == fragment.turnID }?.answers.map(\.text).joined(separator: "\n\n") ?? ""
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(answer, forType: .string)

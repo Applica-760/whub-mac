@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import SwiftData
@@ -33,6 +34,7 @@ struct CodexTurn: Identifiable {
     let id = UUID()
     var remoteID: String?
     let prompt: String
+    var images: [CodexImageAttachment] = []
     var items: [CodexItem] = []
     var status = "inProgress"
     var history: [CodexItem] { items.filter { !$0.isAnswer } }
@@ -90,10 +92,29 @@ struct CodexSkill: Identifiable {
     }
 }
 
+struct CodexImageAttachment: Identifiable {
+    let id = UUID()
+    let image: NSImage
+    let pngData: Data
+
+    init?(image: NSImage) {
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
+        self.image = image
+        pngData = png
+    }
+
+    var input: [String: String] {
+        ["type": "image", "url": "data:image/png;base64," + pngData.base64EncodedString()]
+    }
+}
+
 @MainActor
 final class CodexStore: ObservableObject, Identifiable {
     let id = UUID()
     @Published var draft = ""
+    @Published var draftImages: [CodexImageAttachment] = []
     @Published var selectedSkills: [CodexSkill] = []
     @Published private(set) var skills: [CodexSkill] = []
     @Published private(set) var skillError: String?
@@ -111,6 +132,7 @@ final class CodexStore: ObservableObject, Identifiable {
     private let context: ModelContext
     private var stopRequested = false
     private var needsResume = false
+    private var pendingInput: (text: String, images: [CodexImageAttachment])?
 
     init(context: ModelContext) {
         self.context = context
@@ -126,7 +148,20 @@ final class CodexStore: ObservableObject, Identifiable {
             ?? NSHomeDirectory()
     }
 
-    var canSend: Bool { !isBusy && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !directory.isEmpty }
+    var canSend: Bool {
+        !isBusy && !directory.isEmpty
+            && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftImages.isEmpty)
+    }
+
+    func addImages(_ images: [NSImage]) {
+        for image in images {
+            guard let attachment = CodexImageAttachment(image: image) else {
+                errorMessage = "画像を読み込めませんでした。画像をコピーし直してください。"
+                continue
+            }
+            draftImages.append(attachment)
+        }
+    }
 
     private var activeTurnIndex: Int? {
         turns.lastIndex { $0.status == "inProgress" }
@@ -221,12 +256,15 @@ final class CodexStore: ObservableObject, Identifiable {
             return
         }
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let images = draftImages
+        pendingInput = (prompt, images)
         onCompletionChange?(false)
         draft = ""
+        draftImages = []
         errorMessage = nil
         stopRequested = false
         isBusy = true
-        turns.append(CodexTurn(prompt: prompt))
+        turns.append(CodexTurn(prompt: prompt, images: images))
         do {
             try await client.connect(directory: cwd)
             if threadID == nil {
@@ -242,7 +280,8 @@ final class CodexStore: ObservableObject, Identifiable {
             }
             guard !stopRequested else { finish("interrupted"); return }
             guard let threadID else { return }
-            var input: [[String: Any]] = [["type": "text", "text": prompt]]
+            var input: [[String: Any]] = prompt.isEmpty ? [] : [["type": "text", "text": prompt]]
+            input += images.map(\.input)
             input += selectedSkills.map { ["type": "skill", "name": $0.name, "path": $0.path] }
             let result = try await client.request("turn/start", ["threadId": threadID, "input": input])
             if let turn = result["turn"] as? [String: Any], let id = turn["id"] as? String, isBusy, let index = activeTurnIndex {
@@ -251,7 +290,6 @@ final class CodexStore: ObservableObject, Identifiable {
             }
         } catch {
             fail(error.localizedDescription)
-            if draft.isEmpty { draft = prompt }
         }
     }
 
@@ -286,6 +324,8 @@ final class CodexStore: ObservableObject, Identifiable {
         threadID = nil
         needsResume = false
         turns = []
+        draftImages = []
+        pendingInput = nil
         requests = []
         errorMessage = nil
         model = "Codexの既存設定"
@@ -363,6 +403,11 @@ final class CodexStore: ObservableObject, Identifiable {
 
     private func finish(_ status: String) {
         if let index = activeTurnIndex { turns[index].status = status }
+        if status != "completed", let pendingInput {
+            if draft.isEmpty { draft = pendingInput.text }
+            draftImages.insert(contentsOf: pendingInput.images, at: 0)
+        }
+        pendingInput = nil
         isBusy = false
         isStopping = false
         requests = []
