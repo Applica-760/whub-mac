@@ -91,25 +91,12 @@ private struct CodexSessionView<Tabs: View>: View {
                         .padding(.bottom, 16)
                 }
             if !store.requests.isEmpty {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        ForEach(store.requests) { request in
-                            CodexInteractionRequestView(request: request) { store.answer(request, result: $0) }
-                        }
-                    }.padding(12)
+                CodexInteractionRequestsView(requests: store.requests) { request, result in
+                    store.answer(request, result: result)
                 }
-                .frame(maxHeight: 260)
-                .background(.orange.opacity(0.08))
             }
             if let error = store.errorMessage {
-                DisclosureGroup {
-                    Text(error).textSelection(.enabled).font(.callout)
-                } label: {
-                    Label(String(error.prefix(160)), systemImage: "exclamationmark.triangle")
-                        .lineLimit(2)
-                }
-                .foregroundStyle(.red)
-                .padding(.horizontal, 24).padding(.vertical, 8)
+                CodexErrorView(message: error)
             }
         }
         .onChange(of: store.id) { _, _ in confirmsReset = false }
