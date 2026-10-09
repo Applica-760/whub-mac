@@ -18,6 +18,7 @@ final class FileExplorerStore: ObservableObject {
             directoryErrorMessage = nil
         }
     }
+    private var basePathURL: URL?
     var selectedRootURL: URL? { selectedLocation?.localURL }
 
     @Published private(set) var worktreeURLs: [URL] = []
@@ -167,13 +168,15 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
-    func availableLocations(projects: [Project], remote: [FileLocation]) -> [FileLocation] {
-        projects.filter { $0.host is LocalHost }.map { .local(URL(fileURLWithPath: $0.path)) }
+    func availableLocations(projects: [Project], remote: [FileLocation], basePath: String?) -> [FileLocation] {
+        let base = basePath.map { [FileLocation.local(URL(fileURLWithPath: $0))] } ?? []
+        return base + projects.filter { $0.host is LocalHost }.map { .local(URL(fileURLWithPath: $0.path)) }
             + worktreeURLs.map(FileLocation.local) + remote
     }
 
-    func validateSelection(projects: [Project], remote: [FileLocation]) {
-        let available = availableLocations(projects: projects, remote: remote)
+    func validateSelection(projects: [Project], remote: [FileLocation], basePath: String?) {
+        basePathURL = basePath.map { URL(fileURLWithPath: $0).standardizedFileURL }
+        let available = availableLocations(projects: projects, remote: remote, basePath: basePath)
         if !available.contains(where: { $0 == selectedLocation }) {
             selectedLocation = projects.first { $0.host is LocalHost && $0.name == "whub-mac" }
                 .map { .local(URL(fileURLWithPath: $0.path)) } ?? available.first
@@ -181,7 +184,8 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func basePath(projects: [Project]) -> String? {
-        projects.first { project in
+        if selectedRootURL?.standardizedFileURL == basePathURL, let basePathURL { return basePathURL.path }
+        return projects.first { project in
             guard project.host is LocalHost, let selectedRootURL else { return false }
             return selectedRootURL.path == project.path
                 || selectedRootURL.path.hasPrefix(project.host.worktreesPath + "/")
@@ -262,10 +266,17 @@ final class FileExplorerStore: ObservableObject {
         return true
     }
 
+    func isUnavailable(_ item: FileItem) -> Bool {
+        guard let basePathURL, selectedRootURL?.standardizedFileURL == basePathURL,
+              item.isDirectory, let url = item.location.localURL?.standardizedFileURL else { return false }
+        return url.deletingLastPathComponent().path == basePathURL.path
+            && ["projects", "worktrees"].contains(url.lastPathComponent)
+    }
+
     func children(for item: FileItem?) -> [FileItem] {
         if case .remote = selectedLocation { return remoteTree.children(for: item) }
         guard let item else { return rootItems }
-        guard item.isDirectory, let url = item.location.localURL else { return [] }
+        guard item.isDirectory, !isUnavailable(item), let url = item.location.localURL else { return [] }
         if let children = item.children { return children }
         let children = directoryContents(at: url)
         item.children = children

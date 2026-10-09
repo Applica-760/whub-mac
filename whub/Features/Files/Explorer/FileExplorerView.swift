@@ -13,6 +13,8 @@ struct FileExplorerView: View {
     @EnvironmentObject private var fileViewerStore: FileViewerStore
     @StateObject private var store = FileExplorerStore()
 
+    private var localBasePath: String? { allHosts.first { $0 is LocalHost }?.basePath }
+
     private var hosts: [RemoteHost] {
         allHosts.compactMap { $0 as? RemoteHost }
     }
@@ -23,6 +25,10 @@ struct FileExplorerView: View {
                 Picker("Project or Worktree", selection: $store.selectedLocation) {
                     if availableLocations.isEmpty {
                         Text("---").tag(FileLocation?.none)
+                    }
+                    if let localBasePath {
+                        Text("BasePath").tag(Optional(FileLocation.local(URL(fileURLWithPath: localBasePath))))
+                        Divider()
                     }
                     ForEach(projects.filter { $0.host is LocalHost }) { project in
                         Text(project.name).tag(Optional(FileLocation.local(URL(fileURLWithPath: project.path))))
@@ -111,7 +117,7 @@ struct FileExplorerView: View {
         .onAppear {
             updateRemote()
             updateRemoteTree()
-            store.validateSelection(projects: projects, remote: remoteEntries)
+            store.validateSelection(projects: projects, remote: remoteEntries, basePath: localBasePath)
             store.startWatching(viewerStore: fileViewerStore)
         }
         .onDisappear {
@@ -122,7 +128,7 @@ struct FileExplorerView: View {
             store.refresh()
         }
         .onChange(of: availableLocations) { _, _ in
-            store.validateSelection(projects: projects, remote: remoteEntries)
+            store.validateSelection(projects: projects, remote: remoteEntries, basePath: localBasePath)
         }
         .onChange(of: RemoteLoadID(sources: remoteSources, refreshID: fileViewerStore.refreshID), initial: true) { _, _ in
             updateRemote()
@@ -155,7 +161,7 @@ struct FileExplorerView: View {
     private var remoteEntries: [FileLocation] { remoteStore.entries(for: remoteSources) }
 
     private var availableLocations: [FileLocation] {
-        store.availableLocations(projects: projects, remote: remoteEntries)
+        store.availableLocations(projects: projects, remote: remoteEntries, basePath: localBasePath)
     }
 
     private func updateRemoteTree() {
