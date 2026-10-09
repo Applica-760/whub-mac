@@ -2,6 +2,27 @@ import Combine
 import Foundation
 
 final class LocalEditorStore: ObservableObject {
+    @Published private(set) var diffStores: [URL: LocalDiffStore] = [:]
+
+    func loadDiff(at url: URL) {
+        if let store = diffStores[url] { store.refresh() }
+        else {
+            var directory = url.deletingLastPathComponent()
+            while directory.path != "/", (try? directory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true {
+                directory.deleteLastPathComponent()
+            }
+            diffStores[url] = LocalDiffStore(fileURL: url, directory: directory)
+        }
+    }
+
+    func closeDiff(at url: URL) {
+        diffStores.removeValue(forKey: url)?.stop()
+    }
+
+    func refreshDiffs() {
+        for store in diffStores.values { store.refresh() }
+    }
+
     @Published private(set) var fileStores: [FileLocation: LocalFileStore] = [:] {
         didSet {
             fileChanges = Publishers.MergeMany(fileStores.values.map(\.objectWillChange))

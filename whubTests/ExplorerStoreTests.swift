@@ -7,6 +7,32 @@ import WhubCore
 
 @Suite @MainActor
 struct ExplorerStoreTests {
+    @Test func contextMenuTargetsClickedFileAndRestrictsDiffToLocalFiles() throws {
+        let url = URL(fileURLWithPath: "/repo/src/file.swift")
+        var opened: FileLocation?
+        let menu = ExplorerContextMenu(location: .local(url), isDirectory: false, basePath: "/repo") { opened = $0 }
+        #expect(menu.items.map(\.title) == ["Copy path", "Copy relative path", "View Diffs"])
+        #expect(menu.items[2].isEnabled)
+        #expect(menu.items[0].representedObject as? String == url.path)
+        #expect(menu.items[1].representedObject as? String == "src/file.swift")
+        menu.performActionForItem(at: 2)
+        #expect(opened == .local(url))
+        let directory = ExplorerContextMenu(location: .local(url), isDirectory: true, basePath: nil) { _ in }
+        #expect(!directory.items[2].isEnabled)
+        #expect(!directory.items[1].isEnabled)
+        let container = try modelContainer()
+        let host = try HostStore(context: container.mainContext).addRemote(
+            name: "server", basePath: "/repo", hostname: "unused", user: "test", identityFile: "")
+        let remote = FileLocation.remote(hostID: host.persistentModelID, path: url.path)
+        let remoteMenu = ExplorerContextMenu(location: remote, isDirectory: false, basePath: "/repo") { _ in }
+        #expect(!remoteMenu.items[2].isEnabled)
+        let explorer = ExplorerStore()
+        explorer.selectedLocation = .local(url.deletingLastPathComponent())
+        explorer.showsDiff = true
+        explorer.selectedLocation = remote
+        #expect(!explorer.showsDiff)
+    }
+
     @Test func reloadUpdatesCandidatesWithoutLosingSelection() async throws {
         let container = try modelContainer()
         let context = container.mainContext
@@ -81,17 +107,17 @@ struct ExplorerStoreTests {
         store.remoteTree.update(source: .init(root: root, sessionID: ObjectIdentifier(session)), refreshID: 0) { _ in [] }
         defer { store.stopWatching() }
         let file = root.appending("file.swift")
-        defer { editor.close(file) }
+        defer { editor.close(.file(file)) }
         files.preview(file, hosts: [host], connections: connections)
         #expect(editor.local.fileStores.isEmpty)
-        #expect(editor.previewLocation == file)
-        #expect(editor.selectedLocation == file)
+        #expect(editor.previewTab == .file(file))
+        #expect(editor.selectedTab == .file(file))
         if case .disconnected = editor.remote.states[file] {} else {
             Issue.record("正しい閲覧ルートでRemote取得を準備できていません")
         }
         files.open(file, hosts: [host], connections: connections)
-        #expect(editor.previewLocation == nil)
-        #expect(editor.fileLocations == [file])
+        #expect(editor.previewTab == nil)
+        #expect(editor.tabs == [.file(file)])
     }
 
     @Test func eachOutlineRendersSharedTreeUpdates() throws {

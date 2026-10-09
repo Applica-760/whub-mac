@@ -12,6 +12,8 @@ struct CodeEditorView: NSViewRepresentable {
     let source: String
     let language: String?
     let hunks: [LineDiffHunk]
+    var diffLines: [DiffLine]? = nil
+    var onScrollView: ((NSScrollView) -> Void)? = nil
 
     func makeNSView(context: Context) -> NSScrollView {
         if let scrollView = state.editorViews[editorID] { return scrollView }
@@ -22,6 +24,7 @@ struct CodeEditorView: NSViewRepresentable {
         let textView = CodeTextView(frame: .zero, textContainer: container)
         textView.fileStore = state
         textView.onEdit = onEdit
+        textView.diffLines = diffLines
         textView.drawsBackground = false
         textView.isEditable = state.isEditable
         textView.isRichText = false
@@ -50,7 +53,7 @@ struct CodeEditorView: NSViewRepresentable {
         ruler.reservedThicknessForMarkers = 0
         ruler.clientView = textView
         scrollView.verticalRulerView = ruler
-        ruler.update(source: source, hunks: hunks)
+        ruler.update(source: source, hunks: hunks, diffLines: diffLines)
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = true
         scrollView.tile()
@@ -61,7 +64,9 @@ struct CodeEditorView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? CodeTextView else { return }
         textView.onEdit = onEdit
-        (scrollView.verticalRulerView as? LineNumberRulerView)?.update(source: textView.string, hunks: hunks)
+        textView.diffLines = diffLines
+        onScrollView?(scrollView)
+        (scrollView.verticalRulerView as? LineNumberRulerView)?.update(source: textView.string, hunks: hunks, diffLines: diffLines)
         guard state.textStorage.string == source,
               !state.editorViews.values.contains(where: {
                   ($0.documentView as? NSTextView)?.hasMarkedText() == true
@@ -91,6 +96,28 @@ struct CodeEditorView: NSViewRepresentable {
                 state.textStorage.addAttributes(attributes, range: range)
             }
         }
+        if let diffLines {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.minimumLineHeight = 20
+            paragraph.maximumLineHeight = 20
+            state.textStorage.addAttribute(.paragraphStyle, value: paragraph,
+                                           range: NSRange(location: 0, length: state.textStorage.length))
+            var offset = 0
+            for line in diffLines {
+                let length = line.displayText.utf16.count
+                let color: NSColor? = switch line.change {
+                case .added: .systemGreen
+                case .deleted: .systemRed
+                case .modified: .systemOrange
+                case nil: nil
+                }
+                if let color {
+                    state.textStorage.addAttribute(.backgroundColor, value: color.withAlphaComponent(0.18),
+                                                   range: NSRange(location: offset, length: length))
+                }
+                offset += length
+            }
+        }
         state.textStorage.endEditing()
         textView.typingAttributes = attributes
     }
@@ -112,6 +139,14 @@ private final class CodeScrollView: NSScrollView {
 final class CodeTextView: NSTextView {
     weak var fileStore: FileStore?
     var onEdit: (() -> Void)?
+    var diffLines: [DiffLine]?
+
+    override func copy(_ sender: Any?) {
+        guard let diffLines else { super.copy(sender); return }
+        let text = selectedRanges.map { DiffLayout.copiedText(lines: diffLines, range: $0.rangeValue) }.joined()
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
 
     override var undoManager: UndoManager? { fileStore?.undoManager }
 

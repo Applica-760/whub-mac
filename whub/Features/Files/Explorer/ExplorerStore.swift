@@ -8,11 +8,13 @@ final class ExplorerStore: ObservableObject {
     @Published var selectedLocation: FileLocation? {
         didSet {
             guard selectedLocation != oldValue else { return }
+            if selectedLocation?.localURL == nil { showsDiff = false }
             remoteTree.stop()
             localTree.reset()
             errorMessage = nil
         }
     }
+    @Published var showsDiff = false
     let localWorkspace = LocalWorkspaceStore()
     let localTree = LocalTreeStore()
     var projects: [Project] { localWorkspace.projects }

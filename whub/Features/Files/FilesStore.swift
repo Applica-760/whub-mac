@@ -32,6 +32,7 @@ final class FilesStore: ObservableObject {
 
     func checkForExternalChanges() {
         editor.local.checkForExternalChanges()
+        editor.local.refreshDiffs()
         explorer.refresh()
         git.refresh()
     }
@@ -44,12 +45,20 @@ final class FilesStore: ObservableObject {
 
     func preview(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore) {
         prepare(location, hosts: hosts, connections: connections)
-        editor.preview(location)
+        editor.preview(.file(location))
     }
 
     func open(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore) {
         prepare(location, hosts: hosts, connections: connections)
-        editor.open(location)
+        editor.open(.file(location))
+    }
+
+    func openDiff(_ location: FileLocation, preview: Bool = false) {
+        guard let url = location.localURL else { return }
+        let fileURL = url.standardizedFileURL
+        editor.local.loadDiff(at: fileURL)
+        if preview { editor.preview(.diff(fileURL)) }
+        else { editor.open(.diff(fileURL)) }
     }
 
     private func prepare(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore) {

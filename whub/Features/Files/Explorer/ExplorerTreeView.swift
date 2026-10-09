@@ -7,6 +7,7 @@ struct ExplorerTreeView: View {
     @ObservedObject var gitStore: GitStore
     let onFilePreview: (FileLocation) -> Void
     let onFileOpen: (FileLocation) -> Void
+    let onShowDiff: (FileLocation) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -30,7 +31,7 @@ struct ExplorerTreeView: View {
                 }
                 ExplorerOutlineView(
                     store: store, basePath: store.treeBasePath, gitChanges: gitStore.changes,
-                    onFilePreview: onFilePreview, onFileOpen: onFileOpen
+                    onFilePreview: onFilePreview, onFileOpen: onFileOpen, onShowDiff: onShowDiff
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -45,6 +46,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
     let gitChanges: [URL: GitChange]
     let onFilePreview: (FileLocation) -> Void
     let onFileOpen: (FileLocation) -> Void
+    let onShowDiff: (FileLocation) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(store: store, onFilePreview: onFilePreview, onFileOpen: onFileOpen)
@@ -53,6 +55,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let outlineView = FileOutlineControl()
         outlineView.store = store
+        outlineView.onShowDiff = onShowDiff
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         column.resizingMask = .autoresizingMask
         outlineView.addTableColumn(column)
@@ -75,7 +78,8 @@ struct ExplorerOutlineView: NSViewRepresentable {
         return scrollView
     }
 
-    func updateNSView(_: NSScrollView, context: Context) {
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        (scrollView.documentView as? FileOutlineControl)?.onShowDiff = onShowDiff
         context.coordinator.onFilePreview = onFilePreview
         context.coordinator.onFileOpen = onFileOpen
         context.coordinator.update(basePath: basePath, gitChanges: gitChanges)
@@ -263,34 +267,14 @@ struct ExplorerOutlineView: NSViewRepresentable {
 private final class FileOutlineControl: NSOutlineView {
     var basePath: String?
     weak var store: ExplorerStore?
+    var onShowDiff: (FileLocation) -> Void = { _ in }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
         guard row >= 0, let item = item(atRow: row) as? ExplorerItem else { return nil }
 
-        let path = item.location.path
-        let menu = NSMenu()
-        let absolute = NSMenuItem(title: "Copy path", action: #selector(copyPath(_:)), keyEquivalent: "")
-        absolute.target = self
-        absolute.representedObject = path
-        menu.addItem(absolute)
-
-        let relative = NSMenuItem(title: "Copy relative path", action: #selector(copyPath(_:)), keyEquivalent: "")
-        relative.target = self
-        if let basePath {
-            let base = URL(fileURLWithPath: basePath, isDirectory: true).standardizedFileURL.path
-            let prefix = base == "/" ? "/" : base + "/"
-            relative.representedObject = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : nil
-        }
-        relative.isEnabled = relative.representedObject != nil
-        menu.addItem(relative)
-        return menu
-    }
-
-    @objc private func copyPath(_ sender: NSMenuItem) {
-        guard let path = sender.representedObject as? String else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(path, forType: .string)
+        return ExplorerContextMenu(location: item.location, isDirectory: item.isDirectory,
+                                   basePath: basePath, onShowDiff: onShowDiff)
     }
 
     override func mouseDown(with event: NSEvent) {

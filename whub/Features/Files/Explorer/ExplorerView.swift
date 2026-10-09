@@ -15,25 +15,34 @@ struct ExplorerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ExplorerPulldownView(store: store)
-            ExplorerTreeView(
-                store: store,
-                gitStore: gitStore,
-                onFilePreview: { location in
-                    files.preview(location, hosts: hosts, connections: connections)
-                    onFileSelect()
-                },
-                onFileOpen: { location in
-                    files.open(location, hosts: hosts, connections: connections)
-                    onFileSelect()
-                }
-            )
+            if store.showsDiff, store.selectedLocation?.localURL != nil {
+                ExplorerDiffView(git: gitStore, editor: files.editor,
+                                 onPreview: { openDiff($0, preview: true) },
+                                 onOpen: { openDiff($0, preview: false) })
+            } else {
+                ExplorerTreeView(
+                    store: store,
+                    gitStore: gitStore,
+                    onFilePreview: { location in
+                        files.preview(location, hosts: hosts, connections: connections)
+                        onFileSelect()
+                    },
+                    onFileOpen: { location in
+                        files.open(location, hosts: hosts, connections: connections)
+                        onFileSelect()
+                    },
+                    onShowDiff: { openDiff($0, preview: false) }
+                )
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topTrailing) {
-            ExplorerMenuView(canRefresh: store.canRefresh) {
+            ExplorerMenuView(canRefresh: store.canRefresh, canShowDiff: store.selectedLocation?.localURL != nil,
+                             showsDiff: $store.showsDiff) {
                 files.refresh()
             }
         }
+        .onChange(of: store.showsDiff, initial: true) { gitStore.setDiffEnabled(store.showsDiff) }
         .onAppear { store.startWatching() }
         .onDisappear { store.stopWatching() }
         .task(id: store.updateID(projects: projects, hosts: hosts, connections: connections,
@@ -41,5 +50,10 @@ struct ExplorerView: View {
             await store.update(projects: projects, hosts: hosts, connections: connections,
                                refreshID: files.refreshID, context: context)
         }
+    }
+
+    private func openDiff(_ location: FileLocation, preview: Bool) {
+        files.openDiff(location, preview: preview)
+        onFileSelect()
     }
 }
