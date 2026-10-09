@@ -6,7 +6,7 @@ struct ExplorerActionsView: View {
     let availableWidth: CGFloat
     let canRefresh: Bool
     let refresh: () -> Void
-    @Query(sort: \RemoteHost.name) private var hosts: [RemoteHost]
+    @Query(sort: \WhubCore.Host.name) private var allHosts: [WhubCore.Host]
     @EnvironmentObject private var connections: RemoteConnectionStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPresented = false
@@ -14,6 +14,10 @@ struct ExplorerActionsView: View {
     @State private var hoverTask: Task<Void, Never>?
     @FocusState private var triggerFocused: Bool
     @Namespace private var glassNamespace
+
+    private var hosts: [RemoteHost] {
+        allHosts.compactMap { $0 as? RemoteHost }
+    }
 
     var body: some View {
         GlassEffectContainer(spacing: 16) {
