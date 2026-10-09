@@ -101,12 +101,12 @@ private struct ExplorerOutlineView: NSViewRepresentable {
             let rootChanged = renderedRootLocation != store.treeLocation
             let expandedLocations = Set(store.cachedItems.filter { outlineView.isItemExpanded($0) }.map(\.location))
             let selectedLocations = outlineView.selectedRowIndexes.compactMap {
-                (outlineView.item(atRow: $0) as? FileItem)?.location
+                (outlineView.item(atRow: $0) as? ExplorerItem)?.location
             }
             let clipView = outlineView.enclosingScrollView?.contentView
             let origin = clipView?.bounds.origin ?? .zero
             let topRow = outlineView.row(at: NSPoint(x: 0, y: origin.y + 1))
-            let topLocation = (outlineView.item(atRow: topRow) as? FileItem)?.location
+            let topLocation = (outlineView.item(atRow: topRow) as? ExplorerItem)?.location
             let topOffset = topRow >= 0 ? origin.y - outlineView.rect(ofRow: topRow).minY : 0
 
             guard store.updateTree(gitChanges: gitChanges) else { return }
@@ -121,7 +121,7 @@ private struct ExplorerOutlineView: NSViewRepresentable {
                 var selection = IndexSet()
                 var scrollOrigin = origin
                 for row in 0..<outlineView.numberOfRows {
-                    guard let item = outlineView.item(atRow: row) as? FileItem else { continue }
+                    guard let item = outlineView.item(atRow: row) as? ExplorerItem else { continue }
                     if selectedLocations.contains(item.location) { selection.insert(row) }
                     if item.location == topLocation { scrollOrigin.y = outlineView.rect(ofRow: row).minY + topOffset }
                 }
@@ -134,7 +134,7 @@ private struct ExplorerOutlineView: NSViewRepresentable {
             }
         }
 
-        private func restoreExpansion(in items: [FileItem], locations: Set<FileLocation>, outlineView: NSOutlineView) {
+        private func restoreExpansion(in items: [ExplorerItem], locations: Set<FileLocation>, outlineView: NSOutlineView) {
             for item in items where item.isDirectory {
                 if locations.contains(item.location) { outlineView.expandItem(item) }
                 if locations.contains(where: { $0.path.hasPrefix(item.location.path + "/") }) {
@@ -143,7 +143,7 @@ private struct ExplorerOutlineView: NSViewRepresentable {
             }
         }
 
-        private func expandChangedDirectories(in items: [FileItem], outlineView: NSOutlineView) {
+        private func expandChangedDirectories(in items: [ExplorerItem], outlineView: NSOutlineView) {
             for item in items where item.isDirectory && item.location.localURL.flatMap({ store.decorations[$0.standardizedFileURL] }) != nil {
                 outlineView.expandItem(item)
                 expandChangedDirectories(in: store.children(for: item), outlineView: outlineView)
@@ -151,30 +151,30 @@ private struct ExplorerOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-            store.children(for: item as? FileItem).count
+            store.children(for: item as? ExplorerItem).count
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-            store.children(for: item as? FileItem)[index]
+            store.children(for: item as? ExplorerItem)[index]
         }
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-            guard let item = item as? FileItem else { return false }
+            guard let item = item as? ExplorerItem else { return false }
             return item.isDirectory && !store.isUnavailable(item)
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-            guard let item = item as? FileItem else { return false }
+            guard let item = item as? ExplorerItem else { return false }
             return !store.isUnavailable(item)
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {
-            guard let item = item as? FileItem else { return false }
+            guard let item = item as? ExplorerItem else { return false }
             return !store.isUnavailable(item)
         }
 
         func outlineViewItemWillExpand(_ notification: Notification) {
-            guard !isRestoring, let item = notification.userInfo?["NSObject"] as? FileItem,
+            guard !isRestoring, let item = notification.userInfo?["NSObject"] as? ExplorerItem,
                   case .remote = item.location else { return }
             store.remoteTree.loadChildren(of: item)
         }
@@ -183,7 +183,7 @@ private struct ExplorerOutlineView: NSViewRepresentable {
             guard
                 !isRestoring,
                 let outlineView = notification.object as? NSOutlineView,
-                let item = outlineView.item(atRow: outlineView.selectedRow) as? FileItem,
+                let item = outlineView.item(atRow: outlineView.selectedRow) as? ExplorerItem,
                 !item.isDirectory
             else {
                 return
@@ -192,7 +192,7 @@ private struct ExplorerOutlineView: NSViewRepresentable {
         }
 
         @objc func openSelectedFile(_ sender: NSOutlineView) {
-            guard let item = sender.item(atRow: sender.clickedRow) as? FileItem, !item.isDirectory else { return }
+            guard let item = sender.item(atRow: sender.clickedRow) as? ExplorerItem, !item.isDirectory else { return }
             onFileOpen(item.location)
         }
 
@@ -201,7 +201,7 @@ private struct ExplorerOutlineView: NSViewRepresentable {
             viewFor tableColumn: NSTableColumn?,
             item: Any
         ) -> NSView? {
-            guard let item = item as? FileItem else { return nil }
+            guard let item = item as? ExplorerItem else { return nil }
             let identifier = NSUserInterfaceItemIdentifier("file")
             let cell = (outlineView.makeView(withIdentifier: identifier, owner: nil) as? NSTableCellView) ?? makeCell(identifier: identifier)
             let unavailable = store.isUnavailable(item)
@@ -263,7 +263,7 @@ private final class FileOutlineControl: NSOutlineView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
-        guard row >= 0, let item = item(atRow: row) as? FileItem else { return nil }
+        guard row >= 0, let item = item(atRow: row) as? ExplorerItem else { return nil }
 
         let path = item.location.path
         let menu = NSMenu()
@@ -294,7 +294,7 @@ private final class FileOutlineControl: NSOutlineView {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
         guard
             row >= 0,
-            let item = item(atRow: row) as? FileItem,
+            let item = item(atRow: row) as? ExplorerItem,
             item.isDirectory
         else {
             super.mouseDown(with: event)

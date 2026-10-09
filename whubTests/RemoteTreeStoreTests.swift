@@ -10,7 +10,7 @@ import WhubCore
 @testable import whub
 
 @Suite @MainActor
-struct RemoteFileTreeStoreTests {
+struct RemoteTreeStoreTests {
     private func entries(_ names: [String], kind: String = "file") throws -> [RemoteFileEntry] {
         let data = try JSONSerialization.data(withJSONObject: names.map { ["name": $0, "kind": kind] })
         return try JSONDecoder().decode([RemoteFileEntry].self, from: data)
@@ -26,7 +26,7 @@ struct RemoteFileTreeStoreTests {
 
     @Test func hierarchyAndDuplicateRequests() async throws {
         let fixture = try TreeFixture()
-        let store = RemoteFileTreeStore()
+        let store = RemoteTreeStore()
         let gate = TreeGate()
         var paths: [String] = []
         store.update(source: fixture.source(), refreshID: 0) { path in
@@ -60,7 +60,7 @@ struct RemoteFileTreeStoreTests {
     @Test(arguments: [true, false])
     func staleResponsesAfterHostSwitchAndDisconnect(succeeds: Bool) async throws {
         let fixture = try TreeFixture()
-        let store = RemoteFileTreeStore()
+        let store = RemoteTreeStore()
         let gate = TreeGate()
         var returned = false
         let old = fixture.source()
@@ -89,7 +89,7 @@ struct RemoteFileTreeStoreTests {
         try await eventually { disconnectGate.waiting }
         store.stop()
         let nextSession = NSObject()
-        let reconnected = RemoteFileTreeStore.Source(root: new.root, sessionID: ObjectIdentifier(nextSession))
+        let reconnected = RemoteTreeStore.Source(root: new.root, sessionID: ObjectIdentifier(nextSession))
         store.update(source: reconnected, refreshID: 1) { _ in try entries(["reconnected"]) }
         try await eventually { store.states[""] == .loaded }
         disconnectGate.release()
@@ -101,7 +101,7 @@ struct RemoteFileTreeStoreTests {
 
     @Test func selectionChangeAndRemovedDirectory() async throws {
         let fixture = try TreeFixture()
-        let store = RemoteFileTreeStore()
+        let store = RemoteTreeStore()
         let source = fixture.source()
         store.update(source: source, refreshID: 0) { path in
             try entries(path.isEmpty ? ["src"] : ["nested"], kind: "directory")
@@ -127,7 +127,7 @@ struct RemoteFileTreeStoreTests {
             return try entries(["old"])
         }
         try await eventually { gate.waiting }
-        let anotherRoot = RemoteFileTreeStore.Source(root: source.root.appending("another"), sessionID: source.sessionID)
+        let anotherRoot = RemoteTreeStore.Source(root: source.root.appending("another"), sessionID: source.sessionID)
         store.update(source: anotherRoot, refreshID: 2) { _ in try entries(["current"]) }
         try await eventually { store.states[""] == .loaded }
         gate.release()
@@ -138,7 +138,7 @@ struct RemoteFileTreeStoreTests {
 
     @Test func failureAndRefreshPreserveNodes() async throws {
         let fixture = try TreeFixture()
-        let store = RemoteFileTreeStore()
+        let store = RemoteTreeStore()
         let source = fixture.source()
         store.update(source: source, refreshID: 0) { path in
             if path.isEmpty { return try entries(["src"], kind: "directory") }
@@ -181,7 +181,7 @@ private struct TreeFixture {
         second = try hosts.addRemote(name: "two", basePath: "/same", hostname: "unused", user: "test", identityFile: "")
     }
 
-    func source(second: Bool = false) -> RemoteFileTreeStore.Source {
+    func source(second: Bool = false) -> RemoteTreeStore.Source {
         .init(root: .remote(hostID: (second ? self.second : first).persistentModelID, path: "/same/project"),
               sessionID: ObjectIdentifier(session))
     }

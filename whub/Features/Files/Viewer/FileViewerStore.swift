@@ -7,7 +7,6 @@ final class FileViewerStore: ObservableObject {
     @Published private(set) var fileLocations: [FileLocation] = []
     @Published private(set) var selectedLocation: FileLocation?
     @Published private(set) var previewLocation: FileLocation?
-    @Published private(set) var refreshID = 0
     @Published private(set) var fileStores: [FileLocation: FileStore] = [:] {
         didSet {
             fileChanges = Publishers.MergeMany(fileStores.values.map(\.objectWillChange))
@@ -62,7 +61,6 @@ final class FileViewerStore: ObservableObject {
     }
 
     func refresh() {
-        refreshID += 1
         remote.refresh()
     }
 

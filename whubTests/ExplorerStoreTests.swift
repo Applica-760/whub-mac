@@ -19,26 +19,47 @@ struct ExplorerStoreTests {
         }
         let host = try HostStore(context: context).addLocal(name: "local", basePath: base.path)
         let project = try ProjectStore(context: context).add(name: "app", gitURL: nil, host: host)
-        let store = ExplorerStore()
-        let git = GitStore()
+        let files = FilesStore()
+        let store = files.explorer
         let connections = RemoteConnectionStore()
-        store.startWatching(gitStore: git)
+        store.startWatching()
         defer { store.stopWatching() }
         await store.update(projects: [project], hosts: [host], connections: connections,
-                           refreshID: 0, context: context, gitStore: git)
+                           refreshID: 0, context: context)
         #expect(store.locations.map(\.path) == [base.path, projectURL.path, firstWorktree.path])
         #expect(store.canRefresh)
         store.selectedLocation = .local(URL(fileURLWithPath: project.path))
         await store.update(projects: [project], hosts: [host], connections: connections,
-                           refreshID: 0, context: context, gitStore: git)
+                           refreshID: 0, context: context)
         let secondWorktree = base.appendingPathComponent("worktrees/app-2")
         try FileManager.default.createDirectory(at: secondWorktree, withIntermediateDirectories: true)
         await store.update(projects: [project], hosts: [host], connections: connections,
-                           refreshID: 1, context: context, gitStore: git)
+                           refreshID: 1, context: context)
         #expect(store.selectedLocation?.path == projectURL.path)
         #expect(store.rootURL?.path == projectURL.path)
         #expect(store.worktreeURLs.map(\.path) == [firstWorktree.path, secondWorktree.path])
         #expect(store.errorMessage == nil)
+        #expect(files.git.rootURL?.path == projectURL.path)
+        let folder = projectURL.appendingPathComponent("src")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data().write(to: projectURL.appendingPathComponent("a.swift"))
+        try FileManager.default.createDirectory(at: projectURL.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        store.refresh()
+        #expect(store.updateTree(gitChanges: [:]))
+        #expect(store.rootItems.map(\.location.name) == ["src", "a.swift"])
+        let item = try #require(store.rootItems.first)
+        try Data().write(to: folder.appendingPathComponent("child.swift"))
+        #expect(store.children(for: item).map(\.location.name) == ["child.swift"])
+        store.refresh()
+        #expect(store.updateTree(gitChanges: [:]))
+        #expect(store.rootItems.first === item)
+        store.stopWatching()
+        #expect(files.git.rootURL?.path == projectURL.path)
+        let refreshID = files.refreshID
+        files.refresh()
+        #expect(files.refreshID == refreshID + 1)
+        store.selectedLocation = .local(firstWorktree)
+        #expect(files.git.rootURL == nil)
     }
 
     @Test func remoteFileIsPreparedBeforePreviewAndOpen() async throws {
@@ -47,11 +68,11 @@ struct ExplorerStoreTests {
             name: "server", basePath: "/workspace", hostname: "unused", user: "test", identityFile: ""
         )
         let connections = RemoteConnectionStore()
-        let store = ExplorerStore()
-        let viewer = FileViewerStore()
-        let git = GitStore()
+        let files = FilesStore()
+        let store = files.explorer
+        let viewer = files.viewer
         await store.update(projects: [], hosts: [host], connections: connections,
-                           refreshID: 0, context: container.mainContext, gitStore: git)
+                           refreshID: 0, context: container.mainContext)
         #expect(!store.canRefresh)
         let root = FileLocation.remote(hostID: host.persistentModelID, path: "/workspace/projects/app")
         store.selectedLocation = root
@@ -60,13 +81,13 @@ struct ExplorerStoreTests {
         defer { store.stopWatching() }
         let file = root.appending("file.swift")
         defer { viewer.close(file) }
-        store.preview(file, viewer: viewer, connections: connections)
+        files.preview(file, hosts: [host], connections: connections)
         #expect(viewer.previewLocation == file)
         #expect(viewer.selectedLocation == file)
         if case .disconnected = viewer.remote.states[file] {} else {
             Issue.record("正しい閲覧ルートでRemote取得を準備できていません")
         }
-        store.open(file, viewer: viewer, connections: connections)
+        files.open(file, hosts: [host], connections: connections)
         #expect(viewer.previewLocation == nil)
         #expect(viewer.fileLocations == [file])
     }
