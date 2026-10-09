@@ -54,7 +54,7 @@ struct AppView: View {
     var body: some View {
         NavigationSplitView {
             FileExplorerView {
-                if section != .file { section = .workspace }
+                section = .file
             }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 320, max: 640)
         } detail: {
