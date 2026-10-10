@@ -5,12 +5,25 @@ import WhubCore
 @MainActor
 final class FilesStore: ObservableObject {
     let explorer = ExplorerStore()
-    let editor = EditorStore()
+    @Published private(set) var activeEditor = EditorStore()
+    private var editorsByWorkspace: [FileLocation?: EditorStore] = [:]
+    private var workspaceChanges: AnyCancellable?
     let git = GitStore()
     @Published private(set) var refreshID = 0
     private var rootChanges: AnyCancellable?
 
     init() {
+        editorsByWorkspace[nil] = activeEditor
+        workspaceChanges = explorer.$selectedLocation.removeDuplicates().sink { [weak self] workspace in
+            guard let self else { return }
+            if let editor = editorsByWorkspace[workspace] {
+                activeEditor = editor
+            } else {
+                let editor = EditorStore()
+                editorsByWorkspace[workspace] = editor
+                activeEditor = editor
+            }
+        }
         rootChanges = explorer.localTree.$rootURL.removeDuplicates().sink { [weak self] root in
             guard let self else { return }
             git.setRoot(root)
@@ -31,42 +44,42 @@ final class FilesStore: ObservableObject {
     }
 
     func checkForExternalChanges() {
-        editor.local.checkForExternalChanges()
-        editor.local.refreshDiffs()
+        activeEditor.local.checkForExternalChanges()
+        activeEditor.local.refreshDiffs()
         explorer.refresh()
         git.refresh()
     }
 
     func refresh() {
         refreshID += 1
-        editor.refresh()
+        activeEditor.refresh()
         git.refresh()
     }
 
     func preview(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore) {
         prepare(location, hosts: hosts, connections: connections)
-        editor.preview(.file(location))
+        activeEditor.preview(.file(location))
     }
 
     func open(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore) {
         prepare(location, hosts: hosts, connections: connections)
-        editor.open(.file(location))
+        activeEditor.open(.file(location))
     }
 
     func openDiff(_ location: FileLocation, preview: Bool = false) {
         guard let url = location.localURL else { return }
         let fileURL = url.standardizedFileURL
-        editor.local.loadDiff(at: fileURL)
-        if preview { editor.preview(.diff(fileURL)) }
-        else { editor.open(.diff(fileURL)) }
+        activeEditor.local.loadDiff(at: fileURL)
+        if preview { activeEditor.preview(.diff(fileURL)) }
+        else { activeEditor.open(.diff(fileURL)) }
     }
 
     private func prepare(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore) {
         switch location {
         case .local:
-            editor.local.load(location)
+            activeEditor.local.load(location)
         case .remote:
-            editor.remote.load(location, root: explorer.treeLocation,
+            activeEditor.remote.load(location, root: explorer.treeLocation,
                                hosts: hosts.compactMap { $0 as? RemoteHost }, connections: connections)
         }
     }
