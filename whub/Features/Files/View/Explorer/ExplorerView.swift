@@ -1,9 +1,11 @@
+import AppKit
 import SwiftData
 import SwiftUI
 import WhubCore
 
 struct ExplorerView: View {
     let onFileSelect: () -> Void
+    let onOpenInBrowser: (URL) -> Void
     @Query(sort: \Project.name) private var projects: [Project]
     @Query(sort: \WhubCore.Host.name) private var hosts: [WhubCore.Host]
     @Environment(\.modelContext) private var context
@@ -31,7 +33,9 @@ struct ExplorerView: View {
                         files.open(location, hosts: hosts, connections: connections)
                         onFileSelect()
                     },
-                    onShowDiff: { openDiff($0, preview: false) }
+                    onShowDiff: { openDiff($0, preview: false) },
+                    onAction: performAction,
+                    onCommitName: files.commitName
                 )
             }
         }
@@ -49,6 +53,25 @@ struct ExplorerView: View {
                                  refreshID: files.refreshID)) {
             await store.update(projects: projects, hosts: hosts, connections: connections,
                                refreshID: files.refreshID, context: context)
+        }
+    }
+
+    private func performAction(_ action: ExplorerContextMenu.Action, location: FileLocation) {
+        guard let url = location.localURL else { return }
+        do {
+            switch action {
+            case .openInBrowser:
+                onOpenInBrowser(url)
+            case .trash:
+                let alert = NSAlert()
+                alert.messageText = "\(url.lastPathComponent)をゴミ箱に移動しますか？"
+                alert.addButton(withTitle: "キャンセル")
+                alert.addButton(withTitle: "ゴミ箱に移動")
+                guard alert.runModal() == .alertSecondButtonReturn else { return }
+                try files.trash(url)
+            }
+        } catch {
+            EditorDialogs.show(error: error)
         }
     }
 

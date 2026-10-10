@@ -8,6 +8,8 @@ struct ExplorerTreeView: View {
     let onFilePreview: (FileLocation) -> Void
     let onFileOpen: (FileLocation) -> Void
     let onShowDiff: (FileLocation) -> Void
+    var onAction: (ExplorerContextMenu.Action, FileLocation) -> Void = { _, _ in }
+    var onCommitName: () throws -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -31,7 +33,7 @@ struct ExplorerTreeView: View {
                 }
                 ExplorerOutlineView(
                     store: store, basePath: store.treeBasePath, gitChanges: gitStore.changes,
-                    onFilePreview: onFilePreview, onFileOpen: onFileOpen, onShowDiff: onShowDiff
+                    onFilePreview: onFilePreview, onFileOpen: onFileOpen, onShowDiff: onShowDiff, onAction: onAction, onCommitName: onCommitName
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -47,6 +49,8 @@ struct ExplorerOutlineView: NSViewRepresentable {
     let onFilePreview: (FileLocation) -> Void
     let onFileOpen: (FileLocation) -> Void
     let onShowDiff: (FileLocation) -> Void
+    var onAction: (ExplorerContextMenu.Action, FileLocation) -> Void = { _, _ in }
+    var onCommitName: () throws -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(store: store, onFilePreview: onFilePreview, onFileOpen: onFileOpen)
@@ -56,6 +60,11 @@ struct ExplorerOutlineView: NSViewRepresentable {
         let outlineView = FileOutlineControl()
         outlineView.store = store
         outlineView.onShowDiff = onShowDiff
+        outlineView.onAction = onAction
+        outlineView.onEdit = { [weak coordinator = context.coordinator] action, item in
+            coordinator?.beginEditing(action, item: item)
+        }
+        context.coordinator.onCommitName = onCommitName
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         column.resizingMask = .autoresizingMask
         outlineView.addTableColumn(column)
@@ -80,19 +89,87 @@ struct ExplorerOutlineView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         (scrollView.documentView as? FileOutlineControl)?.onShowDiff = onShowDiff
+        (scrollView.documentView as? FileOutlineControl)?.onAction = onAction
+        context.coordinator.onCommitName = onCommitName
         context.coordinator.onFilePreview = onFilePreview
         context.coordinator.onFileOpen = onFileOpen
         context.coordinator.update(basePath: basePath, gitChanges: gitChanges)
     }
 
-    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
+    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
         weak var outlineView: NSOutlineView?
         var onFilePreview: (FileLocation) -> Void
         var onFileOpen: (FileLocation) -> Void
         private let store: ExplorerStore
         private var renderedRevision: Int?
+        private var renderedEditingItem: ExplorerItem?
         private var renderedRootLocation: FileLocation?
         private var isRestoring = false
+        var onCommitName: () throws -> Void = {}
+        private var nameEdit: ExplorerStore.NameEdit? { store.nameEdit }
+
+        func beginEditing(_ operation: ExplorerStore.NameEdit.Operation, item: ExplorerItem) {
+            guard let outlineView else { return }
+            store.beginNameEditing(operation, item: item, parent: outlineView.parent(forItem: item) as? ExplorerItem)
+            guard let edit = nameEdit else { return }
+            updateNameEditingDisplay()
+            let row = outlineView.row(forItem: edit.item)
+            if row >= 0 { outlineView.scrollRowToVisible(row) }
+            focusName()
+        }
+
+        private func focusName() {
+            guard let outlineView, let edit = nameEdit else { return }
+            let row = outlineView.row(forItem: edit.item)
+            guard row >= 0, let field = (outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? NSTableCellView)?.textField else { return }
+            field.selectText(nil)
+        }
+
+        func commitName(_ name: String) throws {
+            guard nameEdit != nil else { return }
+            store.updateName(name)
+            try onCommitName()
+            updateNameEditingDisplay()
+        }
+
+        func cancelEditing() {
+            guard nameEdit != nil else { return }
+            store.cancelNameEditing()
+            updateNameEditingDisplay()
+        }
+
+        private func updateNameEditingDisplay() {
+            guard let outlineView, renderedEditingItem !== nameEdit?.item else { return }
+            renderedEditingItem = nameEdit?.item
+            isRestoring = true
+            defer { isRestoring = false }
+            if nameEdit == nil {
+                renderedRevision = nil
+                outlineView.window?.makeFirstResponder(outlineView)
+            }
+            outlineView.reloadData()
+            if let parent = nameEdit?.parent { outlineView.expandItem(parent) }
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            store.updateName(field.stringValue)
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                cancelEditing()
+                return true
+            }
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)),
+                  let field = control as? NSTextField else { return false }
+            do { try commitName(field.stringValue) }
+            catch {
+                EditorDialogs.show(error: error)
+                focusName()
+            }
+            return true
+        }
 
         init(store: ExplorerStore, onFilePreview: @escaping (FileLocation) -> Void, onFileOpen: @escaping (FileLocation) -> Void) {
             self.store = store
@@ -104,6 +181,8 @@ struct ExplorerOutlineView: NSViewRepresentable {
             guard let outlineView else { return }
             (outlineView as? FileOutlineControl)?.basePath = basePath
             let rootChanged = renderedRootLocation != store.treeLocation
+            updateNameEditingDisplay()
+            if nameEdit != nil { return }
             let expandedLocations = Set(store.cachedItems.filter { outlineView.isItemExpanded($0) }.map(\.location))
             let selectedLocations = outlineView.selectedRowIndexes.compactMap {
                 (outlineView.item(atRow: $0) as? ExplorerItem)?.location
@@ -158,16 +237,16 @@ struct ExplorerOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-            store.children(for: item as? ExplorerItem).count
+            store.displayedChildren(for: item as? ExplorerItem).count
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-            store.children(for: item as? ExplorerItem)[index]
+            store.displayedChildren(for: item as? ExplorerItem)[index]
         }
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
             guard let item = item as? ExplorerItem else { return false }
-            return item.isDirectory && !store.isUnavailable(item)
+            return item.isDirectory && item !== nameEdit?.item && !store.isUnavailable(item)
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
@@ -181,14 +260,13 @@ struct ExplorerOutlineView: NSViewRepresentable {
         }
 
         func outlineViewItemWillExpand(_ notification: Notification) {
-            guard !isRestoring, let item = notification.userInfo?["NSObject"] as? ExplorerItem,
-                  case .remote = item.location else { return }
-            store.remoteTree.loadChildren(of: item)
+            guard !isRestoring, let item = notification.userInfo?["NSObject"] as? ExplorerItem else { return }
+            store.expand(item)
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard
-                !isRestoring,
+                !isRestoring, nameEdit == nil,
                 let outlineView = notification.object as? NSOutlineView,
                 let item = outlineView.item(atRow: outlineView.selectedRow) as? ExplorerItem,
                 !item.isDirectory
@@ -199,7 +277,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
         }
 
         @objc func openSelectedFile(_ sender: NSOutlineView) {
-            guard let item = sender.item(atRow: sender.clickedRow) as? ExplorerItem, !item.isDirectory else { return }
+            guard nameEdit == nil, let item = sender.item(atRow: sender.clickedRow) as? ExplorerItem, !item.isDirectory else { return }
             onFileOpen(item.location)
         }
 
@@ -210,57 +288,15 @@ struct ExplorerOutlineView: NSViewRepresentable {
         ) -> NSView? {
             guard let item = item as? ExplorerItem else { return nil }
             let identifier = NSUserInterfaceItemIdentifier("file")
-            let cell = (outlineView.makeView(withIdentifier: identifier, owner: nil) as? NSTableCellView) ?? makeCell(identifier: identifier)
-            let unavailable = store.isUnavailable(item)
-            cell.textField?.attributedStringValue = NSAttributedString(
-                string: item.location.name,
-                attributes: unavailable ? [.strikethroughStyle: NSUnderlineStyle.single.rawValue] : [:]
-            )
-            cell.toolTip = unavailable ? "上部のメニューからProjectまたはWorktreeを選択してください。" : nil
-            cell.textField?.textColor = switch item.location.localURL.flatMap({ store.decorations[$0.standardizedFileURL] }) {
-            case .added: .systemGreen
-            case .modified, .deleted: .systemOrange
-            case nil: item.location.name.hasPrefix(".") ? .secondaryLabelColor : .labelColor
-            }
-            if unavailable { cell.textField?.textColor = .disabledControlTextColor }
-            cell.imageView?.alphaValue = unavailable ? 0.4 : 1
-            if let url = item.location.localURL {
-                cell.imageView?.image = NSWorkspace.shared.icon(forFile: url.path)
-            } else {
-                cell.imageView?.image = NSImage(systemSymbolName: item.isDirectory ? "folder.fill" : "doc", accessibilityDescription: nil)
-            }
+            let cell = (outlineView.makeView(withIdentifier: identifier, owner: nil) as? ExplorerItemView)
+                ?? ExplorerItemView(identifier: identifier)
+            let edit = nameEdit?.item === item ? nameEdit : nil
+            cell.update(item: item, change: item.location.localURL.flatMap { store.decorations[$0.standardizedFileURL] },
+                        unavailable: store.isUnavailable(item), editingName: edit?.name, editingOperation: edit?.operation)
+            cell.textField?.delegate = edit == nil ? nil : self
             return cell
         }
 
-        private func makeCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
-            let cell = NSTableCellView()
-            cell.identifier = identifier
-
-            let imageView = NSImageView()
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            imageView.imageScaling = .scaleProportionallyDown
-            cell.addSubview(imageView)
-            cell.imageView = imageView
-
-            let textField = NSTextField(labelWithString: "")
-            textField.translatesAutoresizingMaskIntoConstraints = false
-            textField.lineBreakMode = .byTruncatingTail
-            textField.usesSingleLineMode = true
-            textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            cell.addSubview(textField)
-            cell.textField = textField
-
-            NSLayoutConstraint.activate([
-                imageView.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
-                imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                imageView.widthAnchor.constraint(equalToConstant: 16),
-                imageView.heightAnchor.constraint(equalToConstant: 16),
-                textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 4),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
-                textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            ])
-            return cell
-        }
     }
 }
 
@@ -268,13 +304,18 @@ private final class FileOutlineControl: NSOutlineView {
     var basePath: String?
     weak var store: ExplorerStore?
     var onShowDiff: (FileLocation) -> Void = { _ in }
+    var onAction: (ExplorerContextMenu.Action, FileLocation) -> Void = { _, _ in }
+
+    var onEdit: (ExplorerStore.NameEdit.Operation, ExplorerItem) -> Void = { _, _ in }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
         guard row >= 0, let item = item(atRow: row) as? ExplorerItem else { return nil }
 
         return ExplorerContextMenu(location: item.location, isDirectory: item.isDirectory,
-                                   basePath: basePath, onShowDiff: onShowDiff)
+                                   basePath: basePath, allowsActions: store?.isUnavailable(item) != true,
+                                   onEdit: { [weak self] operation in self?.onEdit(operation, item) },
+                                   onAction: onAction, onShowDiff: onShowDiff)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -288,6 +329,10 @@ private final class FileOutlineControl: NSOutlineView {
             return
         }
 
+        if (view(atColumn: 0, row: row, makeIfNecessary: false) as? NSTableCellView)?.textField?.isEditable == true {
+            super.mouseDown(with: event)
+            return
+        }
         guard store?.isUnavailable(item) != true else { return }
         selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         if isItemExpanded(item) {

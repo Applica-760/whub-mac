@@ -45,6 +45,7 @@ struct AppView: View {
     }
 
     @EnvironmentObject private var files: FilesStore
+    @EnvironmentObject private var browser: BrowserStore
     @Binding var section: Section
     @Environment(\.openSettings) private var openSettings
 
@@ -52,6 +53,9 @@ struct AppView: View {
         NavigationSplitView {
             ExplorerView(onFileSelect: {
                 section = .file
+            }, onOpenInBrowser: { url in
+                browser.open(url)
+                section = .browser
             }, store: files.explorer)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 320, max: 640)
         } detail: {

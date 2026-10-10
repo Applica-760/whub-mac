@@ -11,7 +11,7 @@ final class BrowserSession: Identifiable {
     var showsBookmarks = true
 
     var title: String {
-        page.title.isEmpty ? page.url?.host ?? "New Tab" : page.title
+        page.title.isEmpty ? page.url.map { $0.isFileURL ? $0.lastPathComponent : $0.host ?? "New Tab" } ?? "New Tab" : page.title
     }
 
     func loadAddress() {
@@ -42,6 +42,12 @@ final class BrowserStore: ObservableObject {
         selectedSessionID = session.id
     }
 
+    func open(_ url: URL) {
+        add()
+        selectedSession.address = url.absoluteString
+        selectedSession.loadAddress()
+    }
+
     func remove(_ id: BrowserSession.ID) {
         guard sessions.count > 1,
               let index = sessions.firstIndex(where: { $0.id == id })
@@ -66,8 +72,7 @@ final class BrowserStore: ObservableObject {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty,
               let url = URL(string: value.contains("://") ? value : "https://\(value)"),
-              url.host != nil,
-              ["http", "https"].contains(url.scheme?.lowercased())
+              url.isFileURL || (url.host != nil && ["http", "https"].contains(url.scheme?.lowercased()))
         else { return nil }
         return url
     }

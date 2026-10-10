@@ -8,12 +8,39 @@ final class ExplorerStore: ObservableObject {
     @Published var selectedLocation: FileLocation? {
         didSet {
             guard selectedLocation != oldValue else { return }
+            cancelNameEditing()
             if selectedLocation?.localURL == nil { showsDiff = false }
             remoteTree.stop()
             localTree.reset()
             errorMessage = nil
         }
     }
+    struct NameEdit {
+        enum Operation { case newFile, newFolder, rename }
+        let operation: Operation
+        let item: ExplorerItem
+        let parent: ExplorerItem?
+        let target: URL
+        var name: String
+    }
+    @Published private(set) var nameEdit: NameEdit?
+
+    func beginNameEditing(_ operation: NameEdit.Operation, item: ExplorerItem, parent: ExplorerItem?) {
+        guard let url = item.location.localURL, !isUnavailable(item) else { return }
+        let creating = operation != .rename
+        let directory = creating && item.isDirectory ? item : parent
+        let target = creating ? (item.isDirectory ? url : url.deletingLastPathComponent()) : url
+        let editingItem = creating
+            ? ExplorerItem(location: .local(target.appendingPathComponent(UUID().uuidString)), isDirectory: operation == .newFolder)
+            : item
+        nameEdit = NameEdit(operation: operation, item: editingItem, parent: directory, target: target,
+                            name: creating ? "" : item.location.name)
+    }
+
+    func updateName(_ name: String) { nameEdit?.name = name }
+
+    func cancelNameEditing() { nameEdit = nil }
+
     @Published var showsDiff = false
     let localWorkspace = LocalWorkspaceStore()
     let localTree = LocalTreeStore()
@@ -203,5 +230,16 @@ final class ExplorerStore: ObservableObject {
         if case .remote = selectedLocation { return remoteTree.children(for: item) }
         if let item, isUnavailable(item) { return [] }
         return localTree.children(for: item)
+    }
+
+    func displayedChildren(for parent: ExplorerItem?) -> [ExplorerItem] {
+        let children = children(for: parent)
+        guard let edit = nameEdit, edit.operation != .rename, edit.parent === parent else { return children }
+        return [edit.item] + children
+    }
+
+    func expand(_ item: ExplorerItem) {
+        guard case .remote = item.location else { return }
+        remoteTree.loadChildren(of: item)
     }
 }
