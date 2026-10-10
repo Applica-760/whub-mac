@@ -10,6 +10,8 @@ final class CodexBookPagination: ObservableObject {
         let id: Int
         let turnID: UUID
         let block: Block
+        var images: [CodexImageAttachment] = []
+        var approval: CodexRequest? = nil
         let isUser: Bool
         let showsHeader: Bool
         let y: CGFloat
@@ -26,6 +28,8 @@ final class CodexBookPagination: ObservableObject {
     @Published private(set) var pageSize: CGSize?
     @Published private(set) var pages = [Page()]
     @Published private(set) var spread = 0
+    private(set) var expandedApprovalDetailsIDs: Set<String> = []
+    private var approvalStates: [String] = []
     private var committedIDs: [UUID] = []
     private var committedPages = [Page()]
     private var measured: [Measurement: CGFloat] = [:]
@@ -47,8 +51,33 @@ final class CodexBookPagination: ObservableObject {
         spread = min(max(0, spread + offset), spreadCount - 1)
     }
 
+    func toggleApprovalDetails(_ id: String, turns: [CodexTurn]) {
+        if !expandedApprovalDetailsIDs.insert(id).inserted { expandedApprovalDetailsIDs.remove(id) }
+        committedIDs = []
+        committedPages = [Page()]
+        update(turns)
+    }
+
+    func revealApproval(_ id: String) {
+        if let page = pages.firstIndex(where: { $0.fragments.contains { $0.approval?.id == id } }) {
+            spread = page / 2
+        }
+    }
+
+    var visibleApproval: CodexRequest? {
+        pages.dropFirst(spread * 2).prefix(2).flatMap(\.fragments)
+            .compactMap(\.approval).first { $0.outcome == nil }
+    }
+
     func update(_ turns: [CodexTurn]) {
         guard pageSize != nil else { return }
+        let states = turns.flatMap(\.approvals).map { $0.id + ":" + ($0.outcome ?? "pending") }
+        if states != approvalStates {
+            approvalStates = states
+            committedIDs = []
+            committedPages = [Page()]
+            expandedApprovalDetailsIDs.formIntersection(turns.flatMap(\.approvals).map(\.id))
+        }
         if Array(turns.prefix(committedIDs.count).map(\.id)) != committedIDs || turns.isEmpty {
             committedIDs = []
             committedPages = [Page()]
@@ -57,8 +86,49 @@ final class CodexBookPagination: ObservableObject {
         usedMeasurements.removeAll(keepingCapacity: true)
         var output = committedPages
         for turn in turns.dropFirst(committedIDs.count) {
-            append([Block(id: 0, kind: .paragraph, text: AttributedString(turn.prompt))],
-                   turnID: turn.id, isUser: true, to: &output)
+            if !turn.prompt.isEmpty {
+                append([Block(id: 0, kind: .paragraph, text: AttributedString(turn.prompt))],
+                       turnID: turn.id, isUser: true, to: &output)
+            }
+            for image in turn.images {
+                let last = output[output.count - 1].fragments.last
+                let previous = last.flatMap { $0.isUser && $0.turnID == turn.id ? $0 : nil }
+                let block = previous?.block ?? Block(id: 0, kind: .paragraph)
+                let images = (previous?.images ?? []) + [image]
+                let combinedHeight = height(block, isUser: true, header: false, images: images)
+                if let previous, combinedHeight <= contentHeight {
+                    output[output.count - 1].fragments.removeLast()
+                    if !output[output.count - 1].fragments.isEmpty, remaining(output) < combinedHeight {
+                        output.append(Page())
+                    }
+                    place(block, height: combinedHeight, naturalHeight: combinedHeight,
+                          turnID: turn.id, isUser: true, header: previous.showsHeader, images: images, to: &output)
+                } else {
+                    let imageBlock = Block(id: 0, kind: .paragraph)
+                    let naturalHeight = height(imageBlock, isUser: true, header: false, images: [image])
+                    if !output[output.count - 1].fragments.isEmpty, remaining(output) < naturalHeight {
+                        output.append(Page())
+                    }
+                    place(imageBlock, height: min(naturalHeight, contentHeight), naturalHeight: naturalHeight,
+                          turnID: turn.id, isUser: true, header: false, images: [image], to: &output)
+                }
+            }
+            for request in turn.approvals {
+                measuringView.rootView = AnyView(CodexApprovalEntryView(request: request,
+                    detailsExpanded: expandedApprovalDetailsIDs.contains(request.id), decide: { _ in })
+                    .frame(width: contentWidth).fixedSize(horizontal: false, vertical: true))
+                measuringView.frame.size = measuringView.fittingSize
+                measuringView.layoutSubtreeIfNeeded()
+                let height = min(contentHeight, max(1, ceil(measuringView.fittingSize.height)))
+                if !output[output.count - 1].fragments.isEmpty, remaining(output) < height {
+                    output.append(Page())
+                }
+                let last = output.count - 1
+                let y = output[last].usedHeight + (output[last].fragments.isEmpty ? 0 : gap)
+                output[last].fragments.append(Fragment(id: output[last].fragments.count, turnID: turn.id,
+                    block: Block(id: 0, kind: .paragraph), approval: request, isUser: false,
+                    showsHeader: false, y: y, height: height, naturalHeight: height))
+            }
             if turn.answers.isEmpty {
                 append([Block(id: 0, kind: .paragraph)], turnID: turn.id, isUser: false, to: &output)
             }
@@ -81,13 +151,14 @@ final class CodexBookPagination: ObservableObject {
         let block: Block
         let isUser: Bool
         let header: Bool
+        let imageIDs: [UUID]
     }
 
-    private func height(_ block: Block, isUser: Bool, header: Bool) -> CGFloat {
-        let key = Measurement(block: block, isUser: isUser, header: header)
+    private func height(_ block: Block, isUser: Bool, header: Bool, images: [CodexImageAttachment] = []) -> CGFloat {
+        let key = Measurement(block: block, isUser: isUser, header: header, imageIDs: images.map(\.id))
         usedMeasurements.insert(key)
         if let cached = measured[key] { return cached }
-        measuringView.rootView = AnyView(CodexMessageView(block: block, isUser: isUser, showsHeader: header, width: contentWidth)
+        measuringView.rootView = AnyView(CodexMessageView(block: block, isUser: isUser, showsHeader: header, images: images, width: contentWidth)
             .frame(width: contentWidth).fixedSize(horizontal: false, vertical: true))
         measuringView.frame.size = measuringView.fittingSize
         measuringView.layoutSubtreeIfNeeded()
@@ -154,10 +225,10 @@ final class CodexBookPagination: ObservableObject {
     }
 
     private func place(_ block: Block, height: CGFloat, naturalHeight: CGFloat, turnID: UUID,
-                       isUser: Bool, header: Bool, to output: inout [Page]) {
+                       isUser: Bool, header: Bool, images: [CodexImageAttachment] = [], to output: inout [Page]) {
         let last = output.count - 1
         let y = output[last].usedHeight + (output[last].fragments.isEmpty ? 0 : gap)
-        output[last].fragments.append(Fragment(id: output[last].fragments.count, turnID: turnID, block: block,
+        output[last].fragments.append(Fragment(id: output[last].fragments.count, turnID: turnID, block: block, images: images,
             isUser: isUser, showsHeader: header, y: y, height: height, naturalHeight: naturalHeight))
     }
 

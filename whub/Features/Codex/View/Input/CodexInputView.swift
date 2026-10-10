@@ -47,6 +47,7 @@ struct CodexInputView: View {
     var body: some View {
         Group {
             VStack(alignment: .leading, spacing: 10) {
+                imageAttachments()
                 if showsSkills || (token?.text.hasPrefix("$") == true && token != dismissedToken) || !candidates.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         if store.isLoadingSkills { Text("Skillを読み込み中…").foregroundStyle(.secondary) }
@@ -84,7 +85,8 @@ struct CodexInputView: View {
                     .font(.callout)
                 }
                 HStack(alignment: .bottom, spacing: 12) {
-                    CodexTextInput(text: $store.draft, selection: $selection, handleKey: handleKey)
+                    CodexTextInput(text: $store.draft, selection: $selection, handleKey: handleKey,
+                                   pasteImages: store.addImages)
                         .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
                         .accessibilityAction(named: Text("送信")) { submit() }
                     ZStack {
@@ -117,6 +119,37 @@ struct CodexInputView: View {
         .onChange(of: store.directory) { _, _ in store.selectedSkills = [] }
         .onChange(of: store.draft) { _, text in
             if text.isEmpty { showsSkills = false }
+        }
+    }
+
+    @ViewBuilder
+    private func imageAttachments() -> some View {
+        if !store.draftImages.isEmpty {
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(Array(store.draftImages.enumerated()), id: \.element.id) { index, attachment in
+                        Image(nsImage: attachment.image)
+                            .resizable().scaledToFit()
+                            .frame(width: 64, height: 64)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                            .accessibilityLabel("添付画像 \(index + 1)")
+                            .overlay(alignment: .topTrailing) {
+                                Button {
+                                    store.draftImages.removeAll { $0.id == attachment.id }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .symbolRenderingMode(.palette)
+                                        .foregroundStyle(.primary, .background)
+                                }
+                                .buttonStyle(.plain)
+                                .help("画像を削除")
+                                .accessibilityLabel("添付画像 \(index + 1)を削除")
+                            }
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            .frame(height: 64)
         }
     }
 
@@ -179,12 +212,13 @@ private struct CodexTextInput: NSViewRepresentable {
     @Binding var text: String
     @Binding var selection: NSRange
     let handleKey: (NSEvent) -> Bool
+    let pasteImages: ([NSImage]) -> Void
 
     func makeNSView(context: Context) -> CodexTextView {
         let view = CodexTextView()
         view.delegate = context.coordinator
         view.setAccessibilityLabel("Codexに依頼する")
-        view.setAccessibilityHelp("⌘Enterで送信。/でコマンド、$でSkillを選択。")
+        view.setAccessibilityHelp("⌘Enterで送信。⌘Vで画像も貼り付け。/でコマンド、$でSkillを選択。")
         view.isRichText = false
         view.allowsUndo = true
         view.isAutomaticQuoteSubstitutionEnabled = false
@@ -204,6 +238,7 @@ private struct CodexTextInput: NSViewRepresentable {
         context.coordinator.isUpdating = true
         defer { context.coordinator.isUpdating = false }
         view.handleKey = handleKey
+        view.pasteImages = pasteImages
         if !view.hasMarkedText(), view.string != text {
             let range = NSRange(location: 0, length: (view.string as NSString).length)
             view.insertText(text, replacementRange: range)
@@ -246,8 +281,21 @@ private struct CodexTextInput: NSViewRepresentable {
     }
 }
 
-private final class CodexTextView: NSTextView {
+final class CodexTextView: NSTextView {
     var handleKey: ((NSEvent) -> Bool)?
+    var pasteImages: (([NSImage]) -> Void)?
+
+    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+        [.png, .tiff] + super.readablePasteboardTypes
+    }
+
+    override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard type == .png || type == .tiff else { return super.readSelection(from: pasteboard, type: type) }
+        guard let images = pasteboard.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
+              !images.isEmpty, let pasteImages else { return false }
+        pasteImages(images)
+        return true
+    }
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         textContainer?.containerSize = CGSize(width: max(newSize.width, 1), height: .greatestFiniteMagnitude)

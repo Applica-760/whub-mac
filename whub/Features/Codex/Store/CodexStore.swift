@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import SwiftData
@@ -33,6 +34,8 @@ struct CodexTurn: Identifiable {
     let id = UUID()
     var remoteID: String?
     let prompt: String
+    var images: [CodexImageAttachment] = []
+    var approvals: [CodexRequest] = []
     var items: [CodexItem] = []
     var status = "inProgress"
     var history: [CodexItem] { items.filter { !$0.isAnswer } }
@@ -76,6 +79,8 @@ struct CodexRequest: Identifiable {
     let rpcID: Any
     let method: String
     let params: [String: Any]
+    var outcome: String? = nil
+    var isApproval: Bool { method != "item/tool/requestUserInput" }
     var id: String { CodexStore.pretty(rpcID) }
 }
 
@@ -90,10 +95,29 @@ struct CodexSkill: Identifiable {
     }
 }
 
+struct CodexImageAttachment: Identifiable {
+    let id = UUID()
+    let image: NSImage
+    let pngData: Data
+
+    init?(image: NSImage) {
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
+        self.image = image
+        pngData = png
+    }
+
+    var input: [String: String] {
+        ["type": "image", "url": "data:image/png;base64," + pngData.base64EncodedString()]
+    }
+}
+
 @MainActor
 final class CodexStore: ObservableObject, Identifiable {
     let id = UUID()
     @Published var draft = ""
+    @Published var draftImages: [CodexImageAttachment] = []
     @Published var selectedSkills: [CodexSkill] = []
     @Published private(set) var skills: [CodexSkill] = []
     @Published private(set) var skillError: String?
@@ -106,10 +130,12 @@ final class CodexStore: ObservableObject, Identifiable {
     @Published private(set) var model = "Codexの既存設定"
     @Published private(set) var errorMessage: String?
     private(set) var threadID: String?
+    var onCompletionChange: ((Bool) -> Void)?
     private let client = CodexClient()
     private let context: ModelContext
     private var stopRequested = false
     private var needsResume = false
+    private var pendingInput: (text: String, images: [CodexImageAttachment])?
 
     init(context: ModelContext) {
         self.context = context
@@ -125,7 +151,20 @@ final class CodexStore: ObservableObject, Identifiable {
             ?? NSHomeDirectory()
     }
 
-    var canSend: Bool { !isBusy && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !directory.isEmpty }
+    var canSend: Bool {
+        !isBusy && !directory.isEmpty
+            && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftImages.isEmpty)
+    }
+
+    func addImages(_ images: [NSImage]) {
+        for image in images {
+            guard let attachment = CodexImageAttachment(image: image) else {
+                errorMessage = "画像を読み込めませんでした。画像をコピーし直してください。"
+                continue
+            }
+            draftImages.append(attachment)
+        }
+    }
 
     private var activeTurnIndex: Int? {
         turns.lastIndex { $0.status == "inProgress" }
@@ -220,11 +259,15 @@ final class CodexStore: ObservableObject, Identifiable {
             return
         }
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let images = draftImages
+        pendingInput = (prompt, images)
+        onCompletionChange?(false)
         draft = ""
+        draftImages = []
         errorMessage = nil
         stopRequested = false
         isBusy = true
-        turns.append(CodexTurn(prompt: prompt))
+        turns.append(CodexTurn(prompt: prompt, images: images))
         do {
             try await client.connect(directory: cwd)
             if threadID == nil {
@@ -240,7 +283,8 @@ final class CodexStore: ObservableObject, Identifiable {
             }
             guard !stopRequested else { finish("interrupted"); return }
             guard let threadID else { return }
-            var input: [[String: Any]] = [["type": "text", "text": prompt]]
+            var input: [[String: Any]] = prompt.isEmpty ? [] : [["type": "text", "text": prompt]]
+            input += images.map(\.input)
             input += selectedSkills.map { ["type": "skill", "name": $0.name, "path": $0.path] }
             let result = try await client.request("turn/start", ["threadId": threadID, "input": input])
             if let turn = result["turn"] as? [String: Any], let id = turn["id"] as? String, isBusy, let index = activeTurnIndex {
@@ -249,7 +293,6 @@ final class CodexStore: ObservableObject, Identifiable {
             }
         } catch {
             fail(error.localizedDescription)
-            if draft.isEmpty { draft = prompt }
         }
     }
 
@@ -279,10 +322,13 @@ final class CodexStore: ObservableObject, Identifiable {
 
     func reset() {
         guard !isBusy else { return }
+        onCompletionChange?(false)
         client.disconnect()
         threadID = nil
         needsResume = false
         turns = []
+        draftImages = []
+        pendingInput = nil
         requests = []
         errorMessage = nil
         model = "Codexの既存設定"
@@ -291,10 +337,27 @@ final class CodexStore: ObservableObject, Identifiable {
 
     func disconnect() { client.disconnect() }
 
-    func answer(_ request: CodexRequest, result: [String: Any]) {
+    func approve(_ request: CodexRequest, allow: Bool) {
+        let result: [String: Any] = request.method == "item/permissions/requestApproval"
+            ? ["permissions": allow ? (request.params["permissions"] as? [String: Any] ?? [:]) : [:], "scope": "turn"]
+            : ["decision": allow ? "accept" : "decline"]
+        answer(request, result: result, outcome: allow ? "承認済み" : "拒否済み")
+    }
+
+    func resolveRequest(_ id: String, outcome: String) {
+        requests.removeAll { $0.id == id }
+        for turn in turns.indices {
+            if let index = turns[turn].approvals.firstIndex(where: { $0.id == id && $0.outcome == nil }) {
+                turns[turn].approvals[index].outcome = outcome
+            }
+        }
+    }
+
+    func answer(_ request: CodexRequest, result: [String: Any], outcome: String? = nil) {
+        guard requests.contains(where: { $0.id == request.id }) else { return }
         do {
             try client.respond(id: request.rpcID, result: result)
-            requests.removeAll { $0.id == request.id }
+            resolveRequest(request.id, outcome: outcome ?? "回答済み")
         } catch { fail(error.localizedDescription) }
     }
 
@@ -307,7 +370,12 @@ final class CodexStore: ObservableObject, Identifiable {
                    let item = turns[index].items.first(where: { $0.id == params["itemId"] as? String }) {
                     details["changePreview"] = item.text
                 }
-                requests.append(CodexRequest(rpcID: requestID, method: method, params: details))
+                let request = CodexRequest(rpcID: requestID, method: method, params: details)
+                guard !requests.contains(where: { $0.id == request.id }) else { return }
+                requests.append(request)
+                if request.isApproval, let index = activeTurnIndex {
+                    turns[index].approvals.append(request)
+                }
             } else {
                 do { try client.rejectUnsupported(id: requestID) } catch { fail(error.localizedDescription) }
                 errorMessage = "このMVPでは未対応の要求です: \(method)。要求は許可していません。"
@@ -315,7 +383,7 @@ final class CodexStore: ObservableObject, Identifiable {
             return
         }
         if method == "serverRequest/resolved", let id = params["requestId"] {
-            requests.removeAll { $0.id == Self.pretty(id) }
+            resolveRequest(Self.pretty(id), outcome: "解決済み")
             return
         }
         guard params["threadId"] as? String == threadID, let index = activeTurnIndex else { return }
@@ -342,6 +410,9 @@ final class CodexStore: ObservableObject, Identifiable {
                 turns[index].items[last].phase = "final_answer"
             }
             finish(turn["status"] as? String ?? "completed")
+            if turn["status"] as? String == "completed", turn["error"] as? [String: Any] == nil {
+                onCompletionChange?(true)
+            }
         case "error":
             let error = params["error"] as? [String: Any]
             errorMessage = error?["message"] as? String ?? "Codexの実行中にエラーが発生しました。"
@@ -356,7 +427,13 @@ final class CodexStore: ObservableObject, Identifiable {
     }
 
     private func finish(_ status: String) {
+        for request in requests { resolveRequest(request.id, outcome: "終了（未回答）") }
         if let index = activeTurnIndex { turns[index].status = status }
+        if status != "completed", let pendingInput {
+            if draft.isEmpty { draft = pendingInput.text }
+            draftImages.insert(contentsOf: pendingInput.images, at: 0)
+        }
+        pendingInput = nil
         isBusy = false
         isStopping = false
         requests = []

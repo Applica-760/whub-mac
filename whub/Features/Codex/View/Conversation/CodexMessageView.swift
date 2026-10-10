@@ -5,6 +5,7 @@ struct CodexMessageView: View {
     let block: CodexMarkdownResponseView.Block
     let isUser: Bool
     let showsHeader: Bool
+    var images: [CodexImageAttachment] = []
     var width: CGFloat? = nil
     var history: [CodexTurn] = []
     @State private var showsHistory = false
@@ -32,7 +33,16 @@ struct CodexMessageView: View {
                 }
                 .background(CodexSelectionExclusion())
             }
-            CodexMarkdownResponseView.BlockView(block: block, width: width.map { $0 - (isUser ? 24 : 0) })
+            if images.isEmpty || !block.text.characters.isEmpty || !block.children.isEmpty {
+                CodexMarkdownResponseView.BlockView(block: block, width: width.map { $0 - (isUser ? 24 : 0) })
+            }
+            ForEach(images) { image in
+                Image(nsImage: image.image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: max(1, (width ?? 280) - 24), height: 80, alignment: .leading)
+                    .accessibilityLabel("送信した画像")
+            }
         }
         .padding(isUser ? 12 : 0)
         .background(isUser ? Color.secondary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 14))
@@ -65,6 +75,7 @@ struct CodexHistoryView: View {
                                 Label(item.title, systemImage: item.status == "failed" ? "xmark.circle" : "terminal")
                                     .lineLimit(2)
                             }
+                            .focusEffectDisabled()
                         }
                     }
                 }

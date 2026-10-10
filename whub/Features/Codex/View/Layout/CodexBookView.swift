@@ -5,6 +5,8 @@ import SwiftUI
 struct CodexBookView: View {
     @EnvironmentObject private var store: CodexStore
     @ObservedObject var book: CodexBookPagination
+    let focus: TabPaneFocus
+    @State private var pendingApprovalIDs: Set<String> = []
     var composerClearance: CGFloat = 64
     @State private var selection = CodexBookSelection()
     @State private var readingFocus = TabPaneFocus()
@@ -31,7 +33,12 @@ struct CodexBookView: View {
                     }
                 }
             }
-            .background(.background, in: RoundedRectangle(cornerRadius: 16))
+            .background(Color(white: 0.07).opacity(0.75), in: RoundedRectangle(cornerRadius: 16))
+            .background {
+                Color.clear
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+                    .allowsHitTesting(false)
+            }
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.quaternary))
             .clipped()
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
@@ -42,6 +49,17 @@ struct CodexBookView: View {
             .background(CodexSelectionSurface(selection: selection, bottomInset: composerClearance))
             .background(TabPaneFocusView(focus: readingFocus))
             .background(CodexPageKeys { event in
+                if [36, 76, 53].contains(event.keyCode) {
+                    guard let window = event.window, focus.contains(window),
+                          let request = book.visibleApproval,
+                          store.requests.contains(where: { $0.id == request.id }),
+                          (window.firstResponder as? NSTextView)?.hasMarkedText() != true else { return false }
+                    if let allow = CodexPageKeys.approvalDecision(keyCode: event.keyCode, isRepeat: event.isARepeat,
+                                                                hasMarkedText: false) {
+                        store.approve(request, allow: allow)
+                    }
+                    return true
+                }
                 guard let window = event.window, readingFocus.contains(window),
                       (window.firstResponder as? NSTextView)?.isEditable != true else { return false }
                 book.move(event.keyCode == 123 ? -1 : 1)
@@ -52,6 +70,11 @@ struct CodexBookView: View {
         .onChange(of: book.spread) { _, _ in selection.clear() }
         .onReceive(store.$turns.throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)) {
             book.update($0)
+            let pending = $0.flatMap(\.approvals).filter { $0.outcome == nil }
+            if let newRequest = pending.first(where: { !pendingApprovalIDs.contains($0.id) }) {
+                book.revealApproval(newRequest.id)
+            }
+            pendingApprovalIDs = Set(pending.map(\.id))
         }
     }
 
@@ -60,10 +83,20 @@ struct CodexBookView: View {
             Color.clear
             if book.pages.indices.contains(index) {
                 ForEach(book.pages[index].fragments) { fragment in
-                    CodexMessageView(block: fragment.block, isUser: fragment.isUser, showsHeader: fragment.showsHeader, width: book.contentWidth, history: store.turns.filter { $0.id == fragment.turnID }) {
-                        let answer = store.turns.first { $0.id == fragment.turnID }?.answers.map(\.text).joined(separator: "\n\n") ?? ""
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(answer, forType: .string)
+                    Group {
+                        if let request = fragment.approval {
+                            CodexApprovalEntryView(request: request,
+                                detailsExpanded: book.expandedApprovalDetailsIDs.contains(request.id),
+                                toggleDetails: { book.toggleApprovalDetails(request.id, turns: store.turns) },
+                                decide: { store.approve(request, allow: $0) })
+                                .background(CodexSelectionExclusion())
+                        } else {
+                            CodexMessageView(block: fragment.block, isUser: fragment.isUser, showsHeader: fragment.showsHeader, images: fragment.images, width: book.contentWidth, history: store.turns.filter { $0.id == fragment.turnID }) {
+                                let answer = store.turns.first { $0.id == fragment.turnID }?.answers.map(\.text).joined(separator: "\n\n") ?? ""
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(answer, forType: .string)
+                            }
+                        }
                     }
                     .environment(\.codexSelectionOrder, [index, fragment.id])
                     .environment(\.codexSelectionSource, fragment.turnID.uuidString)
@@ -101,7 +134,16 @@ struct CodexBookView: View {
     }
 }
 
-private struct CodexPageKeys: NSViewRepresentable {
+struct CodexPageKeys: NSViewRepresentable {
+    static func approvalDecision(keyCode: UInt16, isRepeat: Bool, hasMarkedText: Bool) -> Bool? {
+        guard !isRepeat, !hasMarkedText else { return nil }
+        switch keyCode {
+        case 36, 76: return true
+        case 53: return false
+        default: return nil
+        }
+    }
+
     let handle: (NSEvent) -> Bool
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -112,7 +154,7 @@ private struct CodexPageKeys: NSViewRepresentable {
             guard let view, let window = view.window, window.isKeyWindow, window.attachedSheet == nil,
                   event.window === window, !view.isHiddenOrHasHiddenAncestor,
                   event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]).isEmpty,
-                  [123, 124].contains(event.keyCode) else { return event }
+                  [123, 124, 36, 76, 53].contains(event.keyCode) else { return event }
             return coordinator?.handle?(event) == true ? nil : event
         }
         return view
