@@ -97,12 +97,12 @@ struct ExplorerStoreTests {
         let connections = RemoteConnectionStore()
         let files = FilesStore()
         let store = files.explorer
-        let editor = files.editor
         await store.update(projects: [], hosts: [host], connections: connections,
                            refreshID: 0, context: container.mainContext)
         #expect(!store.canRefresh)
         let root = FileLocation.remote(hostID: host.persistentModelID, path: "/workspace/projects/app")
         store.selectedLocation = root
+        let editor = files.activeEditor
         let session = NSObject()
         store.remoteTree.update(source: .init(root: root, sessionID: ObjectIdentifier(session)), refreshID: 0) { _ in [] }
         defer { store.stopWatching() }

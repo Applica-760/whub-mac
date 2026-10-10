@@ -336,7 +336,7 @@ struct EditorStoreTests {
         let bom = Data([0xef, 0xbb, 0xbf])
         try (bom + Data("first\r\n".utf8)).write(to: url)
         let files = FilesStore()
-        let editor = files.editor
+        let editor = files.activeEditor
         let connections = RemoteConnectionStore()
         let location = FileLocation.local(url)
         files.open(location, hosts: [], connections: connections)
@@ -358,6 +358,112 @@ struct EditorStoreTests {
         #expect(editor.file(for: location) == nil)
     }
 
+    @Test func workspaceSwitchPreservesLocalTabsAndUnsavedContents() throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let roots = ["projects/app", "worktrees/app-1", "projects/other"].map {
+            directory.appendingPathComponent($0)
+        }
+        for root in roots {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            for name in ["first.txt", "second.txt"] {
+                try Data(root.path.utf8).write(to: root.appendingPathComponent(name))
+            }
+        }
+        let files = FilesStore()
+        let connections = RemoteConnectionStore()
+        let selection = ExplorerPulldownSelection(
+            locations: roots.map(FileLocation.local),
+            selection: Binding(get: { files.explorer.selectedLocation }, set: { files.explorer.selectedLocation = $0 })
+        )
+        files.explorer.selectedLocation = .local(roots[0])
+        let projectEditor = files.activeEditor
+        let first = FileLocation.local(roots[0].appendingPathComponent("first.txt"))
+        let second = FileLocation.local(roots[0].appendingPathComponent("second.txt"))
+        files.open(first, hosts: [], connections: connections)
+        files.preview(second, hosts: [], connections: connections)
+        projectEditor.move(.file(second), before: .file(first))
+        projectEditor.select(.file(first))
+        let document = try #require(projectEditor.local.fileStores[first])
+        document.document.content = .text("unsaved project edit")
+
+        selection.move(by: 1)
+        let worktreeEditor = files.activeEditor
+        #expect(worktreeEditor !== projectEditor)
+        #expect(worktreeEditor.tabs.isEmpty)
+        let worktreeFile = FileLocation.local(roots[1].appendingPathComponent("first.txt"))
+        files.preview(worktreeFile, hosts: [], connections: connections)
+        let worktreeDocument = try #require(worktreeEditor.local.fileStores[worktreeFile])
+        #expect(worktreeDocument.document.savedSource == roots[1].path)
+        worktreeDocument.document.content = .text("unsaved worktree edit")
+
+        selection.move(by: 1)
+        #expect(files.activeEditor.tabs.isEmpty)
+        files.explorer.selectedLocation = .local(roots[0])
+        #expect(files.activeEditor === projectEditor)
+        #expect(projectEditor.tabs == [.file(second), .file(first)])
+        #expect(projectEditor.selectedTab == .file(first))
+        #expect(projectEditor.previewTab == nil)
+        #expect(document.document.hasUnsavedChanges)
+        try document.save()
+        #expect(try String(contentsOf: roots[0].appendingPathComponent("first.txt"), encoding: .utf8) == "unsaved project edit")
+        #expect(try String(contentsOf: roots[1].appendingPathComponent("first.txt"), encoding: .utf8) == roots[1].path)
+        projectEditor.close(.file(second))
+
+        selection.move(by: 1)
+        #expect(files.activeEditor === worktreeEditor)
+        #expect(worktreeEditor.tabs == [.file(worktreeFile)])
+        #expect(worktreeEditor.selectedTab == .file(worktreeFile))
+        #expect(worktreeEditor.previewTab == .file(worktreeFile))
+        #expect(worktreeDocument.document.hasUnsavedChanges)
+        try worktreeDocument.save()
+        #expect(try String(contentsOf: roots[1].appendingPathComponent("first.txt"), encoding: .utf8) == "unsaved worktree edit")
+        worktreeEditor.close(.file(worktreeFile))
+        projectEditor.close(.file(first))
+    }
+
+    @Test func remoteWorkspacesKeepSeparateTabsAndPendingReads() async throws {
+        let fixture = try ViewerFixture()
+        let roots = [fixture.root(), fixture.root().appending("worktree"), fixture.root(second: true)]
+        let files = FilesStore()
+        let gate = ViewerGate()
+        files.explorer.selectedLocation = roots[0]
+        let firstEditor = files.activeEditor
+        let firstFile = roots[0].appending("file.swift")
+        firstEditor.remote.load(firstFile, root: roots[0]) { _, _, _ in
+            await gate.wait()
+            return "first host project"
+        }
+        firstEditor.preview(.file(firstFile))
+        try await eventually { gate.waiting }
+        for root in roots.dropFirst() {
+            files.explorer.selectedLocation = root
+            #expect(files.activeEditor !== firstEditor)
+            #expect(files.activeEditor.tabs.isEmpty)
+            let location = root.appending("file.swift")
+            files.activeEditor.remote.load(location, root: root) { _, _, _ in "other workspace" }
+            files.activeEditor.open(.file(location))
+        }
+        let lastEditor = files.activeEditor
+        gate.release()
+        try await eventually { firstEditor.file(for: firstFile) != nil }
+        #expect(files.activeEditor === lastEditor)
+        #expect(lastEditor.selectedTab == .file(roots[2].appending("file.swift")))
+        for root in roots {
+            files.explorer.selectedLocation = root
+            let location = root.appending("file.swift")
+            #expect(files.activeEditor.tabs == [.file(location)])
+            #expect(files.activeEditor.selectedTab == .file(location))
+            if root == roots[0] {
+                #expect(files.activeEditor === firstEditor)
+                #expect(firstEditor.previewTab == .file(firstFile))
+                #expect(firstEditor.file(for: firstFile)?.savedSource == "first host project")
+            }
+            files.activeEditor.close(.file(location))
+        }
+    }
+
     @Test func localEditingAndTabs() throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/ViewerTests/" + UUID().uuidString)
@@ -366,7 +472,7 @@ struct EditorStoreTests {
         let url = directory.appendingPathComponent("local.txt")
         try Data("original".utf8).write(to: url)
         let files = FilesStore()
-        let editor = files.editor
+        let editor = files.activeEditor
         let connections = RemoteConnectionStore()
         let location = FileLocation.local(url)
         files.preview(location, hosts: [], connections: connections)
