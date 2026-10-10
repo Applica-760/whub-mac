@@ -26,7 +26,8 @@ struct WidgetFrame<Content: View, Header: View>: View {
                         .allowsHitTesting(false)
                 }
         }
-        .padding([.horizontal, .bottom])
+        .padding(.horizontal)
+        .padding(.bottom, 8)
         .padding(.top, 8)
     }
 }
