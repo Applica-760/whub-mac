@@ -55,26 +55,49 @@ struct MotionView: View {
 
     private struct CameraPreview: NSViewRepresentable {
         let cameraID: String
+        @Environment(\.retainedPageActivity) private var activity
 
-        func makeCoordinator() -> CameraController {
-            CameraController()
-        }
+        func makeCoordinator() -> Coordinator { Coordinator() }
 
         func makeNSView(context: Context) -> PreviewView {
             let view = PreviewView()
-            view.attach(session: context.coordinator.session)
-            context.coordinator.onPoints = { [weak view] in view?.show(points: $0) }
-            context.coordinator.onSessionConfigured = { [weak view] in view?.enableMirroring() }
-            context.coordinator.start(cameraID: cameraID)
+            view.attach(session: context.coordinator.camera.session)
+            context.coordinator.camera.onPoints = { [weak view] in view?.show(points: $0) }
+            context.coordinator.camera.onSessionConfigured = { [weak view] in view?.enableMirroring() }
             return view
         }
 
         func updateNSView(_ nsView: PreviewView, context: Context) {
-            context.coordinator.selectCamera(cameraID)
+            context.coordinator.update(cameraID: cameraID, activity: activity)
         }
 
-        static func dismantleNSView(_ nsView: PreviewView, coordinator: CameraController) {
-            coordinator.stop()
+        static func dismantleNSView(_ nsView: PreviewView, coordinator: Coordinator) {
+            coordinator.observation = nil
+            coordinator.camera.stop()
+        }
+
+        final class Coordinator {
+            let camera = CameraController()
+            var observation: AnyCancellable?
+            private weak var activity: RetainedPageActivity?
+            private var cameraID = ""
+
+            func update(cameraID: String, activity: RetainedPageActivity?) {
+                self.cameraID = cameraID
+                if self.activity !== activity {
+                    self.activity = activity
+                    observation = activity?.isActive.sink { [weak self] active in
+                        self?.setActive(active)
+                    }
+                    if activity != nil { return }
+                }
+                setActive(activity?.isActive.value ?? true)
+            }
+
+            private func setActive(_ active: Bool) {
+                if active { camera.start(cameraID: cameraID) }
+                else { camera.stop() }
+            }
         }
     }
 

@@ -4,9 +4,11 @@ import SwiftUI
 
 struct CodexBookView: View {
     @EnvironmentObject private var store: CodexStore
+    @Environment(\.isRetainedPageActive) private var isActive
     @ObservedObject var book: CodexBookPagination
     let focus: TabPaneFocus
     @State private var pendingApprovalIDs: Set<String> = []
+    @State private var needsUpdate = true
     var composerClearance: CGFloat = 64
     @State private var selection = CodexBookSelection()
     @State private var readingFocus = TabPaneFocus()
@@ -36,7 +38,7 @@ struct CodexBookView: View {
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
                 guard book.pageSize == nil else { return }
                 book.configure(viewport: size)
-                book.update(store.turns)
+                updateBook(store.turns)
             }
             .background(CodexSelectionSurface(selection: selection, bottomInset: composerClearance))
             .background(TabPaneFocusView(focus: readingFocus))
@@ -61,13 +63,23 @@ struct CodexBookView: View {
         .environment(\.codexBookSelection, selection)
         .onChange(of: book.spread) { _, _ in selection.clear() }
         .onReceive(store.$turns.throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)) {
-            book.update($0)
-            let pending = $0.flatMap(\.approvals).filter { $0.outcome == nil }
-            if let newRequest = pending.first(where: { !pendingApprovalIDs.contains($0.id) }) {
-                book.revealApproval(newRequest.id)
-            }
-            pendingApprovalIDs = Set(pending.map(\.id))
+            needsUpdate = true
+            updateBook($0)
         }
+        .onChange(of: isActive) { _, active in
+            if active, needsUpdate { updateBook(store.turns) }
+        }
+    }
+
+    private func updateBook(_ turns: [CodexTurn]) {
+        guard isActive, book.pageSize != nil else { return }
+        book.update(turns)
+        let pending = turns.flatMap(\.approvals).filter { $0.outcome == nil }
+        if let newRequest = pending.first(where: { !pendingApprovalIDs.contains($0.id) }) {
+            book.revealApproval(newRequest.id)
+        }
+        pendingApprovalIDs = Set(pending.map(\.id))
+        needsUpdate = false
     }
 
     private func page(_ index: Int, size: CGSize) -> some View {

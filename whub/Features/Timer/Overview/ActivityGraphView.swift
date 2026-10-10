@@ -4,13 +4,14 @@ import SwiftUI
 import WhubCore
 
 struct ActivityGraphView: View {
+    @Environment(\.isRetainedPageActive) private var isActive
     @Query(sort: \ActivityRecord.startedAt) private var records: [ActivityRecord]
     @Query(sort: \ActivityCategory.name) private var categories: [ActivityCategory]
     @State private var weekOffset = 0
     @State private var excludedCategories: Set<UUID> = []
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { timeline in
+        TimelineView(.animation(minimumInterval: 60, paused: !isActive)) { timeline in
             let calendar = Calendar.current
             let start = calendar.date(byAdding: .day, value: weekOffset * 7,
                                       to: activityWeekStart(for: timeline.date, calendar: calendar))!

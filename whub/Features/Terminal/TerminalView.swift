@@ -1,7 +1,9 @@
 import SwiftTerm
 import SwiftUI
+import MetalKit
 
 struct TerminalView: View {
+    @Environment(\.isRetainedPageActive) private var isActive
     @State private var tabFocus = TabPaneFocus()
     @EnvironmentObject private var store: TerminalStore
     @State private var pendingCloseID: TerminalSession.ID?
@@ -59,10 +61,19 @@ struct TerminalView: View {
             Text("このターミナルタブを閉じると、実行中のコマンドが中断されます。")
         }
         .onChange(of: store.selectedSessionID, initial: true) { _, _ in
-            DispatchQueue.main.async {
-                let terminal = store.selectedSession.terminal
-                terminal.window?.makeFirstResponder(terminal)
-            }
+            focusTerminal()
+        }
+        .onChange(of: isActive) { _, active in
+            if active { focusTerminal() }
+        }
+    }
+
+    private func focusTerminal() {
+        guard isActive else { return }
+        DispatchQueue.main.async {
+            let terminal = store.selectedSession.terminal
+            guard !terminal.isHiddenOrHasHiddenAncestor else { return }
+            terminal.window?.makeFirstResponder(terminal)
         }
     }
 
@@ -79,11 +90,18 @@ struct TerminalView: View {
 }
 
 private struct LocalTerminalView: NSViewRepresentable {
+    @Environment(\.isRetainedPageActive) private var isActive
     let terminal: LocalProcessTerminalView
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         return terminal
     }
 
-    func updateNSView(_ terminal: LocalProcessTerminalView, context: Context) {}
+    func updateNSView(_ terminal: LocalProcessTerminalView, context: Context) {
+        for renderer in terminal.subviews.compactMap({ $0 as? MTKView }) {
+            guard renderer.enableSetNeedsDisplay != isActive else { continue }
+            renderer.enableSetNeedsDisplay = isActive
+            if isActive { renderer.setNeedsDisplay(renderer.bounds) }
+        }
+    }
 }
