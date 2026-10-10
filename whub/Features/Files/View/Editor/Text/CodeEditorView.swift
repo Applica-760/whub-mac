@@ -62,6 +62,8 @@ struct CodeEditorView: NSViewRepresentable {
         textView.drawsBackground = false
         textView.isEditable = state.isEditable
         textView.isRichText = false
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.importsGraphics = false
         textView.allowsUndo = state.isEditable
         textView.isAutomaticQuoteSubstitutionEnabled = false

@@ -68,6 +68,15 @@ struct whubApp: App {
                 }
                 .keyboardShortcut("s", modifiers: .command)
             }
+            CommandGroup(after: .textEditing) {
+                Button("Find…") {
+                    guard NSApp.keyWindow?.firstResponder is CodeTextView else { return }
+                    let item = NSMenuItem()
+                    item.tag = NSTextFinder.Action.showFindInterface.rawValue
+                    NSApp.sendAction(#selector(NSTextView.performTextFinderAction(_:)), to: nil, from: item)
+                }
+                .keyboardShortcut("f", modifiers: .command)
+            }
             CommandGroup(replacing: .sidebar) {
                 Button("Toggle Full Screen") {
                     NSApp.sendAction(#selector(NSWindow.toggleFullScreen(_:)), to: nil, from: nil)
