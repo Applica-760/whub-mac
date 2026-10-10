@@ -20,16 +20,16 @@ struct GitStoreTests {
         let files = FilesStore()
         files.explorer.localTree.setRoot(fixture.directory)
         files.openDiff(.local(file))
-        let diff = try #require(files.editor.local.diffStores[file])
+        let diff = try #require(files.activeEditor.local.diffStores[file])
         try await eventually { !diff.isLoading }
         #expect(diff.diff?.content == .text(before: "before\n", after: "after\n"))
-        files.editor.close(.diff(file))
+        files.activeEditor.close(.diff(file))
         try FileManager.default.removeItem(at: parent)
         files.openDiff(.local(file))
-        let deleted = try #require(files.editor.local.diffStores[file])
+        let deleted = try #require(files.activeEditor.local.diffStores[file])
         try await eventually { !deleted.isLoading }
         #expect(deleted.diff?.content == .text(before: "before\n", after: ""))
-        files.editor.close(.diff(file))
+        files.activeEditor.close(.diff(file))
         files.explorer.localTree.reset()
     }
 
@@ -44,7 +44,7 @@ struct GitStoreTests {
         let files = FilesStore()
         files.git.setDiffEnabled(true)
         files.explorer.localTree.setRoot(fixture.first)
-        let host = NSHostingView(rootView: ExplorerDiffView(git: files.git, editor: files.editor,
+        let host = NSHostingView(rootView: ExplorerDiffView(git: files.git, editor: files.activeEditor,
             onPreview: { files.openDiff($0, preview: true) }, onOpen: { files.openDiff($0) }))
         host.frame = NSRect(x: 0, y: 0, width: 320, height: 500)
         func table(in view: NSView) -> NSTableView? {
@@ -57,8 +57,8 @@ struct GitStoreTests {
         }
         let list = try #require(table(in: host))
         list.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        #expect(files.editor.previewTab == .diff(fixture.firstFile))
-        let deleted = try #require(files.editor.local.diffStores[fixture.firstFile])
+        #expect(files.activeEditor.previewTab == .diff(fixture.firstFile))
+        let deleted = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
         try await eventually { !deleted.isLoading }
         #expect(deleted.diff?.content == .text(before: "original\n", after: ""))
         let point = list.convert(NSPoint(x: 10, y: list.rect(ofRow: 1).midY), to: nil)
@@ -66,17 +66,17 @@ struct GitStoreTests {
             modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
         let menu = try #require(list.menu(for: event))
         menu.performActionForItem(at: 2)
-        #expect(files.editor.selectedTab == .diff(added))
-        #expect(files.editor.previewTab != .diff(added))
-        #expect(files.editor.local.fileStores.isEmpty)
+        #expect(files.activeEditor.selectedTab == .diff(added))
+        #expect(files.activeEditor.previewTab != .diff(added))
+        #expect(files.activeEditor.local.fileStores.isEmpty)
         files.explorer.localTree.setRoot(fixture.second)
         try await eventually {
             host.layoutSubtreeIfNeeded()
             return files.git.diffChanges[fixture.secondFile] == .added && table(in: host)?.numberOfRows == 1
         }
         #expect(table(in: host)?.selectedRow == -1)
-        files.editor.close(.diff(fixture.firstFile))
-        files.editor.close(.diff(added))
+        files.activeEditor.close(.diff(fixture.firstFile))
+        files.activeEditor.close(.diff(added))
         files.explorer.localTree.reset()
         withExtendedLifetime(host) {}
     }
@@ -88,29 +88,29 @@ struct GitStoreTests {
         files.explorer.localTree.setRoot(fixture.first)
         let location = FileLocation.local(fixture.firstFile)
         files.preview(location, hosts: [], connections: RemoteConnectionStore())
-        let document = try #require(files.editor.file(for: location))
+        let document = try #require(files.activeEditor.file(for: location))
         document.content = .text("unsaved")
         files.openDiff(location, preview: true)
-        let diff = try #require(files.editor.local.diffStores[fixture.firstFile])
+        let diff = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
         try await eventually { !diff.isLoading }
         #expect(diff.diff?.content == .text(before: "", after: "original\n"))
-        #expect(files.editor.tabs == [.file(location), .diff(fixture.firstFile)])
-        #expect(files.editor.previewTab == .diff(fixture.firstFile))
+        #expect(files.activeEditor.tabs == [.file(location), .diff(fixture.firstFile)])
+        #expect(files.activeEditor.previewTab == .diff(fixture.firstFile))
         #expect(document.hasUnsavedChanges)
         files.openDiff(location)
-        #expect(files.editor.previewTab == nil)
+        #expect(files.activeEditor.previewTab == nil)
         files.openDiff(.local(fixture.secondFile), preview: true)
-        #expect(files.editor.previewTab == .diff(fixture.secondFile))
+        #expect(files.activeEditor.previewTab == .diff(fixture.secondFile))
         files.openDiff(location, preview: true)
-        #expect(files.editor.selectedTab == .diff(fixture.firstFile))
-        #expect(files.editor.previewTab == .diff(fixture.secondFile))
-        files.editor.close(.diff(fixture.firstFile))
-        #expect(files.editor.file(for: location) === document)
-        #expect(files.editor.local.diffStores[fixture.firstFile] == nil)
-        files.editor.close(.diff(fixture.secondFile))
+        #expect(files.activeEditor.selectedTab == .diff(fixture.firstFile))
+        #expect(files.activeEditor.previewTab == .diff(fixture.secondFile))
+        files.activeEditor.close(.diff(fixture.firstFile))
+        #expect(files.activeEditor.file(for: location) === document)
+        #expect(files.activeEditor.local.diffStores[fixture.firstFile] == nil)
+        files.activeEditor.close(.diff(fixture.secondFile))
         document.content = .text("original\n")
-        files.editor.close(.file(location))
-        #expect(files.editor.tabs.isEmpty)
+        files.activeEditor.close(.file(location))
+        #expect(files.activeEditor.tabs.isEmpty)
         files.explorer.localTree.reset()
     }
 
@@ -124,11 +124,11 @@ struct GitStoreTests {
         files.explorer.localTree.setRoot(fixture.first)
         let location = FileLocation.local(fixture.firstFile)
         files.openDiff(location)
-        let diff = try #require(files.editor.local.diffStores[fixture.firstFile])
+        let diff = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
         try await eventually { diff.diff != nil && !files.git.isLoadingDiff }
         #expect(diff.diff?.change == nil)
         files.open(location, hosts: [], connections: RemoteConnectionStore())
-        let local = try #require(files.editor.local.fileStores[location])
+        let local = try #require(files.activeEditor.local.fileStores[location])
         local.document.content = .text("saved\n")
         try local.save()
         try await eventually {
@@ -149,8 +149,8 @@ struct GitStoreTests {
         files.refresh()
         try await eventually { !diff.isLoading }
         #expect(diff.diff?.change == .deleted)
-        files.editor.close(.file(location))
-        files.editor.close(.diff(fixture.firstFile))
+        files.activeEditor.close(.file(location))
+        files.activeEditor.close(.diff(fixture.firstFile))
         files.explorer.localTree.reset()
     }
 
@@ -187,14 +187,14 @@ struct GitStoreTests {
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let files = FilesStore()
         files.openDiff(.local(fixture.firstFile), preview: true)
-        let first = try #require(files.editor.local.diffStores[fixture.firstFile])
+        let first = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
         files.openDiff(.local(fixture.secondFile), preview: true)
-        #expect(files.editor.local.diffStores[fixture.firstFile] == nil)
-        let second = try #require(files.editor.local.diffStores[fixture.secondFile])
+        #expect(files.activeEditor.local.diffStores[fixture.firstFile] == nil)
+        let second = try #require(files.activeEditor.local.diffStores[fixture.secondFile])
         try await eventually { !second.isLoading }
         #expect(first.diff == nil)
         #expect(second.diff?.fileURL == fixture.secondFile)
-        files.editor.close(.diff(fixture.secondFile))
+        files.activeEditor.close(.diff(fixture.secondFile))
         let failed = LocalDiffStore(fileURL: fixture.secondFile, directory: fixture.first)
         try await eventually { !failed.isLoading }
         #expect(failed.errorMessage != nil)
@@ -260,9 +260,9 @@ struct GitStoreTests {
         let files = FilesStore()
         let location = FileLocation.local(fixture.firstFile)
         files.open(location, hosts: [], connections: RemoteConnectionStore())
-        let document = try #require(files.editor.file(for: location))
+        let document = try #require(files.activeEditor.file(for: location))
         let host = NSHostingView(rootView: EditorView()
-            .environmentObject(files).environmentObject(files.editor).environmentObject(files.git))
+            .environmentObject(files).environmentObject(files.activeEditor).environmentObject(files.git))
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         host.layoutSubtreeIfNeeded()
         defer { withExtendedLifetime(host) {} }
@@ -281,11 +281,11 @@ struct GitStoreTests {
             process.waitUntilExit()
             #expect(process.terminationStatus == 0)
         }
-        let diskRevision = try #require(files.editor.local.fileStores[location]).diskRevision
+        let diskRevision = try #require(files.activeEditor.local.fileStores[location]).diskRevision
         files.refresh()
         try await eventually { ruler.hunks.isEmpty }
-        #expect(files.editor.local.fileStores[location]?.diskRevision == diskRevision)
-        files.editor.close(.file(location))
+        #expect(files.activeEditor.local.fileStores[location]?.diskRevision == diskRevision)
+        files.activeEditor.close(.file(location))
     }
 
     private func eventually(_ condition: () -> Bool) async throws {

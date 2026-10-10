@@ -16,7 +16,7 @@ struct ExplorerView: View {
         VStack(alignment: .leading, spacing: 16) {
             ExplorerPulldownView(store: store)
             if store.showsDiff, store.selectedLocation?.localURL != nil {
-                ExplorerDiffView(git: gitStore, editor: files.editor,
+                ExplorerDiffView(git: gitStore, editor: files.activeEditor,
                                  onPreview: { openDiff($0, preview: true) },
                                  onOpen: { openDiff($0, preview: false) })
             } else {
