@@ -6,13 +6,13 @@ import WhubCore
 @main
 struct whubApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var fileViewerStore = FileViewerStore()
+    @StateObject private var files = FilesStore()
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
     @StateObject private var codexStore: CodexTabsStore
     @StateObject private var remoteConnections = RemoteConnectionStore()
     @State private var section = AppView.Section.workspace
-    @FocusedValue(\.projectNavigation) private var projectNavigation
+    @FocusedValue(\.explorerPulldownSelection) private var explorerPulldownSelection
     private let workspaceContainer: ModelContainer
 
     init() {
@@ -31,7 +31,9 @@ struct whubApp: App {
         WindowGroup {
             AppView(section: $section)
                 .containerBackground(.thinMaterial, for: .window)
-                .environmentObject(fileViewerStore)
+                .environmentObject(files)
+                .environmentObject(files.editor)
+                .environmentObject(files.git)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
                 .environmentObject(codexStore)
@@ -41,7 +43,7 @@ struct whubApp: App {
                     codexStore.disconnect()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                    fileViewerStore.checkForExternalChanges()
+                    files.checkForExternalChanges()
                 }
         }
         .windowResizability(.contentMinSize)
@@ -80,14 +82,14 @@ struct whubApp: App {
                     .keyboardShortcut(.leftArrow, modifiers: [.command, .shift])
                 Button("Next Page") { moveSection(by: 1) }
                     .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
-                Button("Reload Files") { fileViewerStore.refresh() }
+                Button("Reload Files") { files.refresh() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
-                Button("Previous Project or Worktree") { projectNavigation?.move(by: -1) }
+                Button("Previous Project or Worktree") { explorerPulldownSelection?.move(by: -1) }
                     .keyboardShortcut(.upArrow, modifiers: [.command, .shift])
-                    .disabled(projectNavigation == nil)
-                Button("Next Project or Worktree") { projectNavigation?.move(by: 1) }
+                    .disabled(explorerPulldownSelection == nil)
+                Button("Next Project or Worktree") { explorerPulldownSelection?.move(by: 1) }
                     .keyboardShortcut(.downArrow, modifiers: [.command, .shift])
-                    .disabled(projectNavigation == nil)
+                    .disabled(explorerPulldownSelection == nil)
             }
         }
 

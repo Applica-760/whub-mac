@@ -39,7 +39,7 @@ struct AppView: View {
             switch self {
             case .overview: OverviewView()
             case .workspace: WorkspaceView()
-            case .file: FileViewerView().navigationTitle("File")
+            case .file: EditorView().navigationTitle("File")
             case .terminal: TerminalView().navigationTitle("Terminal")
             case .browser: BrowserView()
             case .codex: CodexView()
@@ -48,14 +48,15 @@ struct AppView: View {
         }
     }
 
+    @EnvironmentObject private var files: FilesStore
     @Binding var section: Section
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         NavigationSplitView {
-            FileExplorerView {
+            ExplorerView(onFileSelect: {
                 section = .file
-            }
+            }, store: files.explorer)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 320, max: 640)
         } detail: {
             section.content()

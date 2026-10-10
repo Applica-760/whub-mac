@@ -42,13 +42,13 @@ struct RemoteWorkspaceStoreTests {
         #expect(rows.map(\.name) == ["a", "z", "a-2", "a-10", "a", "z", "a-2", "a-10"])
         #expect(rows[0] != rows[4])
         #expect(rows[0] != .local(URL(fileURLWithPath: "/same/projects/a")))
-        let explorer = FileExplorerStore()
+        let explorer = ExplorerStore()
         let localHost = try HostStore(context: fixture.container.mainContext).addLocal(name: "local", basePath: "/same")
         let project = try ProjectStore(context: fixture.container.mainContext).add(name: "a", gitURL: nil, host: localHost)
         let locations = explorer.availableLocations(projects: [project], remote: rows, basePath: localHost.basePath)
         #expect(locations == [.local(URL(fileURLWithPath: localHost.basePath)), .local(URL(fileURLWithPath: project.path))] + rows)
         explorer.selectedLocation = locations[1]
-        let navigation = ProjectNavigation(locations: locations, selection: Binding(
+        let navigation = ExplorerPulldownSelection(locations: locations, selection: Binding(
             get: { explorer.selectedLocation }, set: { explorer.selectedLocation = $0 }
         ))
         navigation.move(by: 1)
@@ -60,7 +60,7 @@ struct RemoteWorkspaceStoreTests {
     }
 
     @Test func basePathSelectionAndDisabledDirectories() {
-        let explorer = FileExplorerStore()
+        let explorer = ExplorerStore()
         let base = FileLocation.local(URL(fileURLWithPath: "/shared"))
         explorer.validateSelection(projects: [], remote: [], basePath: "/shared")
         #expect(explorer.selectedLocation == base)
@@ -68,16 +68,16 @@ struct RemoteWorkspaceStoreTests {
         explorer.validateSelection(projects: [], remote: [], basePath: "/shared")
         #expect(explorer.selectedLocation == base)
         for name in ["projects", "worktrees"] {
-            let item = FileItem(location: .local(URL(fileURLWithPath: "/shared/" + name)), isDirectory: true)
+            let item = ExplorerItem(location: .local(URL(fileURLWithPath: "/shared/" + name)), isDirectory: true)
             #expect(explorer.isUnavailable(item))
             #expect(explorer.children(for: item).isEmpty)
         }
         for (path, directory) in [("/shared/AGENTS.md", false), ("/shared/.agents", true),
                                   ("/shared/rules/projects", true), ("/shared/projects", false)] {
-            #expect(!explorer.isUnavailable(FileItem(location: .local(URL(fileURLWithPath: path)), isDirectory: directory)))
+            #expect(!explorer.isUnavailable(ExplorerItem(location: .local(URL(fileURLWithPath: path)), isDirectory: directory)))
         }
         explorer.selectedLocation = .local(URL(fileURLWithPath: "/shared/projects/app"))
-        #expect(!explorer.isUnavailable(FileItem(location: .local(URL(fileURLWithPath: "/shared/projects/app/projects")), isDirectory: true)))
+        #expect(!explorer.isUnavailable(ExplorerItem(location: .local(URL(fileURLWithPath: "/shared/projects/app/projects")), isDirectory: true)))
     }
 
     @Test func renamePreservesListingAndSelection() async throws {
@@ -91,7 +91,7 @@ struct RemoteWorkspaceStoreTests {
         }
         try await eventually { store.states[source.hostID] == .loaded }
         let locations = store.entries(for: [source])
-        let explorer = FileExplorerStore()
+        let explorer = ExplorerStore()
         let selected = try #require(locations.last)
         explorer.selectedLocation = selected
 
