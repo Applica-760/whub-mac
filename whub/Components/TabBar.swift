@@ -30,7 +30,7 @@ struct TabBar: View {
                 }
                 .padding(.leading, 10)
                 .padding(.trailing, 6)
-                .padding(.vertical, 6)
+                .padding(.vertical, 2)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

@@ -8,34 +8,28 @@ struct EditorView: View {
     @SceneStorage("fileEditorID") private var editorID = UUID().uuidString
 
     var body: some View {
-        VStack(spacing: 8) {
+        WidgetFrame {
+            if case let .diff(url) = store.selectedTab, let state = store.local.diffStores[url] {
+                DiffContent(state: state).id(url)
+            } else if case let .file(location) = store.selectedTab, let state = store.local.fileStores[location] {
+                FileContent(state: state, editorID: editorID, refreshID: files.refreshID) { [weak store] in
+                    if store?.previewTab == .file(location) { store?.open(.file(location)) }
+                }
+                .id(location)
+            } else if case let .file(location) = store.selectedTab, case .remote = location {
+                RemoteViewerView(store: store.remote, location: location, editorID: editorID)
+                    .id(location)
+            } else {
+                Text("Select a file")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } header: {
             EditorTabBarView(tabFocus: tabFocus, editorID: editorID)
-
             if let message = store.local.watchError {
                 Text(message).foregroundStyle(.orange)
             }
-
-            WidgetFrame {
-                if case let .diff(url) = store.selectedTab, let state = store.local.diffStores[url] {
-                    DiffContent(state: state).id(url)
-                } else if case let .file(location) = store.selectedTab, let state = store.local.fileStores[location] {
-                    FileContent(state: state, editorID: editorID, refreshID: files.refreshID) { [weak store] in
-                        if store?.previewTab == .file(location) { store?.open(.file(location)) }
-                    }
-                    .id(location)
-                } else if case let .file(location) = store.selectedTab, case .remote = location {
-                    RemoteViewerView(store: store.remote, location: location, editorID: editorID)
-                        .id(location)
-                } else {
-                    Text("Select a file")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
         }
         .background(TabPaneFocusView(focus: tabFocus))
-        .padding(.horizontal)
-        .padding(.bottom)
-        .padding(.top, 8)
     }
 }
 
