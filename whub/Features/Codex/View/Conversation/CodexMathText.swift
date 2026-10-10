@@ -102,7 +102,7 @@ struct CodexMathSource {
 
 struct CodexMathText: View {
     let text: AttributedString
-    var fontSize: CGFloat = 13
+    var fontSize: CGFloat = 15
     var weight: NSFont.Weight = .light
     var alignment: NSTextAlignment = .left
     var lineSpacing: CGFloat = 4
@@ -136,7 +136,7 @@ struct CodexMathText: View {
         paragraph.alignment = alignment
         paragraph.lineSpacing = lineSpacing
         for run in source.runs {
-            if let formula = run[CodexFormulaAttribute.self], let rendered = render(formula, size: display ? 20 : fontSize) {
+            if let formula = run[CodexFormulaAttribute.self], let rendered = render(formula, size: display ? 22 : fontSize) {
                 let attachment = NSTextAttachment()
                 attachment.image = rendered.image
                 attachment.bounds = CGRect(x: 0, y: -rendered.descent, width: rendered.image.size.width, height: rendered.image.size.height)
@@ -148,7 +148,7 @@ struct CodexMathText: View {
             let intent = run.inlinePresentationIntent ?? []
             let runWeight: NSFont.Weight = intent.contains(.stronglyEmphasized) ? .bold : weight
             var font = monospaced || intent.contains(.code)
-                ? NSFont.monospacedSystemFont(ofSize: monospaced ? fontSize : 12, weight: runWeight)
+                ? NSFont.monospacedSystemFont(ofSize: monospaced ? fontSize : 14, weight: runWeight)
                 : NSFont.systemFont(ofSize: fontSize, weight: runWeight)
             if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
             var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
