@@ -7,8 +7,8 @@
 | ショートカット | 操作 |
 | --- | --- |
 | ⌃⌘F | フルスクリーンを切り替える |
-| ⇧⌘← | 一つ前のページに移動する（末尾へ循環） |
-| ⇧⌘→ | 一つ後のページに移動する（先頭へ循環） |
+| ⇧⌘H | 一つ前のページに移動する（末尾へ循環） |
+| ⇧⌘L | 一つ後のページに移動する（先頭へ循環） |
 | ⌘Q | 確認アラートを表示し、「終了」を選んだ場合にアプリを終了する |
 
 ページの順序は Workspace → Browser → Overview → Motion。
@@ -49,7 +49,7 @@
 | ショートカット | 操作 |
 | --- | --- |
 | ⇧⌘R | Project / Worktree の一覧、ファイル一覧、Git 状態を更新する |
-| ⇧⌘↑ | 一つ前の Project / Worktree に移動する |
-| ⇧⌘↓ | 一つ後の Project / Worktree に移動する |
+| ⇧⌘K | 一つ前の Project / Worktree に移動する |
+| ⇧⌘J | 一つ後の Project / Worktree に移動する |
 
 実装：[whubApp.swift](../../whub/whubApp.swift)、[ProjectNavigation.swift](../../whub/Features/Files/Explorer/ProjectNavigation.swift)、[FileExplorerView.swift](../../whub/Features/Files/Explorer/FileExplorerView.swift)

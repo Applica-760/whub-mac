@@ -79,16 +79,16 @@ struct whubApp: App {
                     Button(destination.label) { section = destination }
                 }
                 Button("Previous Page") { moveSection(by: -1) }
-                    .keyboardShortcut(.leftArrow, modifiers: [.command, .shift])
+                    .keyboardShortcut("h", modifiers: [.command, .shift])
                 Button("Next Page") { moveSection(by: 1) }
-                    .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
+                    .keyboardShortcut("l", modifiers: [.command, .shift])
                 Button("Reload Files") { files.refresh() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Previous Project or Worktree") { explorerPulldownSelection?.move(by: -1) }
-                    .keyboardShortcut(.upArrow, modifiers: [.command, .shift])
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
                     .disabled(explorerPulldownSelection == nil)
                 Button("Next Project or Worktree") { explorerPulldownSelection?.move(by: 1) }
-                    .keyboardShortcut(.downArrow, modifiers: [.command, .shift])
+                    .keyboardShortcut("j", modifiers: [.command, .shift])
                     .disabled(explorerPulldownSelection == nil)
             }
         }
