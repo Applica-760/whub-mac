@@ -11,6 +11,35 @@ import WhubCore
 
 @Suite @MainActor
 struct EditorStoreTests {
+    @Test func findBarPreservesUnsavedText() async throws {
+        let file = FileStore(content: .text("saved"), isEditable: true)
+        let source = "日本語 target 😀 target unsaved"
+        file.textStorage.replaceCharacters(in: NSRange(location: 0, length: file.textStorage.length), with: source)
+        file.content = .text(source)
+        let host = NSHostingView(rootView: CodeEditorView(state: file, editorID: "find", onEdit: {},
+                                                         source: source, language: nil, hunks: []))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
+        try await eventually {
+            host.layoutSubtreeIfNeeded()
+            return file.editorViews.views["find"] != nil
+        }
+        let scroll = try #require(file.editorViews.views["find"])
+        let text = try #require(scroll.documentView as? CodeTextView)
+        #expect(text.usesFindBar && text.isIncrementalSearchingEnabled)
+        let action = NSMenuItem()
+        action.tag = NSTextFinder.Action.showFindInterface.rawValue
+        text.performTextFinderAction(action)
+        #expect(scroll.isFindBarVisible)
+        action.tag = NSTextFinder.Action.hideFindInterface.rawValue
+        text.performTextFinderAction(action)
+        #expect(!scroll.isFindBarVisible)
+        #expect(text.string == source)
+        #expect(file.hasUnsavedChanges)
+        #expect(file.savedSource == "saved")
+        #expect(!file.undoManager.canUndo)
+        withExtendedLifetime(host) {}
+    }
+
     @Test func alignedDiffPreservesWholeFilesAndOriginalCopyText() {
         for (before, after) in [("", ""), ("", "added\n"), ("deleted\n", ""),
                                 ("top\nold\nbottom\n", "top\nnew\nextra\nbottom\n"),
