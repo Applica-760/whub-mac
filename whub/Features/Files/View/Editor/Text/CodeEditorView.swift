@@ -6,6 +6,7 @@ import WhubCore
 @MainActor private let codeHighlighter = Highlighter()
 
 struct CodeEditorView: NSViewRepresentable {
+    @Environment(\.isRetainedPageActive) private var isActive
     let state: FileStore
     let editorID: String
     let onEdit: () -> Void
@@ -14,6 +15,39 @@ struct CodeEditorView: NSViewRepresentable {
     let hunks: [LineDiffHunk]
     var diffLines: [DiffLine]? = nil
     var onScrollView: ((NSScrollView) -> Void)? = nil
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    struct HighlightKey: Equatable {
+        let source: String
+        let language: String?
+        let dark: Bool
+        let diffLines: [DiffLine]?
+    }
+
+    final class Coordinator {
+        var highlighted: HighlightKey?
+        private weak var storage: NSTextStorage?
+        private var observation: NSObjectProtocol?
+
+        func observe(_ storage: NSTextStorage) {
+            guard self.storage !== storage else { return }
+            if let observation { NotificationCenter.default.removeObserver(observation) }
+            self.storage = storage
+            highlighted = nil
+            observation = NotificationCenter.default.addObserver(
+                forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: .main
+            ) { [weak self] notification in
+                if let storage = notification.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) {
+                    self?.highlighted = nil
+                }
+            }
+        }
+
+        deinit {
+            if let observation { NotificationCenter.default.removeObserver(observation) }
+        }
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
         if let scrollView = state.editorViews.views[editorID] { return scrollView }
@@ -62,14 +96,18 @@ struct CodeEditorView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.observe(state.textStorage)
         guard let textView = scrollView.documentView as? CodeTextView else { return }
         textView.onEdit = onEdit
         textView.diffLines = diffLines
+        guard isActive else { return }
         onScrollView?(scrollView)
         (scrollView.verticalRulerView as? LineNumberRulerView)?.update(source: textView.string, hunks: hunks, diffLines: diffLines)
         guard state.textStorage.string == source,
               !state.editorViews.hasMarkedText else { return }
         let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let key = HighlightKey(source: source, language: language, dark: dark, diffLines: diffLines)
+        guard context.coordinator.highlighted != key else { return }
         codeHighlighter?.setTheme(
             dark ? "night-owl" : "xcode",
             withFont: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).fontName,
@@ -118,6 +156,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
         state.textStorage.endEditing()
         textView.typingAttributes = attributes
+        context.coordinator.highlighted = key
     }
 }
 

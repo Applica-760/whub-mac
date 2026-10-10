@@ -3,6 +3,7 @@ import SwiftUI
 import WebKit
 
 struct BrowserView: View {
+    @Environment(\.isRetainedPageActive) private var isActive
     @State private var tabFocus = TabPaneFocus()
     @EnvironmentObject private var store: BrowserStore
 
@@ -78,10 +79,13 @@ struct BrowserView: View {
         .background(TabPaneFocusView(focus: tabFocus))
         .navigationTitle("Browser")
         .onAppear {
-            DispatchQueue.main.async { tabFocus.activate() }
+            if isActive { DispatchQueue.main.async { tabFocus.activate() } }
         }
         .onChange(of: store.selectedSessionID) { _, _ in
-            tabFocus.activate()
+            if isActive { tabFocus.activate() }
+        }
+        .onChange(of: isActive) { _, active in
+            if active { tabFocus.activate() }
         }
     }
 }

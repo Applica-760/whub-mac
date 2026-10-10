@@ -3,6 +3,7 @@ import SwiftUI
 import WhubCore
 
 struct TimerControlsView: View {
+    @Environment(\.isRetainedPageActive) private var isActive
     @Query(sort: \ActivityCategory.name) private var categories: [ActivityCategory]
     @Query(filter: #Predicate<ActivityRecord> { $0.endedAt == nil }) private var records: [ActivityRecord]
     @Environment(\.modelContext) private var context
@@ -44,7 +45,7 @@ struct TimerControlsView: View {
                     .buttonStyle(.glass)
                     .buttonBorderShape(.circle)
                     .controlSize(.large)
-                    TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    TimelineView(.animation(minimumInterval: 1, paused: !isActive)) { timeline in
                         let elapsed = current.map { max(0, timeline.date.timeIntervalSince($0.startedAt)) } ?? 0
                         Text(Duration.seconds(elapsed).formatted(.time(pattern: .hourMinuteSecond)))
                             .font(.system(size: 30, weight: .medium, design: .monospaced))

@@ -209,6 +209,7 @@ struct CodexInputView: View {
 }
 
 private struct CodexTextInput: NSViewRepresentable {
+    @Environment(\.isRetainedPageActive) private var isActive
     @Binding var text: String
     @Binding var selection: NSRange
     let handleKey: (NSEvent) -> Bool
@@ -234,6 +235,14 @@ private struct CodexTextInput: NSViewRepresentable {
     }
 
     func updateNSView(_ view: CodexTextView, context: Context) {
+        let becameActive = isActive && !view.isPageActive
+        view.isPageActive = isActive
+        if becameActive {
+            DispatchQueue.main.async { [weak view] in
+                guard let view, view.isPageActive, !view.isHiddenOrHasHiddenAncestor else { return }
+                view.window?.makeFirstResponder(view)
+            }
+        }
         context.coordinator.parent = self
         context.coordinator.isUpdating = true
         defer { context.coordinator.isUpdating = false }
@@ -282,6 +291,7 @@ private struct CodexTextInput: NSViewRepresentable {
 }
 
 final class CodexTextView: NSTextView {
+    var isPageActive = false
     var handleKey: ((NSEvent) -> Bool)?
     var pasteImages: (([NSImage]) -> Void)?
 
@@ -306,6 +316,6 @@ final class CodexTextView: NSTextView {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let window { window.makeFirstResponder(self) }
+        if isPageActive, !isHiddenOrHasHiddenAncestor, let window { window.makeFirstResponder(self) }
     }
 }

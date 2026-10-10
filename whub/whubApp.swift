@@ -11,7 +11,7 @@ struct whubApp: App {
     @StateObject private var browserStore = BrowserStore()
     @StateObject private var codexStore: CodexTabsStore
     @StateObject private var remoteConnections = RemoteConnectionStore()
-    @State private var section = AppView.Section.workspace
+    @State private var section = AppView.Section.file
     @FocusedValue(\.explorerPulldownSelection) private var explorerPulldownSelection
     private let workspaceContainer: ModelContainer
 
@@ -52,14 +52,14 @@ struct whubApp: App {
             CommandGroup(after: .newItem) {
                 Button("新規タブ") {
                     switch section {
-                    case .workspace, .terminal: terminalStore.add()
+                    case .terminal: terminalStore.add()
                     case .browser: browserStore.add()
                     case .codex: codexStore.add()
                     default: break
                     }
                 }
                 .keyboardShortcut("t", modifiers: .command)
-                .disabled(section != .workspace && section != .terminal && section != .browser && section != .codex)
+                .disabled(section != .terminal && section != .browser && section != .codex)
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {

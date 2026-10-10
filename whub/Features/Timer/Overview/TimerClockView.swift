@@ -3,6 +3,7 @@ import SwiftUI
 import WhubCore
 
 struct TimerClockView: View {
+    @Environment(\.isRetainedPageActive) private var isActive
     @Query(sort: \ActivityRecord.startedAt) private var records: [ActivityRecord]
     @State private var day = Calendar.current.startOfDay(for: .now)
     @State private var editingRecord: ActivityRecord?
@@ -16,7 +17,7 @@ struct TimerClockView: View {
 
     var body: some View {
         WidgetFrame {
-            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            TimelineView(.animation(minimumInterval: 1, paused: !isActive)) { timeline in
                 VStack(spacing: 12) {
                     Text(day, format: Self.dateFormat)
                         .font(.headline)
