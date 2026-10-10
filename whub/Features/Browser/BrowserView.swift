@@ -7,7 +7,12 @@ struct BrowserView: View {
     @EnvironmentObject private var store: BrowserStore
 
     var body: some View {
-        VStack(spacing: 8) {
+        @Bindable var session = store.selectedSession
+
+        WidgetFrame {
+            BrowserSessionView(session: session)
+                .id(session.id)
+        } header: {
             TabBarContainer(
                 ids: store.sessions.map(\.id),
                 selection: store.selectedSessionID,
@@ -35,31 +40,6 @@ struct BrowserView: View {
                 }
             }
 
-            BrowserSessionView(session: store.selectedSession)
-                .id(store.selectedSessionID)
-        }
-        .background(TabPaneFocusView(focus: tabFocus))
-        .padding(.horizontal)
-        .padding(.bottom)
-        .padding(.top, 8)
-        .navigationTitle("Browser")
-        .onAppear {
-            DispatchQueue.main.async { tabFocus.activate() }
-        }
-        .onChange(of: store.selectedSessionID) { _, _ in
-            tabFocus.activate()
-        }
-    }
-}
-
-private struct BrowserSessionView: View {
-    let session: BrowserSession
-    @AppStorage(BookmarkStorage.key) private var bookmarkData = BookmarkStorage.initialData
-
-    var body: some View {
-        @Bindable var session = session
-
-        VStack(spacing: 8) {
             HStack {
                 ControlGroup {
                     Button("Bookmarks", systemImage: "house") {
@@ -94,31 +74,46 @@ private struct BrowserSessionView: View {
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(session.loadAddress)
             }
+        }
+        .background(TabPaneFocusView(focus: tabFocus))
+        .navigationTitle("Browser")
+        .onAppear {
+            DispatchQueue.main.async { tabFocus.activate() }
+        }
+        .onChange(of: store.selectedSessionID) { _, _ in
+            tabFocus.activate()
+        }
+    }
+}
 
-            WidgetFrame {
-                if session.showsBookmarks {
-                    GeometryReader { geometry in
-                        ScrollView {
-                            Grid(horizontalSpacing: 24, verticalSpacing: 24) {
-                                ForEach(bookmarkRows.indices, id: \.self) { row in
-                                    GridRow {
-                                        ForEach(bookmarkRows[row]) { bookmark in
-                                            BookmarkButton(bookmark: bookmark) {
-                                                session.address = bookmark.url.absoluteString
-                                                session.loadAddress()
-                                            }
+private struct BrowserSessionView: View {
+    let session: BrowserSession
+    @AppStorage(BookmarkStorage.key) private var bookmarkData = BookmarkStorage.initialData
+
+    var body: some View {
+        Group {
+            if session.showsBookmarks {
+                GeometryReader { geometry in
+                    ScrollView {
+                        Grid(horizontalSpacing: 24, verticalSpacing: 24) {
+                            ForEach(bookmarkRows.indices, id: \.self) { row in
+                                GridRow {
+                                    ForEach(bookmarkRows[row]) { bookmark in
+                                        BookmarkButton(bookmark: bookmark) {
+                                            session.address = bookmark.url.absoluteString
+                                            session.loadAddress()
                                         }
                                     }
                                 }
                             }
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: geometry.size.height)
                         }
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: geometry.size.height)
                     }
-                } else {
-                    WebView(session.page)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+            } else {
+                WebView(session.page)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .onChange(of: session.page.url) { _, url in

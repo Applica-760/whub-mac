@@ -10,7 +10,6 @@ private struct TodoPreview: Identifiable {
 struct TodoView: View {
     var body: some View {
         TodoWidget()
-            .padding()
             .navigationTitle("Todo")
     }
 }

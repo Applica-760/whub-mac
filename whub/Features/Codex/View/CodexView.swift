@@ -29,8 +29,6 @@ struct CodexView: View {
             canClose: { _ in store.sessions.count > 1 },
             isShortcutTarget: { pendingCloseID == nil && tabFocus.contains($0) }
         ))
-        .padding(.horizontal)
-        .padding(.top, 8)
         .navigationTitle("AgentBook")
         .alert("実行中の会話があります", isPresented: Binding(
             get: { pendingCloseID != nil },
@@ -68,30 +66,32 @@ private struct CodexSessionView<Tabs: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack {
-                if let book {
-                    CodexBookView(book: book, focus: focus, composerClearance: composerClearance)
+            WidgetFrame {
+                ZStack {
+                    if let book {
+                        CodexBookView(book: book, focus: focus, composerClearance: composerClearance)
+                            .id(store.id)
+                    } else {
+                        Color.clear.frame(maxHeight: .infinity)
+                    }
+                }
+                    .overlay(alignment: .bottom) {
+                        CodexInputView {
+                            if store.turns.isEmpty { store.reset() } else { confirmsReset = true }
+                        }
                         .id(store.id)
-                } else {
-                    Color.clear.frame(maxHeight: .infinity)
-                }
+                        .padding(.horizontal, 212)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                            composerClearance = $0 + 4
+                        }
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        tabs()
+                            .frame(width: 156, height: 36)
+                            .padding(.leading, 56)
+                            .padding(.bottom, 16)
+                    }
             }
-                .overlay(alignment: .bottom) {
-                    CodexInputView {
-                        if store.turns.isEmpty { store.reset() } else { confirmsReset = true }
-                    }
-                    .id(store.id)
-                    .padding(.horizontal, 212)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
-                        composerClearance = $0 + 4
-                    }
-                }
-                .overlay(alignment: .bottomLeading) {
-                    tabs()
-                        .frame(width: 156, height: 36)
-                        .padding(.leading, 56)
-                        .padding(.bottom, 16)
-                }
             if store.requests.contains(where: { !$0.isApproval }) {
                 CodexInteractionRequestsView(requests: store.requests.filter { !$0.isApproval }) { request, result in
                     store.answer(request, result: result)

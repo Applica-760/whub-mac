@@ -7,7 +7,13 @@ struct TerminalView: View {
     @State private var pendingCloseID: TerminalSession.ID?
 
     var body: some View {
-        VStack(spacing: 8) {
+        WidgetFrame {
+            LocalTerminalView(terminal: store.selectedSession.terminal)
+                .id(store.selectedSession.id)
+                .frame(maxWidth: .infinity, minHeight: 240)
+                .padding(6)
+                .background(Color(white: 0.07).opacity(0.75))
+        } header: {
             TabBarContainer(
                 ids: store.sessions.map(\.id),
                 selection: store.selectedSessionID,
@@ -37,13 +43,8 @@ struct TerminalView: View {
                     )
                 }
             }
-
-            TerminalWidget(session: store.selectedSession)
         }
         .background(TabPaneFocusView(focus: tabFocus))
-        .padding(.horizontal)
-        .padding(.bottom)
-        .padding(.top, 8)
         .alert("実行中のコマンドがあります", isPresented: Binding(
             get: { pendingCloseID != nil },
             set: { if !$0 { pendingCloseID = nil } }
@@ -73,20 +74,6 @@ struct TerminalView: View {
             pendingCloseID = id
         } else {
             store.remove(id)
-        }
-    }
-}
-
-struct TerminalWidget: View {
-    let session: TerminalSession
-
-    var body: some View {
-        WidgetFrame {
-            LocalTerminalView(terminal: session.terminal)
-                .id(session.id)
-                .frame(maxWidth: .infinity, minHeight: 240)
-                .padding(6)
-                .background(Color(white: 0.07).opacity(0.75))
         }
     }
 }

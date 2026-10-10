@@ -33,14 +33,6 @@ struct CodexBookView: View {
                     }
                 }
             }
-            .background(Color(white: 0.07).opacity(0.75), in: RoundedRectangle(cornerRadius: 16))
-            .background {
-                Color.clear
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
-                    .allowsHitTesting(false)
-            }
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.quaternary))
-            .clipped()
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
                 guard book.pageSize == nil else { return }
                 book.configure(viewport: size)

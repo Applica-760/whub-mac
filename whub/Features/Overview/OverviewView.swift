@@ -3,11 +3,10 @@ import SwiftUI
 struct OverviewView: View {
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: 0) {
                 TodoWidget()
                 TimerView()
             }
-            .padding()
         }
         .navigationTitle("Overview")
     }

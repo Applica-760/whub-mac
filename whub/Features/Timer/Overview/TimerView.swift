@@ -2,8 +2,8 @@ import SwiftUI
 
 struct TimerView: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 16) {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
                 TimerControlsView()
                     .frame(width: 400)
                 TimerClockView()

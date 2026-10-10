@@ -1,21 +1,32 @@
 import SwiftUI
 
-struct WidgetFrame<Content: View>: View {
+struct WidgetFrame<Content: View, Header: View>: View {
     private let content: Content
+    private let header: Header
 
-    init(@ViewBuilder content: () -> Content) {
+    init(@ViewBuilder content: () -> Content, @ViewBuilder header: () -> Header) {
         self.content = content()
+        self.header = header()
+    }
+
+    init(@ViewBuilder content: () -> Content) where Header == EmptyView {
+        self.init(content: content, header: { EmptyView() })
     }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 8)
-        content
-            .frame(maxWidth: .infinity)
-            .clipShape(shape)
-            .background {
-                Color.clear
-                    .glassEffect(.regular, in: shape)
-                    .allowsHitTesting(false)
-            }
+        VStack(spacing: 8) {
+            header
+            content
+                .frame(maxWidth: .infinity)
+                .clipShape(shape)
+                .background {
+                    Color.clear
+                        .glassEffect(.regular, in: shape)
+                        .allowsHitTesting(false)
+                }
+        }
+        .padding([.horizontal, .bottom])
+        .padding(.top, 8)
     }
 }
