@@ -11,7 +11,7 @@ final class BrowserSession: Identifiable {
     var showsBookmarks = true
 
     var title: String {
-        page.title.isEmpty ? page.url.map { $0.isFileURL ? $0.lastPathComponent : $0.host ?? "New Tab" } ?? "New Tab" : page.title
+        page.title.isEmpty ? page.url.map { $0.isFileURL ? $0.lastPathComponent : $0.host ?? "New" } ?? "New" : page.title
     }
 
     func loadAddress() {

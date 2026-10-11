@@ -6,6 +6,7 @@ import WebKit
 struct BrowserView: View {
     @Environment(\.isRetainedPageActive) private var isActive
     @State private var tabFocus = TabPaneFocus()
+    @FocusState private var focusedAddress: BrowserSession.ID?
     @EnvironmentObject private var store: BrowserStore
 
     var body: some View {
@@ -34,10 +35,12 @@ struct BrowserView: View {
                         title: session.title,
                         icon: Image(systemName: "globe"),
                         isSelected: isSelected,
+                        width: 120,
                         isCloseDisabled: store.sessions.count == 1,
                         action: actions.select,
                         closeAction: actions.close
                     )
+                    .help(session.title)
                 }
             }
 
@@ -73,6 +76,7 @@ struct BrowserView: View {
 
                 TextField("URL", text: $session.address)
                     .textFieldStyle(.roundedBorder)
+                    .focused($focusedAddress, equals: session.id)
                     .onSubmit(session.loadAddress)
             }
         }
@@ -83,6 +87,16 @@ struct BrowserView: View {
         }
         .onChange(of: store.selectedSessionID) { _, _ in
             if isActive { tabFocus.activate() }
+        }
+        .onChange(of: store.sessions.map(\.id)) { previous, current in
+            let id = store.selectedSessionID
+            guard isActive, !previous.contains(id), current.contains(id),
+                  store.selectedSession.address.isEmpty else { return }
+            DispatchQueue.main.async {
+                guard isActive, store.selectedSessionID == id,
+                      store.selectedSession.address.isEmpty else { return }
+                focusedAddress = id
+            }
         }
         .onChange(of: isActive) { _, active in
             if active { tabFocus.activate() }

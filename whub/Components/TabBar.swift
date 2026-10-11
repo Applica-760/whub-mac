@@ -4,6 +4,7 @@ struct TabBar: View {
     let title: String
     let icon: Image
     let isSelected: Bool
+    var width: CGFloat?
     var isPreview = false
     var titleColor: Color?
     var isCloseDisabled = false
@@ -24,6 +25,8 @@ struct TabBar: View {
                         .foregroundStyle(isSelected ? Color.primary : .secondary)
                         .accessibilityHidden(true)
                     Text(title)
+                        .lineLimit(width == nil ? nil : 1)
+                        .truncationMode(.tail)
                         .italic(isPreview)
                         .fontWeight(isSelected ? .medium : .regular)
                         .foregroundStyle(titleColor ?? .primary)
@@ -31,6 +34,7 @@ struct TabBar: View {
                 .padding(.leading, 10)
                 .padding(.trailing, 6)
                 .padding(.vertical, 2)
+                .frame(maxWidth: width == nil ? nil : .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -51,6 +55,7 @@ struct TabBar: View {
             .help(status?.label ?? "Close \(title)")
             .disabled(isCloseDisabled)
         }
+        .frame(width: width)
         .onHover { isHovered = $0 }
     }
 }
