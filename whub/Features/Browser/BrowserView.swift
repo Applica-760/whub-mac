@@ -1,3 +1,4 @@
+import AppKit
 import LinkPresentation
 import SwiftUI
 import WebKit
@@ -11,8 +12,7 @@ struct BrowserView: View {
         @Bindable var session = store.selectedSession
 
         WidgetFrame {
-            BrowserSessionView(session: session)
-                .id(session.id)
+            RetainedBrowserSessions(sessions: store.sessions, selection: store.selectedSessionID)
         } header: {
             TabBarContainer(
                 ids: store.sessions.map(\.id),
@@ -87,6 +87,55 @@ struct BrowserView: View {
         .onChange(of: isActive) { _, active in
             if active { tabFocus.activate() }
         }
+    }
+}
+
+private struct RetainedBrowserSessions: NSViewRepresentable {
+    let sessions: [BrowserSession]
+    let selection: BrowserSession.ID
+    @Environment(\.self) private var environment
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ container: NSView, context: Context) {
+        let coordinator = context.coordinator
+        let ids = Set(sessions.map(\.id))
+        for id in Array(coordinator.pages.keys) where !ids.contains(id) {
+            guard let page = coordinator.pages.removeValue(forKey: id) else { continue }
+            resignFocus(in: page)
+            page.removeFromSuperview()
+        }
+        for session in sessions {
+            if coordinator.pages[session.id] == nil, session.id == selection {
+                let page = NSHostingView(rootView: AnyView(BrowserSessionView(session: session).environment(\.self, environment)))
+                page.sizingOptions = []
+                page.frame = container.bounds
+                page.autoresizingMask = [.width, .height]
+                page.isHidden = true
+                container.addSubview(page)
+                coordinator.pages[session.id] = page
+            }
+            guard let page = coordinator.pages[session.id] else { continue }
+            let selected = session.id == selection
+            if !selected { resignFocus(in: page) }
+            page.isHidden = !selected
+            page.setAccessibilityHidden(!selected)
+            page.rootView = AnyView(BrowserSessionView(session: session).environment(\.self, environment))
+        }
+        assert(Set(coordinator.pages.keys).isSubset(of: ids))
+        assert(coordinator.pages.values.filter { !$0.isHidden }.count == 1)
+    }
+
+    private func resignFocus(in page: NSView) {
+        if let responder = page.window?.firstResponder as? NSView,
+           responder.isDescendant(of: page) {
+            page.window?.makeFirstResponder(nil)
+        }
+    }
+
+    final class Coordinator {
+        var pages: [BrowserSession.ID: NSHostingView<AnyView>] = [:]
     }
 }
 
