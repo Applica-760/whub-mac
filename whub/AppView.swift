@@ -58,7 +58,7 @@ struct AppView: View {
                 browser.open(url)
                 section = .browser
             }, store: files.explorer)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 320, max: 640)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 640)
         } detail: {
             RetainedPageContainer(selection: section) { page in
                 page.content()
