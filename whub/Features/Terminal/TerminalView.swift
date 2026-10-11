@@ -36,10 +36,6 @@ struct TerminalView: View {
                         icon: Image(systemName: "terminal"),
                         isSelected: isSelected,
                         isCloseDisabled: store.sessions.count == 1,
-                        status: store.attention[id]?.contains(.permission) == true
-                            ? (.orange, "権限待ち")
-                            : store.attention[id]?.contains(.completed) == true
-                                ? (.green, "完了") : nil,
                         action: actions.select,
                         closeAction: actions.close
                     )
