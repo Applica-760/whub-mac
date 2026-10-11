@@ -26,11 +26,11 @@ struct CodexView: View {
         .background(TabBarShortcuts(
             ids: store.sessions.map(\.id), selection: store.selectedSessionID,
             select: { id in tabFocus.activate(); store.select(id) }, close: requestClose,
-            canClose: { _ in store.sessions.count > 1 },
+            canClose: { _ in true },
             isShortcutTarget: { pendingCloseID == nil && tabFocus.contains($0) }
         ))
         .navigationTitle("AgentBook")
-        .alert("実行中の会話があります", isPresented: Binding(
+        .alert("このタブを閉じますか？", isPresented: Binding(
             get: { pendingCloseID != nil },
             set: { if !$0 { pendingCloseID = nil } }
         )) {
@@ -38,21 +38,17 @@ struct CodexView: View {
                 if let pendingCloseID { store.remove(pendingCloseID) }
                 pendingCloseID = nil
             }
+            .keyboardShortcut(.defaultAction)
             Button("キャンセル", role: .cancel) { pendingCloseID = nil }
         } message: {
-            Text("このタブを閉じると、実行中の作業が中断されます。")
+            Text("実行中の作業がある場合は中断されます。")
         }
     }
 
     private func requestClose(_ id: CodexStore.ID) {
-        guard store.sessions.count > 1,
-              let session = store.sessions.first(where: { $0.id == id }) else { return }
+        guard store.sessions.contains(where: { $0.id == id }) else { return }
         tabFocus.activate()
-        if session.isBusy || !session.requests.isEmpty {
-            pendingCloseID = id
-        } else {
-            store.remove(id)
-        }
+        pendingCloseID = id
     }
 }
 
