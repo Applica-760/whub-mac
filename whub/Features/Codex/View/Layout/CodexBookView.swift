@@ -9,6 +9,7 @@ struct CodexBookView: View {
     let focus: TabPaneFocus
     @State private var pendingApprovalIDs: Set<String> = []
     @State private var needsUpdate = true
+    @State private var viewport = CGSize.zero
     var composerClearance: CGFloat = 64
     @State private var selection = CodexBookSelection()
     @State private var readingFocus = TabPaneFocus()
@@ -36,8 +37,8 @@ struct CodexBookView: View {
                 }
             }
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
-                guard book.pageSize == nil else { return }
-                book.configure(viewport: size)
+                viewport = size
+                needsUpdate = true
                 updateBook(store.turns)
             }
             .background(CodexSelectionSurface(selection: selection, bottomInset: composerClearance))
@@ -62,6 +63,7 @@ struct CodexBookView: View {
         }
         .environment(\.codexBookSelection, selection)
         .onChange(of: book.spread) { _, _ in selection.clear() }
+        .onChange(of: book.pageSize) { _, _ in selection.clear() }
         .onReceive(store.$turns.throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)) {
             needsUpdate = true
             updateBook($0)
@@ -72,8 +74,8 @@ struct CodexBookView: View {
     }
 
     private func updateBook(_ turns: [CodexTurn]) {
-        guard isActive, book.pageSize != nil else { return }
-        book.update(turns)
+        guard isActive, viewport.width > 100, viewport.height > 100 else { return }
+        book.update(turns, viewport: viewport)
         let pending = turns.flatMap(\.approvals).filter { $0.outcome == nil }
         if let newRequest = pending.first(where: { !pendingApprovalIDs.contains($0.id) }) {
             book.revealApproval(newRequest.id)

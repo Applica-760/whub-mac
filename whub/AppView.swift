@@ -46,6 +46,7 @@ struct AppView: View {
 
     @EnvironmentObject private var files: FilesStore
     @EnvironmentObject private var browser: BrowserStore
+    @EnvironmentObject private var codex: CodexTabsStore
     @Binding var section: Section
     @Environment(\.openSettings) private var openSettings
 
@@ -68,6 +69,20 @@ struct AppView: View {
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 1000, minHeight: 550)
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                CodexTabBar(sessions: codex.sessions, selection: codex.selectedSessionID,
+                            completedSessionIDs: codex.completedSessionIDs) { id in
+                    codex.select(id)
+                    section = .codex
+                }
+                .frame(width: 156, height: 36)
+                .padding(.horizontal, 6)
+                .glassEffect(.regular, in: .capsule)
+            }
+            .sharedBackgroundVisibility(.hidden)
+
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+
             ToolbarItemGroup(placement: .primaryAction) {
                 TimerToolbarView()
 
