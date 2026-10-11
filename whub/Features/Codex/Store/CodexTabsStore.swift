@@ -34,13 +34,21 @@ final class CodexTabsStore: ObservableObject {
     }
 
     func remove(_ id: CodexStore.ID) {
-        guard sessions.count > 1, let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         sessions[index].disconnect()
-        sessions.remove(at: index)
+        if sessions.count == 1 {
+            let replacement = CodexStore(context: context)
+            observe(replacement)
+            sessions[index] = replacement
+        } else {
+            sessions.remove(at: index)
+        }
         completedSessionIDs.remove(id)
         if selectedSessionID == id {
             select(sessions[min(index, sessions.count - 1)].id)
         }
+        assert(!sessions.isEmpty && sessions.contains { $0.id == selectedSessionID })
+        assert(!sessions.contains { $0.id == id } && !completedSessionIDs.contains(id))
     }
 
     private func observe(_ session: CodexStore) {
