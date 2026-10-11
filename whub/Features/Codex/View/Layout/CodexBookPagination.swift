@@ -42,9 +42,17 @@ final class CodexBookPagination: ObservableObject {
     // Keep the one-line composer (36pt), bottom inset (16pt) and a 12pt gap clear.
     var contentHeight: CGFloat { (pageSize?.height ?? 600) - 80 }
 
-    func configure(viewport: CGSize) {
-        guard pageSize == nil, viewport.width > 100, viewport.height > 100 else { return }
-        pageSize = CGSize(width: max(280, floor((viewport.width - 16) / 2)), height: max(320, floor(viewport.height)))
+    @discardableResult
+    func configure(viewport: CGSize) -> Bool {
+        guard viewport.width.isFinite, viewport.height.isFinite,
+              viewport.width > 100, viewport.height > 100 else { return false }
+        let size = CGSize(width: max(280, floor((viewport.width - 16) / 2)), height: max(320, floor(viewport.height)))
+        guard pageSize != size else { return false }
+        pageSize = size
+        committedIDs = []
+        committedPages = [Page()]
+        measured.removeAll(keepingCapacity: true)
+        return true
     }
 
     func move(_ offset: Int) {
@@ -69,7 +77,9 @@ final class CodexBookPagination: ObservableObject {
             .compactMap(\.approval).first { $0.outcome == nil }
     }
 
-    func update(_ turns: [CodexTurn]) {
+    func update(_ turns: [CodexTurn], viewport: CGSize? = nil) {
+        let visibleFragment = pages.dropFirst(spread * 2).prefix(2).flatMap(\.fragments).first
+        let resized = viewport.map { configure(viewport: $0) } ?? false
         guard pageSize != nil else { return }
         let states = turns.flatMap(\.approvals).map { $0.id + ":" + ($0.outcome ?? "pending") }
         if states != approvalStates {
@@ -145,6 +155,25 @@ final class CodexBookPagination: ObservableObject {
         measured = measured.filter { usedMeasurements.contains($0.key) }
         pages = output
         spread = min(spread, spreadCount - 1)
+        if resized, let anchor = visibleFragment {
+            let candidates = pages.indices.filter { index in
+                pages[index].fragments.contains { fragment in
+                    fragment.turnID == anchor.turnID && fragment.isUser == anchor.isUser
+                        && fragment.block.id == anchor.block.id && fragment.approval?.id == anchor.approval?.id
+                }
+            }
+            let text = String(anchor.block.text.characters.prefix(32))
+            let closest = text.isEmpty ? nil : candidates.first { index in
+                pages[index].fragments.contains {
+                    $0.turnID == anchor.turnID && $0.isUser == anchor.isUser
+                        && $0.block.id == anchor.block.id
+                        && String($0.block.text.characters).contains(text)
+                }
+            }
+            if let page = closest ?? candidates.first { spread = page / 2 }
+        }
+        assert(pages.allSatisfy { $0.usedHeight <= contentHeight + 1 })
+        assert((0..<spreadCount).contains(spread))
     }
 
     private struct Measurement: Hashable {
