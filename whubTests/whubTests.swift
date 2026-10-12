@@ -233,7 +233,7 @@ struct CodexApprovalTests {
         #expect(collapsedHeight < expandedHeight)
         let pageCount = book.pages.count
         let heights = book.pages.map(\.usedHeight)
-        book.toggleApprovalDetails(request.id, turns: [turn])
+        book.update([turn], expandedApprovalDetailsIDs: [request.id])
         #expect(book.visibleApproval == nil)
         #expect(book.pages.count == pageCount)
         #expect(book.pages.map(\.usedHeight) == heights)
@@ -250,7 +250,7 @@ struct CodexApprovalTests {
         book.update([turn])
         let shortHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
         #expect(shortHeight < 250)
-        book.toggleApprovalDetails(request.id, turns: [turn])
+        book.update([turn], expandedApprovalDetailsIDs: [request.id])
         let detailHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
         #expect(detailHeight > shortHeight)
         let longRequest = CodexRequest(rpcID: 2, method: request.method,
@@ -286,5 +286,94 @@ struct CodexApprovalTests {
         store.approve(try #require(store.requests.first), allow: false)
         #expect(store.errorMessage != nil)
         #expect(store.requests.map(\.id) == ["2"])
+    }
+}
+
+@Suite @MainActor
+struct CodexReadingTests {
+    @Test func textReplacementKeepsReadingFocusAndSelection() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        let selection = CodexBookSelection()
+        let focus = CodexBookFocus()
+        let surface = CodexBookSurfaceView(frame: content.bounds)
+        surface.selection = selection
+        selection.surface = surface
+        focus.readingView = surface
+        content.addSubview(surface)
+        let text = CodexSelectableTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        text.isEditable = false
+        text.isSelectable = true
+        text.string = "first page"
+        text.bookSelection = selection
+        selection.texts.add(text)
+        content.addSubview(text)
+        focus.activateReading()
+        surface.selectAll(nil)
+        #expect(selection.selectedString == "first page")
+        #expect(focus.isReading(in: window))
+        text.removeFromSuperview()
+        selection.remove(text)
+        #expect(window.firstResponder === surface)
+        #expect(selection.selectedString.isEmpty)
+
+        let replacement = CodexSelectableTextView(frame: text.frame)
+        replacement.isEditable = false
+        replacement.isSelectable = true
+        replacement.string = "next page"
+        replacement.bookSelection = selection
+        selection.texts.add(replacement)
+        content.addSubview(replacement)
+        surface.selectAll(nil)
+        #expect(selection.selectedString == "next page")
+        // Native multi-click selection may temporarily focus an individual text view.
+        #expect(window.makeFirstResponder(replacement))
+        #expect(focus.isReading(in: window))
+        replacement.removeFromSuperview()
+        #expect(window.firstResponder === surface)
+    }
+
+    @Test func removingTextDoesNotStealInputFocus() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        let selection = CodexBookSelection()
+        let focus = CodexBookFocus()
+        let surface = CodexBookSurfaceView(frame: content.bounds)
+        surface.selection = selection
+        selection.surface = surface
+        focus.readingView = surface
+        content.addSubview(surface)
+        let text = CodexSelectableTextView(frame: content.bounds)
+        text.bookSelection = selection
+        content.addSubview(text)
+        let input = CodexTextView(frame: content.bounds)
+        input.string = "draft"
+        content.addSubview(input)
+        focus.inputView = input
+        input.setSelectedRange(NSRange(location: 2, length: 0))
+        focus.activateInput()
+        text.removeFromSuperview()
+        #expect(window.firstResponder === input)
+        #expect(!focus.isReading(in: window))
+        #expect(input.string == "draft")
+        #expect(input.selectedRange() == NSRange(location: 2, length: 0))
+        surface.isHidden = true
+        focus.activateReading()
+        #expect(window.firstResponder === input)
+    }
+
+    @Test func markdownParserPreservesStructuredBlocks() throws {
+        let blocks = CodexMarkdown(source: "# Heading\n\n| A | B |\n| --- | --- |\n| one | two |\n\n```swift\nlet x = 1\n```\n").blocks
+        try #require(blocks.count == 3)
+        #expect(blocks.first?.kind == .header(level: 1))
+        if case .table(let columns) = blocks[1].kind {
+            #expect(columns.count == 2)
+            #expect(blocks[1].children.count == 2)
+        } else {
+            Issue.record("Markdown table was not preserved")
+        }
+        #expect(blocks.last?.kind == .codeBlock(languageHint: "swift"))
     }
 }

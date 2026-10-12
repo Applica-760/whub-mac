@@ -25,6 +25,7 @@ struct CodexInputToken: Equatable {
 
 struct CodexInputView: View {
     @EnvironmentObject private var store: CodexStore
+    let focus: CodexBookFocus
     let newConversation: () -> Void
     @State private var selection = NSRange(location: 0, length: 0)
     @State private var candidateIndex = 0
@@ -85,7 +86,7 @@ struct CodexInputView: View {
                     .font(.callout)
                 }
                 HStack(alignment: .bottom, spacing: 12) {
-                    CodexTextInput(text: $store.draft, selection: $selection, handleKey: handleKey,
+                    CodexTextInput(focus: focus, text: $store.draft, selection: $selection, handleKey: handleKey,
                                    pasteImages: store.addImages)
                         .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
                         .accessibilityAction(named: Text("送信")) { submit() }
@@ -209,6 +210,7 @@ struct CodexInputView: View {
 }
 
 private struct CodexTextInput: NSViewRepresentable {
+    let focus: CodexBookFocus
     @Environment(\.isRetainedPageActive) private var isActive
     @Binding var text: String
     @Binding var selection: NSRange
@@ -217,6 +219,8 @@ private struct CodexTextInput: NSViewRepresentable {
 
     func makeNSView(context: Context) -> CodexTextView {
         let view = CodexTextView()
+        view.bookFocus = focus
+        focus.inputView = view
         view.delegate = context.coordinator
         view.setAccessibilityLabel("Codexに依頼する")
         view.setAccessibilityHelp("⌘Enterで送信。⌘Vで画像も貼り付け。/でコマンド、$でSkillを選択。")
@@ -235,12 +239,13 @@ private struct CodexTextInput: NSViewRepresentable {
     }
 
     func updateNSView(_ view: CodexTextView, context: Context) {
+        focus.inputView = view
         let becameActive = isActive && !view.isPageActive
         view.isPageActive = isActive
         if becameActive {
             DispatchQueue.main.async { [weak view] in
                 guard let view, view.isPageActive, !view.isHiddenOrHasHiddenAncestor else { return }
-                view.window?.makeFirstResponder(view)
+                view.bookFocus?.activateInput()
             }
         }
         context.coordinator.parent = self
@@ -291,6 +296,7 @@ private struct CodexTextInput: NSViewRepresentable {
 }
 
 final class CodexTextView: NSTextView {
+    weak var bookFocus: CodexBookFocus?
     var isPageActive = false
     var handleKey: ((NSEvent) -> Bool)?
     var pasteImages: (([NSImage]) -> Void)?
@@ -316,6 +322,6 @@ final class CodexTextView: NSTextView {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if isPageActive, !isHiddenOrHasHiddenAncestor, let window { window.makeFirstResponder(self) }
+        if isPageActive, !isHiddenOrHasHiddenAncestor, window != nil { bookFocus?.activateInput() }
     }
 }

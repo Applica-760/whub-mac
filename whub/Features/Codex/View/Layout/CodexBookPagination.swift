@@ -4,7 +4,7 @@ import SwiftUI
 
 @MainActor
 final class CodexBookPagination: ObservableObject {
-    typealias Block = CodexMarkdownResponseView.Block
+    typealias Block = CodexMarkdown.Block
 
     struct Fragment: Identifiable {
         let id: Int
@@ -28,7 +28,7 @@ final class CodexBookPagination: ObservableObject {
     @Published private(set) var pageSize: CGSize?
     @Published private(set) var pages = [Page()]
     @Published private(set) var spread = 0
-    private(set) var expandedApprovalDetailsIDs: Set<String> = []
+    private var measuredApprovalDetailsIDs: Set<String> = []
     private var approvalStates: [String] = []
     private var committedIDs: [UUID] = []
     private var committedPages = [Page()]
@@ -59,13 +59,6 @@ final class CodexBookPagination: ObservableObject {
         spread = min(max(0, spread + offset), spreadCount - 1)
     }
 
-    func toggleApprovalDetails(_ id: String, turns: [CodexTurn]) {
-        if !expandedApprovalDetailsIDs.insert(id).inserted { expandedApprovalDetailsIDs.remove(id) }
-        committedIDs = []
-        committedPages = [Page()]
-        update(turns)
-    }
-
     func revealApproval(_ id: String) {
         if let page = pages.firstIndex(where: { $0.fragments.contains { $0.approval?.id == id } }) {
             spread = page / 2
@@ -77,16 +70,16 @@ final class CodexBookPagination: ObservableObject {
             .compactMap(\.approval).first { $0.outcome == nil }
     }
 
-    func update(_ turns: [CodexTurn], viewport: CGSize? = nil) {
+    func update(_ turns: [CodexTurn], viewport: CGSize? = nil, expandedApprovalDetailsIDs: Set<String> = []) {
         let visibleFragment = pages.dropFirst(spread * 2).prefix(2).flatMap(\.fragments).first
         let resized = viewport.map { configure(viewport: $0) } ?? false
         guard pageSize != nil else { return }
         let states = turns.flatMap(\.approvals).map { $0.id + ":" + ($0.outcome ?? "pending") }
-        if states != approvalStates {
+        if states != approvalStates || expandedApprovalDetailsIDs != measuredApprovalDetailsIDs {
+            measuredApprovalDetailsIDs = expandedApprovalDetailsIDs
             approvalStates = states
             committedIDs = []
             committedPages = [Page()]
-            expandedApprovalDetailsIDs.formIntersection(turns.flatMap(\.approvals).map(\.id))
         }
         if Array(turns.prefix(committedIDs.count).map(\.id)) != committedIDs || turns.isEmpty {
             committedIDs = []
@@ -143,7 +136,7 @@ final class CodexBookPagination: ObservableObject {
                 append([Block(id: 0, kind: .paragraph)], turnID: turn.id, isUser: false, to: &output)
             }
             for answer in turn.answers {
-                append(CodexMarkdownResponseView(source: answer.text).blocks,
+                append(CodexMarkdown(source: answer.text).blocks,
                        turnID: turn.id, isUser: false, to: &output)
             }
             // Only the unfinished response may reflow as Markdown delimiters arrive.
