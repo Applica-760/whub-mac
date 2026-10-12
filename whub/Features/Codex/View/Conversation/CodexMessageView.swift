@@ -2,11 +2,11 @@ import AppKit
 import SwiftUI
 
 struct CodexMessageView: View {
-    let block: CodexMarkdownResponseView.Block
+    let block: CodexMarkdown.Block
     let isUser: Bool
     let showsHeader: Bool
     var images: [CodexImageAttachment] = []
-    var width: CGFloat? = nil
+    let width: CGFloat
     var history: [CodexTurn] = []
     @State private var showsHistory = false
     var copy: () -> Void = {}
@@ -34,13 +34,13 @@ struct CodexMessageView: View {
                 .background(CodexSelectionExclusion())
             }
             if images.isEmpty || !block.text.characters.isEmpty || !block.children.isEmpty {
-                CodexMarkdownResponseView.BlockView(block: block, width: width.map { $0 - (isUser ? 24 : 0) })
+                CodexMarkdownBlockView(block: block, width: width - (isUser ? 24 : 0))
             }
             ForEach(images) { image in
                 Image(nsImage: image.image)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: max(1, (width ?? 280) - 24), height: 80, alignment: .leading)
+                    .frame(width: max(1, width - 24), height: 80, alignment: .leading)
                     .accessibilityLabel("送信した画像")
             }
         }

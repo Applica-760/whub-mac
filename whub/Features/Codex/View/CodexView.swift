@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 struct CodexView: View {
@@ -8,13 +9,14 @@ struct CodexView: View {
     @State private var books: [CodexStore.ID: CodexBookPagination] = [:]
 
     var body: some View {
-        CodexSessionView(book: books[store.selectedSessionID], focus: tabFocus) {
+        CodexSessionView(book: books[store.selectedSessionID]) {
             CodexTabBar(sessions: store.sessions, selection: store.selectedSessionID,
                         completedSessionIDs: store.completedSessionIDs) { id in
                 tabFocus.activate()
                 store.select(id)
             }
         }
+        .id(store.selectedSessionID)
         .environmentObject(store.selectedSession)
         .task(id: store.selectedSessionID) {
             if books[store.selectedSessionID] == nil { books[store.selectedSessionID] = CodexBookPagination() }
@@ -53,26 +55,31 @@ struct CodexView: View {
 }
 
 private struct CodexSessionView<Tabs: View>: View {
+    @Environment(\.isRetainedPageActive) private var isActive
     @EnvironmentObject private var store: CodexStore
     let book: CodexBookPagination?
-    let focus: TabPaneFocus
     @ViewBuilder let tabs: () -> Tabs
     @State private var confirmsReset = false
     @State private var composerClearance: CGFloat = 64
+    @State private var bookFocus = CodexBookFocus()
+    @State private var viewport = CGSize.zero
+    @State private var needsUpdate = true
 
     var body: some View {
         VStack(spacing: 0) {
             WidgetFrame {
                 ZStack {
                     if let book {
-                        CodexBookView(book: book, focus: focus, composerClearance: composerClearance)
+                        CodexBookView(book: book, bookFocus: bookFocus,
+                            updateViewport: { viewport = $0; updateBook(store.turns) },
+                            composerClearance: composerClearance)
                             .id(store.id)
                     } else {
                         Color.clear.frame(maxHeight: .infinity)
                     }
                 }
                     .overlay(alignment: .bottom) {
-                        CodexInputView {
+                        CodexInputView(commands: store.commands, focus: bookFocus) {
                             if store.turns.isEmpty { store.reset() } else { confirmsReset = true }
                         }
                         .id(store.id)
@@ -97,13 +104,31 @@ private struct CodexSessionView<Tabs: View>: View {
                 CodexErrorView(message: error)
             }
         }
-        .onChange(of: store.id) { _, _ in confirmsReset = false }
+        .onChange(of: store.id) { _, _ in
+            confirmsReset = false
+            updateBook(store.turns)
+        }
+        .onReceive(store.$turns.throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)) {
+            updateBook($0)
+        }
+        .onChange(of: isActive) { _, active in
+            if active, needsUpdate { updateBook(store.turns) }
+        }
         .alert("新しい会話を始めますか？", isPresented: $confirmsReset) {
             Button("キャンセル", role: .cancel) {}
             Button("新しい会話") { store.reset() }
         } message: {
             Text("このタブの会話をクリアします。")
         }
+    }
+
+    private func updateBook(_ turns: [CodexTurn]) {
+        needsUpdate = true
+        guard isActive, let book, viewport.width > 100, viewport.height > 100 else { return }
+        let firstLayout = book.pageSize == nil
+        book.update(turns, viewport: viewport)
+        if firstLayout, store.resumedDirectory != nil { book.move(book.spreadCount - 1) }
+        needsUpdate = false
     }
 
 }

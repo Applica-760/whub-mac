@@ -8,9 +8,156 @@
 import AppKit
 import Combine
 import SwiftData
+import SwiftUI
 import Testing
 import WhubCore
 @testable import whub
+
+@Suite @MainActor
+struct CodexResumeTests {
+    @Test func resumeInputRequiresTheWholeCommand() {
+        #expect(CodexInputView.isResumeInput("/resume"))
+        #expect(CodexInputView.isResumeInput(" /resume \n"))
+        #expect(!CodexInputView.isResumeInput("/res"))
+        #expect(!CodexInputView.isResumeInput("説明 /resume"))
+        #expect(!CodexInputView.isResumeInput("/resume 続き"))
+        #expect(CodexCommand.allCases.contains(.resume))
+    }
+
+    private func makeContainer() throws -> ModelContainer {
+        try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    }
+
+    private func response(_ turns: [[String: Any]]) -> [String: Any] {
+        ["thread": ["id": "thread-1", "turns": turns], "cwd": "/original/project", "model": "saved-model"]
+    }
+
+    @Test func recentThreadUsesTitleThenPreviewAndRejectsMissingDirectory() throws {
+        var data: [String: Any] = ["id": "thread-1", "cwd": "/project", "updatedAt": 123.0,
+                                   "name": "  タイトル  ", "preview": "冒頭文"]
+        #expect(try CodexRecentThread(data).title == "タイトル")
+        data["name"] = NSNull()
+        #expect(try CodexRecentThread(data).title == "冒頭文")
+        #expect(try CodexRecentThread(data).updatedAt == Date(timeIntervalSince1970: 123))
+        data.removeValue(forKey: "cwd")
+        #expect(throws: CodexError.self) { try CodexRecentThread(data) }
+    }
+
+    @Test func restoresHistoryDirectoryAndLegacyFinalAnswer() throws {
+        let container = try makeContainer()
+        let store = CodexStore(context: container.mainContext)
+        let originalDirectory = store.directory
+        let items: [[String: Any]] = [
+            ["id": "u", "type": "userMessage", "content": [["type": "text", "text": "質問"]]],
+            ["id": "progress", "type": "agentMessage", "phase": "commentary", "text": "確認中"],
+            ["id": "cmd", "type": "commandExecution", "command": "pwd", "aggregatedOutput": "/project", "status": "completed"],
+            ["id": "answer", "type": "agentMessage", "text": "回答"]
+        ]
+        try store.restoreHistory(response([["id": "turn-1", "status": "completed", "items": items]]), expectedID: "thread-1")
+        #expect(store.threadID == "thread-1")
+        #expect(store.directory == "/original/project")
+        #expect(store.model == "saved-model")
+        let turn = try #require(store.turns.first)
+        #expect(turn.remoteID == "turn-1")
+        #expect(turn.prompt == "質問")
+        #expect(turn.answers.map(\.text) == ["回答"])
+        #expect(turn.history.map(\.id) == ["progress", "cmd"])
+        #expect(!store.isBusy)
+        store.reset()
+        #expect(store.threadID == nil)
+        #expect(store.directory == originalDirectory)
+    }
+
+    @Test func incompleteHistoryDoesNotPartiallyReplaceState() throws {
+        let container = try makeContainer()
+        let store = CodexStore(context: container.mainContext)
+        let directory = store.directory
+        let complete: [String: Any] = ["id": "a", "status": "completed", "items": [[String: Any]]()]
+        let invalidTurns: [[String: Any]] = [
+            ["id": "b", "status": "inProgress", "items": [[String: Any]]()],
+            ["id": "b", "status": "completed", "itemsView": "summary", "items": [[String: Any]]()],
+            ["id": "b", "status": "completed"]
+        ]
+        for invalid in invalidTurns {
+            #expect(throws: CodexError.self) {
+                try store.restoreHistory(response([complete, invalid]), expectedID: "thread-1")
+            }
+            #expect(store.turns.isEmpty)
+            #expect(store.threadID == nil)
+            #expect(store.directory == directory)
+        }
+        #expect(throws: CodexError.self) { try store.restoreHistory(response([]), expectedID: "wrong-id") }
+    }
+
+    @Test func attachmentsRemainVisibleAndCommentaryIsNotAnAnswer() throws {
+        let container = try makeContainer()
+        let store = CodexStore(context: container.mainContext)
+        let items: [[String: Any]] = [
+            ["id": "u", "type": "userMessage", "content": [["type": "image", "url": "https://example.invalid/image"]]],
+            ["id": "p", "type": "agentMessage", "phase": "commentary", "text": "途中"]
+        ]
+        try store.restoreHistory(response([["id": "turn-1", "status": "interrupted", "items": items]]), expectedID: "thread-1")
+        #expect(store.turns.first?.prompt == "［添付: image］")
+        #expect(store.turns.first?.answers.isEmpty == true)
+        #expect(store.turns.first?.status == "interrupted")
+        #expect(throws: CodexError.self) { try store.restoreHistory(response([]), expectedID: "thread-1") }
+        #expect(store.turns.count == 1)
+    }
+
+    @Test func resumedTabKeepsOriginalDraftAndParticipatesInNotifications() throws {
+        let container = try makeContainer()
+        let tabs = CodexTabsStore(context: container.mainContext)
+        let original = tabs.selectedSession
+        original.draft = "編集中の入力"
+        let resumed = CodexStore(context: container.mainContext)
+        try resumed.restoreHistory(response([]), expectedID: "thread-1")
+        #expect(tabs.openResumedSession(resumed))
+        #expect(tabs.sessions.map(\.id) == [original.id, resumed.id])
+        #expect(tabs.selectedSessionID == resumed.id)
+        #expect(original.draft == "編集中の入力")
+        resumed.onCompletionChange?(true)
+        #expect(tabs.completedSessionIDs == [resumed.id])
+        tabs.remove(resumed.id)
+        #expect(tabs.selectedSessionID == original.id)
+        #expect(tabs.completedSessionIDs.isEmpty)
+    }
+
+    @Test func alreadyOpenThreadIsSelectedWithoutCreatingAnotherTab() async throws {
+        let container = try makeContainer()
+        let tabs = CodexTabsStore(context: container.mainContext)
+        let original = tabs.selectedSession
+        try original.restoreHistory(response([]), expectedID: "thread-1")
+        tabs.add()
+        original.onCompletionChange?(true)
+        let thread = try CodexRecentThread(["id": "thread-1", "cwd": "/not-needed", "updatedAt": 1.0])
+        #expect(await tabs.resume(thread))
+        #expect(tabs.sessions.count == 2)
+        #expect(tabs.selectedSessionID == original.id)
+        #expect(tabs.completedSessionIDs.isEmpty)
+        let duplicate = CodexStore(context: container.mainContext)
+        try duplicate.restoreHistory(response([]), expectedID: "thread-1")
+        #expect(tabs.openResumedSession(duplicate))
+        #expect(tabs.sessions.count == 2)
+        #expect(tabs.selectedSessionID == original.id)
+    }
+
+    @Test func failedResumeLeavesTabsAndInputUntouched() async throws {
+        let container = try makeContainer()
+        let tabs = CodexTabsStore(context: container.mainContext)
+        let original = tabs.selectedSession
+        original.draft = "入力を保持"
+        let thread = try CodexRecentThread(["id": "missing", "cwd": "/nonexistent-" + UUID().uuidString, "updatedAt": 1.0])
+        #expect(await tabs.resume(thread) == false)
+        #expect(tabs.sessions.map(\.id) == [original.id])
+        #expect(tabs.selectedSessionID == original.id)
+        #expect(original.draft == "入力を保持")
+        #expect(tabs.resumeError?.contains("作業フォルダが存在しません") == true)
+        #expect(!tabs.isResuming)
+        #expect(!tabs.openResumedSession(CodexStore(context: container.mainContext)))
+        #expect(tabs.sessions.count == 1)
+    }
+}
 
 @Suite @MainActor
 struct CodexCompletionTests {
@@ -215,71 +362,162 @@ struct CodexImageTests {
 
 @Suite @MainActor
 struct CodexApprovalTests {
-    @Test func resolvedRequestsKeepBookLayoutIndependentOfDetails() throws {
-        let book = CodexBookPagination()
-        book.configure(viewport: CGSize(width: 600, height: 320))
-        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
-                                   params: ["command": "/bin/date"])
-        var turn = CodexTurn(prompt: "確認", approvals: [request])
-        book.update([turn])
-        book.revealApproval(request.id)
-        #expect(book.visibleApproval?.id == request.id)
-        let expandedHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
-        turn.approvals[0].outcome = "承認済み"
-        turn.status = "completed"
-        book.update([turn])
-        #expect(book.visibleApproval == nil)
-        let collapsedHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
-        #expect(collapsedHeight < expandedHeight)
-        let pageCount = book.pages.count
-        let heights = book.pages.map(\.usedHeight)
-        book.toggleApprovalDetails(request.id, turns: [turn])
-        #expect(book.visibleApproval == nil)
-        #expect(book.pages.count == pageCount)
-        #expect(book.pages.map(\.usedHeight) == heights)
-        #expect(book.pages.flatMap(\.fragments).first { $0.approval != nil }?.height == collapsedHeight)
-        for page in book.pages { #expect(page.usedHeight <= book.contentHeight) }
-    }
-
-    @Test func approvalHeightFitsContentAndCapsLongDetails() throws {
+    @Test func approvalArrivalAndResolutionKeepPagesAndReadingPosition() throws {
         let book = CodexBookPagination()
         book.configure(viewport: CGSize(width: 800, height: 650))
-        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
-                                   params: ["command": "/usr/bin/true", "reason": "確認", "cwd": "/Users/test"])
-        let turn = CodexTurn(prompt: "確認", approvals: [request])
+        var turn = CodexTurn(prompt: String(repeating: "本文を読み続ける。\n\n", count: 100))
         book.update([turn])
-        let shortHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
-        #expect(shortHeight < 250)
-        book.toggleApprovalDetails(request.id, turns: [turn])
-        let detailHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
-        #expect(detailHeight > shortHeight)
-        let longRequest = CodexRequest(rpcID: 2, method: request.method,
-                                       params: ["reason": String(repeating: "長い説明\n", count: 100)])
-        book.update([CodexTurn(prompt: "確認", approvals: [longRequest])])
-        let longHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
-        #expect(longHeight == book.contentHeight)
+        #expect(book.spreadCount > 2)
+        book.move(1)
+        let pages = book.pages.map(\.usedHeight)
+        let blocks = book.pages.map { $0.fragments.map(\.block) }
+        let spread = book.spread
+        for (index, method) in ["item/commandExecution/requestApproval", "item/fileChange/requestApproval",
+                                "item/permissions/requestApproval"].enumerated() {
+            turn.approvals.append(CodexRequest(rpcID: index, method: method,
+                params: ["command": String(repeating: "echo long-command\n", count: 100)]))
+            book.update([turn])
+            #expect(book.pages.map(\.usedHeight) == pages)
+            #expect(book.pages.map { $0.fragments.map(\.block) } == blocks)
+            #expect(book.spread == spread)
+        }
+        for index in turn.approvals.indices {
+            turn.approvals[index].outcome = index.isMultiple(of: 2) ? "承認済み" : "拒否済み"
+            book.update([turn])
+            #expect(book.pages.map(\.usedHeight) == pages)
+            #expect(book.spread == spread)
+        }
+        turn.status = "completed"
+        book.update([turn])
+        #expect(book.pages.map(\.usedHeight) == pages)
+        #expect(book.spread == spread)
+        #expect(turn.approvals.count == 3)
+    }
+
+    @Test func approvalHeightFitsShortContentAndCapsLongDetails() {
+        let short = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
+            params: ["command": "pwd", "cwd": "/Users/test", "reason": "確認"])
+        let long = CodexRequest(rpcID: 2, method: short.method,
+            params: ["command": String(repeating: "echo long-command\n", count: 100),
+                     "cwd": "/Users/test", "reason": "確認"])
+        for request in [short, long] {
+            for expanded in [false, true] {
+                let view = NSHostingView(rootView:
+                    CodexInteractionRequestView(request: request, detailsExpanded: expanded) { _ in }
+                        .frame(width: 320)
+                        .frame(maxHeight: 440))
+                view.frame.size = view.fittingSize
+                view.layoutSubtreeIfNeeded()
+                #expect(view.fittingSize.width <= 320)
+                #expect(view.fittingSize.height <= 440)
+                if request.id == short.id, !expanded {
+                    #expect(view.fittingSize.height < 250)
+                }
+            }
+        }
     }
 
     @Test func keysIgnoreCompositionRepeatsAndUnrelatedKeys() {
-        #expect(CodexPageKeys.approvalDecision(keyCode: 36, isRepeat: false, hasMarkedText: false) == true)
-        #expect(CodexPageKeys.approvalDecision(keyCode: 76, isRepeat: false, hasMarkedText: false) == true)
-        #expect(CodexPageKeys.approvalDecision(keyCode: 53, isRepeat: false, hasMarkedText: false) == false)
-        #expect(CodexPageKeys.approvalDecision(keyCode: 36, isRepeat: true, hasMarkedText: false) == nil)
-        #expect(CodexPageKeys.approvalDecision(keyCode: 36, isRepeat: false, hasMarkedText: true) == nil)
-        #expect(CodexPageKeys.approvalDecision(keyCode: 123, isRepeat: false, hasMarkedText: false) == nil)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 36, isRepeat: false, hasMarkedText: false) == true)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 76, isRepeat: false, hasMarkedText: false) == true)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 53, isRepeat: false, hasMarkedText: false) == false)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 36, isRepeat: true, hasMarkedText: false) == nil)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 36, isRepeat: false, hasMarkedText: true) == nil)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 123, isRepeat: false, hasMarkedText: false) == nil)
+    }
+
+    @Test func approvalButtonsRespondToNativeKeyEquivalents() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        var decisions: [Bool] = []
+        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
+                                   params: ["command": "pwd"])
+        let view = NSHostingView(rootView:
+            CodexInteractionRequestView(request: request, approvalDecision: { decisions.append($0) }) { _ in }
+                .frame(width: 320, height: 240))
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        for (characters, code) in [("\r", UInt16(36)), ("\u{1b}", UInt16(53))] {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+            #expect(window.performKeyEquivalent(with: event))
+        }
+        #expect(decisions == [true, false])
+    }
+
+    @Test func approvalKeyViewActivatesItsPopoverWindow() throws {
+        final class Window: NSWindow {
+            var requestedKey = false
+            override func makeKey() { requestedKey = true }
+        }
+        let window = Window(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                            styleMask: [.titled], backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        let view = CodexApprovalKeys.EventView(frame: content.bounds)
+        content.addSubview(view)
+        #expect(window.requestedKey)
+        window.requestedKey = false
+        view.removeFromSuperview()
+        #expect(!window.requestedKey)
+    }
+
+    @Test func popoverKeysOnlyDecideInTheirOwnWindow() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                             styleMask: [.titled], backing: .buffered, defer: false)
+        var decisions: [Bool] = []
+        let keys = CodexApprovalKeys { decisions.append($0) }
+        func event(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], repeats: Bool = false) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "",
+                charactersIgnoringModifiers: "", isARepeat: repeats, keyCode: code))
+        }
+        #expect(!keys.handle(try event(36), in: other))
+        for modifiers in [NSEvent.ModifierFlags.command, .control, .option, .shift] {
+            #expect(!keys.handle(try event(36, modifiers: modifiers), in: window))
+            #expect(!keys.handle(try event(53, modifiers: modifiers), in: window))
+        }
+        for code: UInt16 in [4, 37, 44, 123, 124] {
+            #expect(!keys.handle(try event(code), in: window))
+        }
+        #expect(decisions.isEmpty)
+        #expect(keys.handle(try event(36), in: window))
+        #expect(keys.handle(try event(76, modifiers: [.numericPad, .function]), in: window))
+        #expect(keys.handle(try event(53), in: window))
+        #expect(keys.handle(try event(36, repeats: true), in: window))
+        #expect(keys.handle(try event(53, repeats: true), in: window))
+        #expect(decisions == [true, true, false])
+        let text = NSTextView(frame: window.contentView!.bounds)
+        window.contentView?.addSubview(text)
+        #expect(window.makeFirstResponder(text))
+        text.setMarkedText("変換中", selectedRange: NSRange(location: 0, length: 3),
+                           replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(text.hasMarkedText())
+        #expect(!keys.handle(try event(36), in: window))
+        #expect(!keys.handle(try event(53), in: window))
+        #expect(decisions == [true, true, false])
     }
 
     @Test func pendingRequestsResolveIndependentlyAndIgnoreDuplicateResponses() throws {
         let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
                                            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let store = CodexStore(context: container.mainContext)
+        var sounds: [String] = []
+        store.onNotification = { sounds.append($0) }
         for id in [1, 1, 2] {
             store.receive("item/commandExecution/requestApproval", params: [:], requestID: id)
         }
         #expect(store.requests.count == 2)
+        #expect(sounds == ["Blow", "Blow"])
+        let notificationDate = store.notificationDate
+        #expect(notificationDate != nil)
         let first = try #require(store.requests.first)
         store.receive("serverRequest/resolved", params: ["requestId": 1], requestID: nil)
         #expect(store.requests.map(\.id) == ["2"])
+        #expect(sounds == ["Blow", "Blow"])
+        #expect(store.notificationDate == notificationDate)
         store.approve(first, allow: true)
         #expect(store.errorMessage == nil)
         #expect(store.requests.count == 1)
@@ -287,4 +525,153 @@ struct CodexApprovalTests {
         #expect(store.errorMessage != nil)
         #expect(store.requests.map(\.id) == ["2"])
     }
+}
+
+@Suite @MainActor
+struct CodexReadingTests {
+    @Test func textReplacementKeepsReadingFocusAndSelection() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        let selection = CodexBookSelection()
+        let focus = CodexBookFocus()
+        let surface = CodexBookSurfaceView(frame: content.bounds)
+        surface.selection = selection
+        selection.surface = surface
+        focus.readingView = surface
+        content.addSubview(surface)
+        let text = CodexSelectableTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        text.isEditable = false
+        text.isSelectable = true
+        text.string = "first page"
+        text.bookSelection = selection
+        selection.texts.add(text)
+        content.addSubview(text)
+        focus.activateReading()
+        surface.selectAll(nil)
+        #expect(selection.selectedString == "first page")
+        #expect(focus.isReading(in: window))
+        text.removeFromSuperview()
+        selection.remove(text)
+        #expect(window.firstResponder === surface)
+        #expect(selection.selectedString.isEmpty)
+
+        let replacement = CodexSelectableTextView(frame: text.frame)
+        replacement.isEditable = false
+        replacement.isSelectable = true
+        replacement.string = "next page"
+        replacement.bookSelection = selection
+        selection.texts.add(replacement)
+        content.addSubview(replacement)
+        surface.selectAll(nil)
+        #expect(selection.selectedString == "next page")
+        // Native multi-click selection may temporarily focus an individual text view.
+        #expect(window.makeFirstResponder(replacement))
+        #expect(focus.isReading(in: window))
+        replacement.removeFromSuperview()
+        #expect(window.firstResponder === surface)
+    }
+
+    @Test func removingTextDoesNotStealInputFocus() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        let selection = CodexBookSelection()
+        let focus = CodexBookFocus()
+        let surface = CodexBookSurfaceView(frame: content.bounds)
+        surface.selection = selection
+        selection.surface = surface
+        focus.readingView = surface
+        content.addSubview(surface)
+        let text = CodexSelectableTextView(frame: content.bounds)
+        text.bookSelection = selection
+        content.addSubview(text)
+        let input = CodexTextView(frame: content.bounds)
+        input.string = "draft"
+        content.addSubview(input)
+        focus.inputView = input
+        input.setSelectedRange(NSRange(location: 2, length: 0))
+        focus.activateInput()
+        text.removeFromSuperview()
+        #expect(window.firstResponder === input)
+        #expect(!focus.isReading(in: window))
+        #expect(input.string == "draft")
+        #expect(input.selectedRange() == NSRange(location: 2, length: 0))
+        surface.isHidden = true
+        focus.activateReading()
+        #expect(window.firstResponder === input)
+    }
+
+    @Test func readingShortcutsMoveAndReturnToDraftWithoutConsumingEditorKeys() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        let selection = CodexBookSelection()
+        let focus = CodexBookFocus()
+        let surface = CodexBookSurfaceView(frame: content.bounds)
+        surface.selection = selection
+        selection.surface = surface
+        focus.readingView = surface
+        content.addSubview(surface)
+        let input = CodexTextView(frame: content.bounds)
+        input.string = "draft"
+        content.addSubview(input)
+        input.setSelectedRange(NSRange(location: 2, length: 0))
+        focus.inputView = input
+        var moves: [Int] = []
+        let keys = CodexPageKeys(focus: focus, move: { moves.append($0) })
+        func event(_ characters: String, code: UInt16, modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+        }
+        focus.activateReading()
+        for (characters, code) in [("h", UInt16(4)), ("l", 37), ("", 123), ("", 124)] {
+            #expect(keys.handle(try event(characters, code: code)))
+            #expect(window.firstResponder === surface)
+        }
+        #expect(moves == [-1, 1, -1, 1])
+        #expect(!keys.handle(try event("x", code: 7)))
+        for modifiers in [NSEvent.ModifierFlags.command, .control, .option, .shift] {
+            #expect(!keys.handle(try event("l", code: 37, modifiers: modifiers)))
+            #expect(!keys.handle(try event("/", code: 44, modifiers: modifiers)))
+        }
+        #expect(keys.handle(try event("/", code: 44)))
+        #expect(window.firstResponder === input)
+        #expect(input.string == "draft")
+        #expect(input.selectedRange() == NSRange(location: 2, length: 0))
+        for (characters, code) in [("h", UInt16(4)), ("l", 37), ("/", 44), ("", 123), ("", 124)] {
+            #expect(!keys.handle(try event(characters, code: code)))
+        }
+        let other = CodexBookSurfaceView(frame: content.bounds)
+        content.addSubview(other)
+        #expect(window.makeFirstResponder(other))
+        #expect(!keys.handle(try event("l", code: 37)))
+        #expect(!keys.handle(try event("/", code: 44)))
+
+        let composing = ComposingInputText(frame: content.bounds)
+        content.addSubview(composing)
+        #expect(window.makeFirstResponder(composing))
+        #expect(!keys.handle(try event("l", code: 37)))
+        #expect(!keys.handle(try event("/", code: 44)))
+        #expect(window.firstResponder === composing)
+        #expect(moves == [-1, 1, -1, 1])
+    }
+
+    @Test func markdownParserPreservesStructuredBlocks() throws {
+        let blocks = CodexMarkdown(source: "# Heading\n\n| A | B |\n| --- | --- |\n| one | two |\n\n```swift\nlet x = 1\n```\n").blocks
+        try #require(blocks.count == 3)
+        #expect(blocks.first?.kind == .header(level: 1))
+        if case .table(let columns) = blocks[1].kind {
+            #expect(columns.count == 2)
+            #expect(blocks[1].children.count == 2)
+        } else {
+            Issue.record("Markdown table was not preserved")
+        }
+        #expect(blocks.last?.kind == .codeBlock(languageHint: "swift"))
+    }
+}
+
+private final class ComposingInputText: NSTextView {
+    override func hasMarkedText() -> Bool { true }
 }
