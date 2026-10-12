@@ -24,6 +24,7 @@ struct CodexInteractionRequestView: View {
     var approvalDecision: ((Bool) -> Void)? = nil
     let respond: ([String: Any]) -> Void
     @State private var answers: [String: String] = [:]
+    @FocusState private var approvalFocused: Bool
 
     private var questions: [[String: Any]] { request.params["questions"] as? [[String: Any]] ?? [] }
 
@@ -79,6 +80,7 @@ struct CodexInteractionRequestView: View {
                         Button("拒否", role: .destructive) { decide(allow: false) }
                         Button("承認") { decide(allow: true) }
                             .buttonStyle(.borderedProminent)
+                            .focused($approvalFocused)
                     }
                 }
             }
@@ -86,6 +88,9 @@ struct CodexInteractionRequestView: View {
         .frame(maxWidth: 820, alignment: .leading)
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .task(id: request.id) {
+            approvalFocused = request.isApproval && request.outcome == nil
+        }
     }
 
     private func approvalDetails() -> some View {

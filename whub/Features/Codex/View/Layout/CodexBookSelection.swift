@@ -443,7 +443,12 @@ struct CodexApprovalKeys: NSViewRepresentable {
         var monitor: Any?
         var handle: ((NSEvent, NSWindow) -> Bool)?
     }
-    private final class EventView: NSView {
+    final class EventView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.makeKey()
+        }
+
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }

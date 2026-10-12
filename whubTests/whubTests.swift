@@ -426,6 +426,22 @@ struct CodexApprovalTests {
         #expect(CodexApprovalKeys.approvalDecision(keyCode: 123, isRepeat: false, hasMarkedText: false) == nil)
     }
 
+    @Test func approvalKeyViewActivatesItsPopoverWindow() throws {
+        final class Window: NSWindow {
+            var requestedKey = false
+            override func makeKey() { requestedKey = true }
+        }
+        let window = Window(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                            styleMask: [.titled], backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        let view = CodexApprovalKeys.EventView(frame: content.bounds)
+        content.addSubview(view)
+        #expect(window.requestedKey)
+        window.requestedKey = false
+        view.removeFromSuperview()
+        #expect(!window.requestedKey)
+    }
+
     @Test func popoverKeysOnlyDecideInTheirOwnWindow() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
                               styleMask: [.titled], backing: .buffered, defer: false)
