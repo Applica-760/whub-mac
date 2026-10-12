@@ -394,18 +394,26 @@ struct CodexApprovalTests {
         #expect(turn.approvals.count == 3)
     }
 
-    @Test func longApprovalDetailsStayWithinPopoverFrame() {
-        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
+    @Test func approvalHeightFitsShortContentAndCapsLongDetails() {
+        let short = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
+            params: ["command": "pwd", "cwd": "/Users/test", "reason": "確認"])
+        let long = CodexRequest(rpcID: 2, method: short.method,
             params: ["command": String(repeating: "echo long-command\n", count: 100),
                      "cwd": "/Users/test", "reason": "確認"])
-        for expanded in [false, true] {
-            let view = NSHostingView(rootView:
-                CodexInteractionRequestView(request: request, detailsExpanded: expanded) { _ in }
-                    .frame(width: 320, height: 240))
-            view.frame.size = view.fittingSize
-            view.layoutSubtreeIfNeeded()
-            #expect(view.fittingSize.width <= 320)
-            #expect(view.fittingSize.height <= 240)
+        for request in [short, long] {
+            for expanded in [false, true] {
+                let view = NSHostingView(rootView:
+                    CodexInteractionRequestView(request: request, detailsExpanded: expanded) { _ in }
+                        .frame(width: 320)
+                        .frame(maxHeight: 440))
+                view.frame.size = view.fittingSize
+                view.layoutSubtreeIfNeeded()
+                #expect(view.fittingSize.width <= 320)
+                #expect(view.fittingSize.height <= 440)
+                if request.id == short.id, !expanded {
+                    #expect(view.fittingSize.height < 250)
+                }
+            }
         }
     }
 
