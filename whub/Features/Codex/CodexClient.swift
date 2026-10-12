@@ -80,7 +80,8 @@ final class CodexClient {
             }
         ]
         do {
-            _ = try await request("initialize", ["clientInfo": ["name": "whub_mac", "title": "whub", "version": "0.1.0"]])
+            _ = try await request("initialize", ["clientInfo": ["name": "whub_mac", "title": "whub", "version": "0.1.0"],
+                                                 "capabilities": ["experimentalApi": true]])
             try write(["method": "initialized", "params": [:]])
         } catch {
             disconnect()

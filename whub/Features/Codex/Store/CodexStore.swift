@@ -4,24 +4,6 @@ import Foundation
 import SwiftData
 import WhubCore
 
-enum CodexCommand: String, CaseIterable {
-    case new = "/new"
-    case stop = "/stop"
-    case skills = "/skills"
-    case status = "/status"
-    case resume = "/resume"
-
-    var description: String {
-        switch self {
-        case .new: "新しい会話"
-        case .stop: "作業を停止"
-        case .skills: "Skillを選択"
-        case .status: "状態を確認"
-        case .resume: "過去の会話を再開"
-        }
-    }
-}
-
 struct CodexItem: Identifiable {
     let id: String
     var type: String
@@ -86,17 +68,6 @@ struct CodexRequest: Identifiable {
     var id: String { CodexStore.pretty(rpcID) }
 }
 
-struct CodexSkill: Identifiable {
-    let name: String
-    let description: String
-    let path: String
-    var id: String { path }
-    func isMentioned(in text: String) -> Bool {
-        let pattern = "(?<!\\S)\\$" + NSRegularExpression.escapedPattern(for: name) + "(?![\\p{L}\\p{N}_-])"
-        return text.range(of: pattern, options: .regularExpression) != nil
-    }
-}
-
 struct CodexImageAttachment: Identifiable {
     let id = UUID()
     let image: NSImage
@@ -121,35 +92,38 @@ final class CodexStore: ObservableObject, Identifiable {
     @Published var draft = ""
     @Published var draftImages: [CodexImageAttachment] = []
     @Published var selectedSkills: [CodexSkill] = []
-    @Published private(set) var skills: [CodexSkill] = []
-    @Published private(set) var skillError: String?
-    @Published private(set) var isLoadingSkills = false
-    private var skillsDirectory = ""
     @Published private(set) var turns: [CodexTurn] = []
     @Published private(set) var requests: [CodexRequest] = []
     @Published private(set) var isBusy = false
     @Published private(set) var isStopping = false
+    @Published private(set) var isChangingModel = false
+    private(set) var settings: [String: Any] = [:]
+    private(set) var tokenUsage: [String: Any]?
     @Published private(set) var model = "Codexの既存設定"
     @Published private(set) var errorMessage: String?
     @Published private(set) var isResuming = false
-    @Published private(set) var recentThreads: [CodexRecentThread] = []
-    @Published private(set) var isLoadingThreads = false
-    @Published private(set) var threadListError: String?
-    @Published private(set) var nextThreadCursor: String?
     @Published private(set) var resumedDirectory: String?
     private var historyGeneration = UUID()
     private(set) var threadID: String?
     var onCompletionChange: ((Bool) -> Void)?
     var onNotification: ((String) -> Void)?
     @Published private(set) var notificationDate: Date?
-    private let client = CodexClient()
+    private let client: CodexClient
+    let commands: CodexCommandsStore
     private let context: ModelContext
     private var stopRequested = false
     private var needsResume = false
     private var pendingInput: (text: String, images: [CodexImageAttachment])?
 
-    init(context: ModelContext) {
+    init(context: ModelContext,
+         request: ((String, [String: Any], String) async throws -> [String: Any])? = nil) {
         self.context = context
+        let client = CodexClient()
+        self.client = client
+        commands = CodexCommandsStore(request: request ?? { method, params, directory in
+            try await client.connect(directory: directory)
+            return try await client.request(method, params)
+        })
         client.onEvent = { [weak self] in self?.receive($0, params: $1, requestID: $2) }
         client.onDisconnect = { [weak self] message in
             self?.fail(message)
@@ -163,7 +137,7 @@ final class CodexStore: ObservableObject, Identifiable {
     }
 
     var canSend: Bool {
-        !isBusy && !isResuming && !directory.isEmpty
+        !isBusy && !isResuming && !isChangingModel && !directory.isEmpty
             && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftImages.isEmpty)
     }
 
@@ -181,34 +155,8 @@ final class CodexStore: ObservableObject, Identifiable {
         turns.lastIndex { $0.status == "inProgress" }
     }
 
-    func loadRecentThreads(more: Bool = false) async {
-        guard !isLoadingThreads, !isResuming, !more || nextThreadCursor != nil else { return }
-        let generation = historyGeneration
-        isLoadingThreads = true
-        threadListError = nil
-        defer { if generation == historyGeneration { isLoadingThreads = false } }
-        do {
-            try await client.connect(directory: directory)
-            var params: [String: Any] = ["limit": 20, "sortKey": "updated_at", "sortDirection": "desc",
-                                        "sourceKinds": ["cli", "appServer", "vscode"], "archived": false]
-            if more { params["cursor"] = nextThreadCursor }
-            let result = try await client.request("thread/list", params)
-            guard generation == historyGeneration else { return }
-            guard let data = result["data"] as? [[String: Any]] else {
-                throw CodexError(message: "会話一覧を読み込めませんでした。")
-            }
-            let threads = try data.map(CodexRecentThread.init)
-            var seen = Set(more ? recentThreads.map(\.id) : [])
-            let additions = threads.filter { seen.insert($0.id).inserted }
-            recentThreads = (more ? recentThreads : []) + additions
-            nextThreadCursor = result["nextCursor"] as? String
-        } catch {
-            if generation == historyGeneration { threadListError = error.localizedDescription }
-        }
-    }
-
     func resume(_ thread: CodexRecentThread) async -> Bool {
-        guard !isBusy, !isResuming, !isLoadingThreads, threadID == nil, turns.isEmpty else { return false }
+        guard !isBusy, !isResuming, !isChangingModel, !commands.isLoadingThreads, threadID == nil, turns.isEmpty else { return false }
         let generation = historyGeneration
         isResuming = true
         errorMessage = nil
@@ -218,15 +166,14 @@ final class CodexStore: ObservableObject, Identifiable {
             guard FileManager.default.fileExists(atPath: thread.directory, isDirectory: &isDirectory), isDirectory.boolValue else {
                 throw CodexError(message: "会話の作業フォルダが存在しません: \(thread.directory)")
             }
-            try await client.connect(directory: thread.directory)
-            let metadata = try await client.request("thread/read", ["threadId": thread.id])
+            let metadata = try await commands.request("thread/read", ["threadId": thread.id], thread.directory)
             guard let stored = metadata["thread"] as? [String: Any], stored["id"] as? String == thread.id else {
                 throw CodexError(message: "指定した会話を読み込めませんでした。")
             }
             var params: [String: Any] = ["threadId": thread.id]
             let paginated = stored["historyMode"] as? String == "paginated"
             if paginated { params["excludeTurns"] = true }
-            var result = try await client.request("thread/resume", params)
+            var result = try await commands.request("thread/resume", params, thread.directory)
             if paginated {
                 var turns: [[String: Any]] = []
                 var cursor: String?
@@ -236,7 +183,7 @@ final class CodexStore: ObservableObject, Identifiable {
                     var pageParams: [String: Any] = ["threadId": thread.id, "limit": 100,
                                                     "sortDirection": "asc", "itemsView": "full"]
                     if let cursor { pageParams["cursor"] = cursor }
-                    let page = try await client.request("thread/turns/list", pageParams)
+                    let page = try await commands.request("thread/turns/list", pageParams, thread.directory)
                     guard let data = page["data"] as? [[String: Any]] else {
                         throw CodexError(message: "会話履歴を読み込めませんでした。")
                     }
@@ -269,92 +216,67 @@ final class CodexStore: ObservableObject, Identifiable {
         let history = try CodexThreadHistory(result, expectedID: expectedID)
         threadID = expectedID
         resumedDirectory = history.directory
-        model = history.model
+        updateSettings(result)
         turns = history.turns
         needsResume = false
     }
 
-    func runCommand(_ command: CodexCommand) async {
-        let output: String
-        switch command {
-        case .resume:
-            await loadRecentThreads()
-            return
-        case .new:
-            reset()
-            return
-        case .stop:
-            let wasBusy = isBusy
-            await interrupt()
-            output = wasBusy ? (isStopping ? "停止を要求しました。" : errorMessage ?? "作業を停止しました。") : "実行中の作業はありません。"
-        case .skills:
-            output = await loadSkills(forceReload: true)
-        case .status:
-            output = await statusText()
-        }
-        appendCommandOutput(command, output)
-    }
-
-    private func appendCommandOutput(_ command: CodexCommand, _ output: String) {
+    func appendCommandOutput(_ command: CodexCommand, _ output: String) {
         let item = CodexItem(id: UUID().uuidString, type: "commandOutput", phase: nil,
-                             title: command.rawValue, text: "```\n" + output + "\n```", status: "completed")
+                             title: command.rawValue, text: CodexStatus.codeBlock(output), status: "completed")
         turns.append(CodexTurn(prompt: command.rawValue, items: [item], status: "completed"))
     }
 
-    private func statusText() async -> String {
-        var output = "作業フォルダ: \(directory)\n会話: \(threadID ?? "未開始")"
-        do { try await client.connect(directory: directory) }
-        catch { return output + "\n接続: " + error.localizedDescription }
-        let requests: [(String, [String: Any])] = [
-            ("config/read", ["includeLayers": false]), ("account/read", ["refreshToken": false]),
-            ("account/rateLimits/read", [:])
-        ]
-        for (method, params) in requests {
-            do {
-                var result = try await client.request(method, params)
-                if method == "config/read", let config = result["config"] as? [String: Any] {
-                    // Provider configuration can contain credentials; show only status fields.
-                    result = config.filter { ["model", "model_reasoning_effort", "model_provider", "service_tier", "sandbox_mode", "approval_policy", "approvals_reviewer"].contains($0.key) }
-                    if threadID != nil { result["model"] = model }
-                }
-                output += "\n\n" + method + "\n" + Self.pretty(result)
-                if method == "account/read" {
-                    guard let account = result["account"] as? [String: Any], account["type"] as? String != "apiKey" else { break }
-                }
-            } catch {
-                output += "\n\n" + method + "\n" + error.localizedDescription
-                if method == "account/read" { break }
-            }
-        }
-        return output
+    func updateSettings(_ result: [String: Any]) {
+        let keys = ["model", "modelProvider", "effort", "reasoningEffort", "sandboxPolicy", "sandbox",
+                    "approvalPolicy", "approvalsReviewer", "serviceTier", "instructionSources"]
+        settings.merge(result.filter { keys.contains($0.key) }) { _, new in new }
+        model = result["model"] as? String ?? model
+        // Start/resume and settings notifications use different field names.
+        if let effort = result["reasoningEffort"] { settings["effort"] = effort }
+        if let sandbox = result["sandbox"] { settings["sandboxPolicy"] = sandbox }
     }
 
-    @discardableResult
-    func loadSkills(forceReload: Bool = false) async -> String {
-        let cwd = directory
-        guard !cwd.isEmpty else { return "作業フォルダがありません。" }
-        isLoadingSkills = true
-        if skillsDirectory != cwd { skills = [] }
-        skillError = nil
-        defer { if directory == cwd { isLoadingSkills = false } }
-        do {
-            try await client.connect(directory: cwd)
-            let result = try await client.request("skills/list", ["cwds": [cwd], "forceReload": forceReload])
-            guard directory == cwd else { return "作業フォルダが変更されました。再実行してください。" }
-            let entries = result["data"] as? [[String: Any]] ?? []
-            skills = entries.flatMap { $0["skills"] as? [[String: Any]] ?? [] }.compactMap {
-                guard $0["enabled"] as? Bool != false,
-                      let name = $0["name"] as? String, let path = $0["path"] as? String else { return nil }
-                return CodexSkill(name: name, description: $0["description"] as? String ?? "", path: path)
-            }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            skillsDirectory = cwd
-            let errors = entries.flatMap { $0["errors"] as? [[String: Any]] ?? [] }
-            if !errors.isEmpty { skillError = Self.pretty(errors) }
-            return Self.pretty(result)
-        } catch {
-            if directory == cwd { skillError = error.localizedDescription }
-            return error.localizedDescription
+    private func prepareThread() async throws {
+        let generation = historyGeneration
+        if threadID == nil {
+            let result = try await commands.request("thread/start", ["cwd": directory], directory)
+            guard generation == historyGeneration else { throw CancellationError() }
+            guard let thread = result["thread"] as? [String: Any], let id = thread["id"] as? String else {
+                throw CodexError(message: "Codexから会話IDを取得できませんでした。")
+            }
+            threadID = id
+            updateSettings(result)
+        } else if needsResume, let threadID {
+            var params: [String: Any] = ["threadId": threadID, "model": model]
+            if let effort = settings["effort"] as? String {
+                params["config"] = ["model_reasoning_effort": effort]
+            }
+            let result = try await commands.request("thread/resume", params, directory)
+            guard generation == historyGeneration else { throw CancellationError() }
+            updateSettings(result)
+            needsResume = false
         }
+    }
+
+    func changeModel(_ choice: CodexModel, effort: String) async throws {
+        guard !isBusy, !isResuming, !isChangingModel else {
+            throw CodexError(message: "作業または会話の再開が終わってからモデルを変更してください。")
+        }
+        guard choice.efforts.contains(where: { $0.reasoningEffort == effort }) else {
+            throw CodexError(message: "このモデルで利用できない推論設定です。")
+        }
+        isChangingModel = true
+        defer { isChangingModel = false }
+        let generation = historyGeneration
+        try await prepareThread()
+        guard generation == historyGeneration, let threadID else { throw CancellationError() }
+        _ = try await commands.request("thread/settings/update", choice.parameters(threadID: threadID, effort: effort), directory)
+        guard generation == historyGeneration else { throw CancellationError() }
+        settings["model"] = choice.model
+        settings["effort"] = effort
+        model = choice.model
+        appendCommandOutput(.model, "Model changed to \(choice.displayName) (\(effort)) for this session only")
     }
 
     func send(skills selectedSkills: [CodexSkill] = []) async {
@@ -363,6 +285,10 @@ final class CodexStore: ObservableObject, Identifiable {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory), isDirectory.boolValue else {
             errorMessage = "ローカルHostのBasePathが存在しません。Host設定を確認してください。"
+            return
+        }
+        if !draftImages.isEmpty, commands.models.first(where: { $0.model == model })?.supportsImages == false {
+            errorMessage = "このモデルは画像入力に対応していません。モデルを変更するか、添付画像を取り除いてください。"
             return
         }
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -376,24 +302,13 @@ final class CodexStore: ObservableObject, Identifiable {
         isBusy = true
         turns.append(CodexTurn(prompt: prompt, images: images))
         do {
-            try await client.connect(directory: cwd)
-            if threadID == nil {
-                let result = try await client.request("thread/start", ["cwd": cwd])
-                guard let thread = result["thread"] as? [String: Any], let id = thread["id"] as? String else {
-                    throw CodexError(message: "Codexから会話IDを取得できませんでした。")
-                }
-                threadID = id
-                model = result["model"] as? String ?? model
-            } else if needsResume, let threadID {
-                _ = try await client.request("thread/resume", ["threadId": threadID])
-                needsResume = false
-            }
+            try await prepareThread()
             guard !stopRequested else { finish("interrupted"); return }
             guard let threadID else { return }
             var input: [[String: Any]] = prompt.isEmpty ? [] : [["type": "text", "text": prompt]]
             input += images.map(\.input)
             input += selectedSkills.map { ["type": "skill", "name": $0.name, "path": $0.path] }
-            let result = try await client.request("turn/start", ["threadId": threadID, "input": input])
+            let result = try await commands.request("turn/start", ["threadId": threadID, "input": input], directory)
             if let turn = result["turn"] as? [String: Any], let id = turn["id"] as? String, isBusy, let index = activeTurnIndex {
                 turns[index].remoteID = id
                 if stopRequested { await interrupt() }
@@ -411,7 +326,7 @@ final class CodexStore: ObservableObject, Identifiable {
         for attempt in 0..<10 {
             guard isBusy else { return }
             do {
-                _ = try await client.request("turn/interrupt", ["threadId": threadID, "turnId": turnID])
+                _ = try await commands.request("turn/interrupt", ["threadId": threadID, "turnId": turnID], directory)
                 return
             } catch {
                 guard isBusy else { return }
@@ -428,9 +343,9 @@ final class CodexStore: ObservableObject, Identifiable {
     }
 
     func reset() {
-        guard !isBusy, !isResuming else { return }
+        guard !isBusy, !isResuming, !isChangingModel else { return }
         historyGeneration = UUID()
-        isLoadingThreads = false
+        commands.invalidate()
         onCompletionChange?(false)
         client.disconnect()
         threadID = nil
@@ -442,13 +357,16 @@ final class CodexStore: ObservableObject, Identifiable {
         requests = []
         errorMessage = nil
         model = "Codexの既存設定"
+        settings = [:]
+        tokenUsage = nil
         appendCommandOutput(.new, "新しい会話を開始しました。")
     }
 
     func disconnect() {
         historyGeneration = UUID()
-        isLoadingThreads = false
+        commands.invalidate()
         isResuming = false
+        needsResume = threadID != nil
         client.disconnect()
     }
 
@@ -505,7 +423,16 @@ final class CodexStore: ObservableObject, Identifiable {
             resolveRequest(Self.pretty(id), outcome: "解決済み")
             return
         }
-        guard params["threadId"] as? String == threadID, let index = activeTurnIndex else { return }
+        guard params["threadId"] as? String == threadID else { return }
+        if method == "thread/settings/updated", let settings = params["threadSettings"] as? [String: Any] {
+            updateSettings(settings)
+            return
+        }
+        if method == "thread/tokenUsage/updated" {
+            tokenUsage = params["tokenUsage"] as? [String: Any]
+            return
+        }
+        guard let index = activeTurnIndex else { return }
         if method == "turn/started", let turn = params["turn"] as? [String: Any] {
             turns[index].remoteID = turn["id"] as? String
             return

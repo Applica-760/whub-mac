@@ -90,7 +90,7 @@ private struct CodexSessionView<Tabs: View>: View {
                     }
                 }
                     .overlay(alignment: .bottom) {
-                        CodexInputView(focus: bookFocus) {
+                        CodexInputView(commands: store.commands, focus: bookFocus) {
                             if store.turns.isEmpty { store.reset() } else { confirmsReset = true }
                         }
                         .id(store.id)

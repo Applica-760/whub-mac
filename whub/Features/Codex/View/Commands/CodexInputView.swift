@@ -25,6 +25,7 @@ struct CodexInputToken: Equatable {
 
 struct CodexInputView: View {
     @EnvironmentObject private var store: CodexStore
+    @ObservedObject var commands: CodexCommandsStore
     @EnvironmentObject private var tabsStore: CodexTabsStore
     let focus: CodexBookFocus
     let newConversation: () -> Void
@@ -33,30 +34,39 @@ struct CodexInputView: View {
     @State private var dismissedToken: CodexInputToken?
     @State private var showsSkills = false
     @State private var dismissedResume = false
+    @State private var dismissedModel = false
+    @State private var selectedModel: CodexModel?
 
     private var token: CodexInputToken? { CodexInputToken.at(selection, in: store.draft) }
     static func isResumeInput(_ text: String) -> Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines) == CodexCommand.resume.rawValue
     }
 
+    static func isModelInput(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines) == CodexCommand.model.rawValue
+    }
+
+    private var showsModel: Bool { Self.isModelInput(store.draft) && !dismissedModel }
+    private var modelChoiceCount: Int { selectedModel?.efforts.count ?? commands.models.count }
     private var showsResume: Bool { Self.isResumeInput(store.draft) && !dismissedResume }
     private var candidates: [(name: String, detail: String, skill: CodexSkill?, thread: CodexRecentThread?)] {
+        if showsModel { return [] }
         if showsResume {
-            var entries = store.recentThreads.map {
+            var entries = commands.recentThreads.map {
                 (name: $0.title, detail: $0.directory + " · " + $0.updatedAt.formatted(date: .abbreviated, time: .shortened),
                  skill: Optional<CodexSkill>.none, thread: Optional($0))
             }
-            if store.nextThreadCursor != nil { entries.append(("さらに読み込む", "", nil, nil)) }
+            if commands.nextThreadCursor != nil { entries.append(("さらに読み込む", "", nil, nil)) }
             return entries
         }
         if showsSkills {
-            return store.skills.map { ("$" + $0.name, $0.description, $0, nil) }
+            return commands.skills.map { ("$" + $0.name, $0.description, $0, nil) }
         }
         guard let token, token != dismissedToken else { return [] }
         if token.text.hasPrefix("/") {
             return CodexCommand.allCases.filter { $0.rawValue.hasPrefix(token.text.lowercased()) }.map { ($0.rawValue, $0.description, nil, nil) }
         }
-        return store.skills.filter { ("$" + $0.name).lowercased().hasPrefix(token.text.lowercased()) }
+        return commands.skills.filter { ("$" + $0.name).lowercased().hasPrefix(token.text.lowercased()) }
             .map { ("$" + $0.name, $0.description, $0, nil) }
     }
 
@@ -64,28 +74,34 @@ struct CodexInputView: View {
         Group {
             VStack(alignment: .leading, spacing: 10) {
                 imageAttachments()
-                if showsResume || showsSkills || (token?.text.hasPrefix("$") == true && token != dismissedToken) || !candidates.isEmpty {
+                if showsModel {
+                    CodexModelPicker(commands: commands, session: store, selectedModel: selectedModel,
+                                     selectedIndex: candidateIndex, accept: acceptModel) {
+                        selectedModel = nil
+                        candidateIndex = 0
+                    }
+                } else if showsResume || showsSkills || (token?.text.hasPrefix("$") == true && token != dismissedToken) || !candidates.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         if showsResume {
-                            if store.isLoadingThreads { Text("会話を読み込み中…").foregroundStyle(.secondary) }
+                            if commands.isLoadingThreads { Text("会話を読み込み中…").foregroundStyle(.secondary) }
                             if tabsStore.isResuming { Text("会話を再開中…").foregroundStyle(.secondary) }
-                            if let error = store.threadListError {
+                            if let error = commands.threadListError {
                                 Text(error).foregroundStyle(.red).textSelection(.enabled)
-                                Button("再読み込み") { Task { await store.loadRecentThreads(more: store.nextThreadCursor != nil) } }
+                                Button("再読み込み") { Task { await commands.loadRecentThreads(directory: store.directory, more: commands.nextThreadCursor != nil) } }
                             }
                             if let error = tabsStore.resumeError {
                                 Text(error).foregroundStyle(.red).textSelection(.enabled)
                             }
-                            if candidates.isEmpty && !store.isLoadingThreads && store.threadListError == nil {
+                            if candidates.isEmpty && !commands.isLoadingThreads && commands.threadListError == nil {
                                 Text("再開できる会話はありません").foregroundStyle(.secondary)
                             }
                         } else {
-                            if store.isLoadingSkills { Text("Skillを読み込み中…").foregroundStyle(.secondary) }
-                            if let error = store.skillError {
+                            if commands.isLoadingSkills { Text("Skillを読み込み中…").foregroundStyle(.secondary) }
+                            if let error = commands.skillError {
                                 Text(error).foregroundStyle(.red).textSelection(.enabled)
-                                Button("再読み込み") { Task { await store.loadSkills(forceReload: true) } }
+                                Button("再読み込み") { Task { await commands.loadSkills(directory: store.directory, forceReload: true) } }
                             }
-                            if candidates.isEmpty && !store.isLoadingSkills && store.skillError == nil {
+                            if candidates.isEmpty && !commands.isLoadingSkills && commands.skillError == nil {
                                 Text("該当するSkillはありません").foregroundStyle(.secondary)
                             }
                         }
@@ -111,7 +127,7 @@ struct CodexInputView: View {
                                             .background(index == candidateIndex ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 6))
                                         }
                                         .buttonStyle(.plain)
-                                        .disabled(showsResume && (tabsStore.isResuming || store.isLoadingThreads))
+                                        .disabled(showsResume && (tabsStore.isResuming || commands.isLoadingThreads))
                                         .accessibilityValue(index == candidateIndex ? "選択中" : "")
                                         .id(index)
                                     }
@@ -153,15 +169,23 @@ struct CodexInputView: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .frame(maxWidth: 868)
         .padding(.horizontal, 16).padding(.bottom, 16).padding(.top, 8)
-        .task(id: store.directory) { await store.loadSkills() }
+        .task(id: store.directory) { await commands.loadSkills(directory: store.directory) }
         .onChange(of: token) { _, _ in candidateIndex = 0 }
         .onChange(of: store.directory) { _, _ in store.selectedSkills = [] }
         .onChange(of: store.draft) { _, text in
             dismissedResume = false
+            dismissedModel = false
+            if !Self.isModelInput(text) { selectedModel = nil }
             if text.isEmpty { showsSkills = false }
         }
+        .task(id: showsModel) {
+            if showsModel {
+                await commands.loadModels(directory: store.directory)
+                candidateIndex = commands.models.firstIndex(where: { $0.model == store.model }) ?? 0
+            }
+        }
         .task(id: showsResume) {
-            if showsResume { await store.loadRecentThreads() }
+            if showsResume { await commands.loadRecentThreads(directory: store.directory) }
         }
     }
 
@@ -200,7 +224,7 @@ struct CodexInputView: View {
         guard candidates.indices.contains(index) else { return }
         let candidate = candidates[index]
         if showsResume {
-            guard !tabsStore.isResuming, !store.isLoadingThreads else { return }
+            guard !tabsStore.isResuming, !commands.isLoadingThreads else { return }
             if let thread = candidate.thread {
                 let source = store
                 Task {
@@ -209,7 +233,7 @@ struct CodexInputView: View {
                     }
                 }
             } else {
-                Task { await store.loadRecentThreads(more: true) }
+                Task { await commands.loadRecentThreads(directory: store.directory, more: true) }
             }
             return
         }
@@ -223,12 +247,38 @@ struct CodexInputView: View {
         dismissedToken = nil
     }
 
+    private func acceptModel(_ index: Int) {
+        guard !store.isBusy, !store.isResuming, !store.isChangingModel,
+              !commands.isLoadingModels, commands.modelError == nil else { return }
+        if let selectedModel {
+            guard selectedModel.efforts.indices.contains(index) else { return }
+            let effort = selectedModel.efforts[index].reasoningEffort
+            Task {
+                if await commands.applyModel(selectedModel, effort: effort, session: store), Self.isModelInput(store.draft) {
+                    store.draft = ""
+                    self.selectedModel = nil
+                }
+            }
+        } else {
+            guard commands.models.indices.contains(index) else { return }
+            let model = commands.models[index]
+            selectedModel = model
+            let effort = store.model == model.model ? store.settings["effort"] as? String : nil
+            candidateIndex = model.efforts.firstIndex(where: { $0.reasoningEffort == (effort ?? model.defaultEffort) }) ?? 0
+        }
+    }
+
     private func submit() {
         let text = store.draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let command = CodexCommand(rawValue: text) else {
             guard store.canSend else { return }
             let skills = store.selectedSkills.filter { $0.isMentioned(in: store.draft) }
             Task { await store.send(skills: skills) }
+            return
+        }
+        if command == .model {
+            if dismissedModel { dismissedModel = false }
+            else if showsModel { acceptModel(candidateIndex) }
             return
         }
         if command == .resume {
@@ -240,7 +290,7 @@ struct CodexInputView: View {
             return
         }
         if command == .new {
-            guard !store.isBusy else { return }
+            guard !store.isBusy, !store.isResuming, !store.isChangingModel else { return }
             store.draft = ""
             newConversation()
             return
@@ -250,20 +300,38 @@ struct CodexInputView: View {
             selection = NSRange(location: 0, length: 0)
             showsSkills = true
         }
-        Task { await store.runCommand(command) }
+        Task { await commands.runCommand(command, session: store) }
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
         if [36, 76].contains(event.keyCode), modifiers == .command { submit(); return true }
         guard modifiers.isEmpty else { return false }
+        if showsModel {
+            if event.keyCode == 53 {
+                if selectedModel != nil { selectedModel = nil; candidateIndex = 0 }
+                else { dismissedModel = true; dismissedToken = token }
+                return true
+            }
+            guard !commands.isLoadingModels, commands.modelError == nil, !store.isChangingModel,
+                  !store.isBusy, !store.isResuming, modelChoiceCount > 0 else {
+                return [36, 76, 48, 125, 126].contains(event.keyCode)
+            }
+            switch event.keyCode {
+            case 125: candidateIndex = (candidateIndex + 1) % modelChoiceCount
+            case 126: candidateIndex = (candidateIndex + modelChoiceCount - 1) % modelChoiceCount
+            case 36, 76: acceptModel(candidateIndex)
+            default: return false
+            }
+            return true
+        }
         if event.keyCode == 53, showsResume || showsSkills || token != nil {
             dismissedToken = token
             dismissedResume = true
             showsSkills = false
             return true
         }
-        if showsResume && (store.isLoadingThreads || tabsStore.isResuming || candidates.isEmpty) {
+        if showsResume && (commands.isLoadingThreads || tabsStore.isResuming || candidates.isEmpty) {
             return [36, 76, 48, 125, 126].contains(event.keyCode)
         }
         guard !candidates.isEmpty else { return false }
@@ -274,122 +342,5 @@ struct CodexInputView: View {
         default: return false
         }
         return true
-    }
-}
-
-private struct CodexTextInput: NSViewRepresentable {
-    let focus: CodexBookFocus
-    @Environment(\.isRetainedPageActive) private var isActive
-    @Binding var text: String
-    @Binding var selection: NSRange
-    let handleKey: (NSEvent) -> Bool
-    let pasteImages: ([NSImage]) -> Void
-
-    func makeNSView(context: Context) -> CodexTextView {
-        let view = CodexTextView()
-        view.bookFocus = focus
-        focus.inputView = view
-        view.delegate = context.coordinator
-        view.setAccessibilityLabel("Codexに依頼する")
-        view.setAccessibilityHelp("⌘Enterで送信。⌘Vで画像も貼り付け。/でコマンド、$でSkillを選択。")
-        view.isRichText = false
-        view.allowsUndo = true
-        view.isAutomaticQuoteSubstitutionEnabled = false
-        view.isAutomaticDashSubstitutionEnabled = false
-        view.drawsBackground = false
-        view.font = .systemFont(ofSize: 13, weight: .light)
-        view.textColor = .labelColor
-        view.textContainerInset = .zero
-        view.textContainer?.lineFragmentPadding = 0
-        view.textContainer?.widthTracksTextView = false
-        view.isVerticallyResizable = false
-        return view
-    }
-
-    func updateNSView(_ view: CodexTextView, context: Context) {
-        focus.inputView = view
-        let becameActive = isActive && !view.isPageActive
-        view.isPageActive = isActive
-        if becameActive {
-            DispatchQueue.main.async { [weak view] in
-                guard let view, view.isPageActive, !view.isHiddenOrHasHiddenAncestor else { return }
-                view.bookFocus?.activateInput()
-            }
-        }
-        context.coordinator.parent = self
-        context.coordinator.isUpdating = true
-        defer { context.coordinator.isUpdating = false }
-        view.handleKey = handleKey
-        view.pasteImages = pasteImages
-        if !view.hasMarkedText(), view.string != text {
-            let range = NSRange(location: 0, length: (view.string as NSString).length)
-            view.insertText(text, replacementRange: range)
-            view.setSelectedRange(NSRange(location: min(selection.location, (text as NSString).length), length: 0))
-        } else if !view.hasMarkedText(), view.selectedRange() != selection, NSMaxRange(selection) <= (text as NSString).length {
-            view.setSelectedRange(selection)
-        }
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView view: CodexTextView, context: Context) -> CGSize? {
-        guard let width = proposal.width, width.isFinite, width > 0, let font = view.font else { return nil }
-        // SwiftUI probes multiple widths; measurement must not change the live text container.
-        let storage = NSTextStorage(attributedString: view.attributedString())
-        let layout = NSLayoutManager()
-        let container = NSTextContainer(containerSize: CGSize(width: width, height: .greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0
-        storage.addLayoutManager(layout)
-        layout.addTextContainer(container)
-        layout.ensureLayout(for: container)
-        let height = max(layout.usedRect(for: container).maxY, layout.extraLineFragmentRect.maxY, layout.defaultLineHeight(for: font))
-        return CGSize(width: width, height: ceil(height))
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: CodexTextInput
-        var isUpdating = false
-        init(_ parent: CodexTextInput) { self.parent = parent }
-        func textDidChange(_ notification: Notification) {
-            guard !isUpdating, let view = notification.object as? NSTextView else { return }
-            parent.text = view.string
-            parent.selection = view.selectedRange()
-        }
-        func textViewDidChangeSelection(_ notification: Notification) {
-            guard !isUpdating, let view = notification.object as? NSTextView, !view.hasMarkedText() else { return }
-            let range = view.selectedRange()
-            if parent.selection != range { parent.selection = range }
-        }
-    }
-}
-
-final class CodexTextView: NSTextView {
-    weak var bookFocus: CodexBookFocus?
-    var isPageActive = false
-    var handleKey: ((NSEvent) -> Bool)?
-    var pasteImages: (([NSImage]) -> Void)?
-
-    override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
-        [.png, .tiff] + super.readablePasteboardTypes
-    }
-
-    override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
-        guard type == .png || type == .tiff else { return super.readSelection(from: pasteboard, type: type) }
-        guard let images = pasteboard.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
-              !images.isEmpty, let pasteImages else { return false }
-        pasteImages(images)
-        return true
-    }
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        textContainer?.containerSize = CGSize(width: max(newSize.width, 1), height: .greatestFiniteMagnitude)
-    }
-    override func keyDown(with event: NSEvent) {
-        if !hasMarkedText(), handleKey?(event) == true { return }
-        super.keyDown(with: event)
-    }
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if isPageActive, !isHiddenOrHasHiddenAncestor, window != nil { bookFocus?.activateInput() }
     }
 }
