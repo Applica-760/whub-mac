@@ -78,9 +78,11 @@ struct CodexInteractionRequestView: View {
                 } else {
                     HStack {
                         Button("拒否", role: .destructive) { decide(allow: false) }
+                            .keyboardShortcut(.cancelAction)
                         Button("承認") { decide(allow: true) }
                             .buttonStyle(.borderedProminent)
                             .focused($approvalFocused)
+                            .keyboardShortcut(.defaultAction)
                     }
                 }
             }

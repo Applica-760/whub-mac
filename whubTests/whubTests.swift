@@ -426,6 +426,26 @@ struct CodexApprovalTests {
         #expect(CodexApprovalKeys.approvalDecision(keyCode: 123, isRepeat: false, hasMarkedText: false) == nil)
     }
 
+    @Test func approvalButtonsRespondToNativeKeyEquivalents() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        var decisions: [Bool] = []
+        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
+                                   params: ["command": "pwd"])
+        let view = NSHostingView(rootView:
+            CodexInteractionRequestView(request: request, approvalDecision: { decisions.append($0) }) { _ in }
+                .frame(width: 320, height: 240))
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        for (characters, code) in [("\r", UInt16(36)), ("\u{1b}", UInt16(53))] {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+            #expect(window.performKeyEquivalent(with: event))
+        }
+        #expect(decisions == [true, false])
+    }
+
     @Test func approvalKeyViewActivatesItsPopoverWindow() throws {
         final class Window: NSWindow {
             var requestedKey = false
