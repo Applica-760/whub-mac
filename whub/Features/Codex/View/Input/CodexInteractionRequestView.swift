@@ -113,30 +113,31 @@ struct CodexInteractionRequestView: View {
 }
 
 struct CodexApprovalEntryView: View {
-    let request: CodexRequest
-    var detailsExpanded = false
-    var toggleDetails: () -> Void = {}
-    let decide: (Bool) -> Void
-    @State private var showsRequest = false
+    let request: CodexRequest?
+    let pageSize: CGSize
+    let contentBottom: CGFloat
+    let scale: CGFloat
+    let decide: (CodexRequest, Bool) -> Void
     @State private var showsDetails = false
 
     var body: some View {
-        Group {
-            if request.outcome != nil {
-                Button("実行リクエスト", systemImage: "terminal") { showsRequest.toggle() }
-                    .font(.caption).buttonStyle(.plain)
-                    .accessibilityValue(request.outcome ?? "")
-                    .popover(isPresented: $showsRequest) {
-                        CodexInteractionRequestView(request: request, detailsExpanded: showsDetails,
-                                                    toggleDetails: { showsDetails.toggle() }) { _ in }
-                            .padding(20)
-                            .frame(width: 480, height: 440)
-                    }
-            } else {
-                CodexInteractionRequestView(request: request, detailsExpanded: detailsExpanded,
-                                            toggleDetails: toggleDetails, approvalDecision: decide) { _ in }
+        let anchorY = min(contentBottom, pageSize.height - 16)
+        let above = anchorY > pageSize.height / 2
+        let availableHeight = (above ? anchorY : pageSize.height - anchorY) * scale - 24
+        Color.clear
+            .frame(width: 1, height: 1)
+            .popover(isPresented: Binding(get: { request != nil }, set: { _ in }),
+                     arrowEdge: above ? .bottom : .top) {
+                if let request {
+                    CodexInteractionRequestView(request: request, detailsExpanded: showsDetails,
+                        toggleDetails: { showsDetails.toggle() },
+                        approvalDecision: { decide(request, $0) }) { _ in }
+                        .frame(width: (pageSize.width - 32) * scale, height: max(1, availableHeight))
+                        .background(CodexApprovalKeys { decide(request, $0) })
+                        .interactiveDismissDisabled()
+                }
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+            .offset(x: pageSize.width / 2, y: anchorY)
+            .onChange(of: request?.id) { _, _ in showsDetails = false }
     }
 }

@@ -8,6 +8,7 @@
 import AppKit
 import Combine
 import SwiftData
+import SwiftUI
 import Testing
 import WhubCore
 @testable import whub
@@ -361,58 +362,98 @@ struct CodexImageTests {
 
 @Suite @MainActor
 struct CodexApprovalTests {
-    @Test func resolvedRequestsKeepBookLayoutIndependentOfDetails() throws {
-        let book = CodexBookPagination()
-        book.configure(viewport: CGSize(width: 600, height: 320))
-        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
-                                   params: ["command": "/bin/date"])
-        var turn = CodexTurn(prompt: "確認", approvals: [request])
-        book.update([turn])
-        book.revealApproval(request.id)
-        #expect(book.visibleApproval?.id == request.id)
-        let expandedHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
-        turn.approvals[0].outcome = "承認済み"
-        turn.status = "completed"
-        book.update([turn])
-        #expect(book.visibleApproval == nil)
-        let collapsedHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
-        #expect(collapsedHeight < expandedHeight)
-        let pageCount = book.pages.count
-        let heights = book.pages.map(\.usedHeight)
-        book.update([turn], expandedApprovalDetailsIDs: [request.id])
-        #expect(book.visibleApproval == nil)
-        #expect(book.pages.count == pageCount)
-        #expect(book.pages.map(\.usedHeight) == heights)
-        #expect(book.pages.flatMap(\.fragments).first { $0.approval != nil }?.height == collapsedHeight)
-        for page in book.pages { #expect(page.usedHeight <= book.contentHeight) }
-    }
-
-    @Test func approvalHeightFitsContentAndCapsLongDetails() throws {
+    @Test func approvalArrivalAndResolutionKeepPagesAndReadingPosition() throws {
         let book = CodexBookPagination()
         book.configure(viewport: CGSize(width: 800, height: 650))
-        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
-                                   params: ["command": "/usr/bin/true", "reason": "確認", "cwd": "/Users/test"])
-        let turn = CodexTurn(prompt: "確認", approvals: [request])
+        var turn = CodexTurn(prompt: String(repeating: "本文を読み続ける。\n\n", count: 100))
         book.update([turn])
-        let shortHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
-        #expect(shortHeight < 250)
-        book.update([turn], expandedApprovalDetailsIDs: [request.id])
-        let detailHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
-        #expect(detailHeight > shortHeight)
-        let longRequest = CodexRequest(rpcID: 2, method: request.method,
-                                       params: ["reason": String(repeating: "長い説明\n", count: 100)])
-        book.update([CodexTurn(prompt: "確認", approvals: [longRequest])])
-        let longHeight = try #require(book.pages.flatMap(\.fragments).first { $0.approval != nil }).height
-        #expect(longHeight == book.contentHeight)
+        #expect(book.spreadCount > 2)
+        book.move(1)
+        let pages = book.pages.map(\.usedHeight)
+        let blocks = book.pages.map { $0.fragments.map(\.block) }
+        let spread = book.spread
+        for (index, method) in ["item/commandExecution/requestApproval", "item/fileChange/requestApproval",
+                                "item/permissions/requestApproval"].enumerated() {
+            turn.approvals.append(CodexRequest(rpcID: index, method: method,
+                params: ["command": String(repeating: "echo long-command\n", count: 100)]))
+            book.update([turn])
+            #expect(book.pages.map(\.usedHeight) == pages)
+            #expect(book.pages.map { $0.fragments.map(\.block) } == blocks)
+            #expect(book.spread == spread)
+        }
+        for index in turn.approvals.indices {
+            turn.approvals[index].outcome = index.isMultiple(of: 2) ? "承認済み" : "拒否済み"
+            book.update([turn])
+            #expect(book.pages.map(\.usedHeight) == pages)
+            #expect(book.spread == spread)
+        }
+        turn.status = "completed"
+        book.update([turn])
+        #expect(book.pages.map(\.usedHeight) == pages)
+        #expect(book.spread == spread)
+        #expect(turn.approvals.count == 3)
+    }
+
+    @Test func longApprovalDetailsStayWithinPopoverFrame() {
+        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
+            params: ["command": String(repeating: "echo long-command\n", count: 100),
+                     "cwd": "/Users/test", "reason": "確認"])
+        for expanded in [false, true] {
+            let view = NSHostingView(rootView:
+                CodexInteractionRequestView(request: request, detailsExpanded: expanded) { _ in }
+                    .frame(width: 320, height: 240))
+            view.frame.size = view.fittingSize
+            view.layoutSubtreeIfNeeded()
+            #expect(view.fittingSize.width <= 320)
+            #expect(view.fittingSize.height <= 240)
+        }
     }
 
     @Test func keysIgnoreCompositionRepeatsAndUnrelatedKeys() {
-        #expect(CodexPageKeys.approvalDecision(keyCode: 36, isRepeat: false, hasMarkedText: false) == true)
-        #expect(CodexPageKeys.approvalDecision(keyCode: 76, isRepeat: false, hasMarkedText: false) == true)
-        #expect(CodexPageKeys.approvalDecision(keyCode: 53, isRepeat: false, hasMarkedText: false) == false)
-        #expect(CodexPageKeys.approvalDecision(keyCode: 36, isRepeat: true, hasMarkedText: false) == nil)
-        #expect(CodexPageKeys.approvalDecision(keyCode: 36, isRepeat: false, hasMarkedText: true) == nil)
-        #expect(CodexPageKeys.approvalDecision(keyCode: 123, isRepeat: false, hasMarkedText: false) == nil)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 36, isRepeat: false, hasMarkedText: false) == true)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 76, isRepeat: false, hasMarkedText: false) == true)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 53, isRepeat: false, hasMarkedText: false) == false)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 36, isRepeat: true, hasMarkedText: false) == nil)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 36, isRepeat: false, hasMarkedText: true) == nil)
+        #expect(CodexApprovalKeys.approvalDecision(keyCode: 123, isRepeat: false, hasMarkedText: false) == nil)
+    }
+
+    @Test func popoverKeysOnlyDecideInTheirOwnWindow() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                             styleMask: [.titled], backing: .buffered, defer: false)
+        var decisions: [Bool] = []
+        let keys = CodexApprovalKeys { decisions.append($0) }
+        func event(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], repeats: Bool = false) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "",
+                charactersIgnoringModifiers: "", isARepeat: repeats, keyCode: code))
+        }
+        #expect(!keys.handle(try event(36), in: other))
+        for modifiers in [NSEvent.ModifierFlags.command, .control, .option, .shift] {
+            #expect(!keys.handle(try event(36, modifiers: modifiers), in: window))
+            #expect(!keys.handle(try event(53, modifiers: modifiers), in: window))
+        }
+        for code: UInt16 in [4, 37, 44, 123, 124] {
+            #expect(!keys.handle(try event(code), in: window))
+        }
+        #expect(decisions.isEmpty)
+        #expect(keys.handle(try event(36), in: window))
+        #expect(keys.handle(try event(76, modifiers: [.numericPad, .function]), in: window))
+        #expect(keys.handle(try event(53), in: window))
+        #expect(keys.handle(try event(36, repeats: true), in: window))
+        #expect(keys.handle(try event(53, repeats: true), in: window))
+        #expect(decisions == [true, true, false])
+        let text = NSTextView(frame: window.contentView!.bounds)
+        window.contentView?.addSubview(text)
+        #expect(window.makeFirstResponder(text))
+        text.setMarkedText("変換中", selectedRange: NSRange(location: 0, length: 3),
+                           replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(text.hasMarkedText())
+        #expect(!keys.handle(try event(36), in: window))
+        #expect(!keys.handle(try event(53), in: window))
+        #expect(decisions == [true, true, false])
     }
 
     @Test func pendingRequestsResolveIndependentlyAndIgnoreDuplicateResponses() throws {
@@ -534,8 +575,7 @@ struct CodexReadingTests {
         input.setSelectedRange(NSRange(location: 2, length: 0))
         focus.inputView = input
         var moves: [Int] = []
-        let keys = CodexPageKeys(focus: focus, paneFocus: TabPaneFocus(), approval: nil,
-                                approve: { _, _ in Issue.record("Unexpected approval") }, move: { moves.append($0) })
+        let keys = CodexPageKeys(focus: focus, move: { moves.append($0) })
         func event(_ characters: String, code: UInt16, modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
             try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
                 timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters,

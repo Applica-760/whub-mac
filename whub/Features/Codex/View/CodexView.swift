@@ -6,15 +6,10 @@ struct CodexView: View {
     @EnvironmentObject private var store: CodexTabsStore
     @State private var tabFocus = TabPaneFocus()
     @State private var pendingCloseID: CodexStore.ID?
-    @State private var expandedDetails: [CodexStore.ID: Set<String>] = [:]
     @State private var books: [CodexStore.ID: CodexBookPagination] = [:]
 
     var body: some View {
-        CodexSessionView(book: books[store.selectedSessionID], focus: tabFocus,
-            expandedApprovalDetailsIDs: Binding(
-                get: { expandedDetails[store.selectedSessionID] ?? [] },
-                set: { expandedDetails[store.selectedSessionID] = $0 }
-            )) {
+        CodexSessionView(book: books[store.selectedSessionID]) {
             CodexTabBar(sessions: store.sessions, selection: store.selectedSessionID,
                         completedSessionIDs: store.completedSessionIDs) { id in
                 tabFocus.activate()
@@ -28,7 +23,6 @@ struct CodexView: View {
         }
         .onChange(of: store.sessions.map(\.id)) { _, ids in
             books = books.filter { ids.contains($0.key) }
-            expandedDetails = expandedDetails.filter { ids.contains($0.key) }
         }
         .background(TabPaneFocusView(focus: tabFocus))
         .background(TabBarShortcuts(
@@ -64,24 +58,19 @@ private struct CodexSessionView<Tabs: View>: View {
     @Environment(\.isRetainedPageActive) private var isActive
     @EnvironmentObject private var store: CodexStore
     let book: CodexBookPagination?
-    let focus: TabPaneFocus
-    @Binding var expandedApprovalDetailsIDs: Set<String>
     @ViewBuilder let tabs: () -> Tabs
     @State private var confirmsReset = false
     @State private var composerClearance: CGFloat = 64
     @State private var bookFocus = CodexBookFocus()
     @State private var viewport = CGSize.zero
     @State private var needsUpdate = true
-    @State private var pendingApprovalIDs: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
             WidgetFrame {
                 ZStack {
                     if let book {
-                        CodexBookView(book: book, focus: focus, bookFocus: bookFocus,
-                            expandedApprovalDetailsIDs: expandedApprovalDetailsIDs,
-                            toggleApprovalDetails: toggleApprovalDetails,
+                        CodexBookView(book: book, bookFocus: bookFocus,
                             updateViewport: { viewport = $0; updateBook(store.turns) },
                             composerClearance: composerClearance)
                             .id(store.id)
@@ -117,7 +106,6 @@ private struct CodexSessionView<Tabs: View>: View {
         }
         .onChange(of: store.id) { _, _ in
             confirmsReset = false
-            pendingApprovalIDs = []
             updateBook(store.turns)
         }
         .onReceive(store.$turns.throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)) {
@@ -134,23 +122,12 @@ private struct CodexSessionView<Tabs: View>: View {
         }
     }
 
-    private func toggleApprovalDetails(_ id: String) {
-        if !expandedApprovalDetailsIDs.insert(id).inserted { expandedApprovalDetailsIDs.remove(id) }
-        updateBook(store.turns)
-    }
-
     private func updateBook(_ turns: [CodexTurn]) {
         needsUpdate = true
         guard isActive, let book, viewport.width > 100, viewport.height > 100 else { return }
-        expandedApprovalDetailsIDs.formIntersection(turns.flatMap(\.approvals).map(\.id))
         let firstLayout = book.pageSize == nil
-        book.update(turns, viewport: viewport, expandedApprovalDetailsIDs: expandedApprovalDetailsIDs)
+        book.update(turns, viewport: viewport)
         if firstLayout, store.resumedDirectory != nil { book.move(book.spreadCount - 1) }
-        let pending = turns.flatMap(\.approvals).filter { $0.outcome == nil }
-        if let request = pending.first(where: { !pendingApprovalIDs.contains($0.id) }) {
-            book.revealApproval(request.id)
-        }
-        pendingApprovalIDs = Set(pending.map(\.id))
         needsUpdate = false
     }
 
