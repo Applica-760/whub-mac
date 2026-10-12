@@ -132,7 +132,7 @@ struct CodexApprovalEntryView: View {
                     CodexInteractionRequestView(request: request, detailsExpanded: showsDetails,
                         toggleDetails: { showsDetails.toggle() },
                         approvalDecision: { decide(request, $0) }) { _ in }
-                        .frame(width: (pageSize.width - 32) * scale)
+                        .frame(width: min(820 + 32, (pageSize.width - 32) * scale))
                         .frame(maxHeight: max(1, availableHeight))
                         .background(CodexApprovalKeys { decide(request, $0) })
                         .interactiveDismissDisabled()
