@@ -364,8 +364,10 @@ struct CodexPageKeys: NSViewRepresentable {
     let approve: (CodexRequest, Bool) -> Void
     let move: (Int) -> Void
 
-    private func handle(_ event: NSEvent) -> Bool {
-        guard let window = event.window else { return false }
+    func handle(_ event: NSEvent) -> Bool {
+        guard let window = event.window, window.attachedSheet == nil,
+              event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function]).isEmpty else { return false }
         if [36, 76, 53].contains(event.keyCode) {
             guard paneFocus.contains(window), let approval,
                   (window.firstResponder as? NSTextView)?.hasMarkedText() != true else { return false }
@@ -376,8 +378,18 @@ struct CodexPageKeys: NSViewRepresentable {
         }
         guard focus.isReading(in: window),
               (window.firstResponder as? NSTextView)?.hasMarkedText() != true else { return false }
-        focus.activateReading()
-        move(event.keyCode == 123 ? -1 : 1)
+        switch (event.keyCode, event.charactersIgnoringModifiers) {
+        case (123, _), (_, "h"):
+            focus.activateReading()
+            move(-1)
+        case (124, _), (_, "l"):
+            focus.activateReading()
+            move(1)
+        case (_, "/"):
+            focus.activateInput()
+        default:
+            return false
+        }
         return true
     }
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -387,9 +399,7 @@ struct CodexPageKeys: NSViewRepresentable {
         context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
             [weak view, weak coordinator = context.coordinator] event in
             guard let view, let window = view.window, window.isKeyWindow, window.attachedSheet == nil,
-                  event.window === window, !view.isHiddenOrHasHiddenAncestor,
-                  event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]).isEmpty,
-                  [123, 124, 36, 76, 53].contains(event.keyCode) else { return event }
+                  event.window === window, !view.isHiddenOrHasHiddenAncestor else { return event }
             return coordinator?.handle?(event) == true ? nil : event
         }
         return view

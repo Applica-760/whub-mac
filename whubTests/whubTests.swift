@@ -364,6 +364,63 @@ struct CodexReadingTests {
         #expect(window.firstResponder === input)
     }
 
+    @Test func readingShortcutsMoveAndReturnToDraftWithoutConsumingEditorKeys() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = try #require(window.contentView)
+        let selection = CodexBookSelection()
+        let focus = CodexBookFocus()
+        let surface = CodexBookSurfaceView(frame: content.bounds)
+        surface.selection = selection
+        selection.surface = surface
+        focus.readingView = surface
+        content.addSubview(surface)
+        let input = CodexTextView(frame: content.bounds)
+        input.string = "draft"
+        content.addSubview(input)
+        input.setSelectedRange(NSRange(location: 2, length: 0))
+        focus.inputView = input
+        var moves: [Int] = []
+        let keys = CodexPageKeys(focus: focus, paneFocus: TabPaneFocus(), approval: nil,
+                                approve: { _, _ in Issue.record("Unexpected approval") }, move: { moves.append($0) })
+        func event(_ characters: String, code: UInt16, modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+        }
+        focus.activateReading()
+        for (characters, code) in [("h", UInt16(4)), ("l", 37), ("", 123), ("", 124)] {
+            #expect(keys.handle(try event(characters, code: code)))
+            #expect(window.firstResponder === surface)
+        }
+        #expect(moves == [-1, 1, -1, 1])
+        #expect(!keys.handle(try event("x", code: 7)))
+        for modifiers in [NSEvent.ModifierFlags.command, .control, .option, .shift] {
+            #expect(!keys.handle(try event("l", code: 37, modifiers: modifiers)))
+            #expect(!keys.handle(try event("/", code: 44, modifiers: modifiers)))
+        }
+        #expect(keys.handle(try event("/", code: 44)))
+        #expect(window.firstResponder === input)
+        #expect(input.string == "draft")
+        #expect(input.selectedRange() == NSRange(location: 2, length: 0))
+        for (characters, code) in [("h", UInt16(4)), ("l", 37), ("/", 44), ("", 123), ("", 124)] {
+            #expect(!keys.handle(try event(characters, code: code)))
+        }
+        let other = CodexBookSurfaceView(frame: content.bounds)
+        content.addSubview(other)
+        #expect(window.makeFirstResponder(other))
+        #expect(!keys.handle(try event("l", code: 37)))
+        #expect(!keys.handle(try event("/", code: 44)))
+
+        let composing = ComposingInputText(frame: content.bounds)
+        content.addSubview(composing)
+        #expect(window.makeFirstResponder(composing))
+        #expect(!keys.handle(try event("l", code: 37)))
+        #expect(!keys.handle(try event("/", code: 44)))
+        #expect(window.firstResponder === composing)
+        #expect(moves == [-1, 1, -1, 1])
+    }
+
     @Test func markdownParserPreservesStructuredBlocks() throws {
         let blocks = CodexMarkdown(source: "# Heading\n\n| A | B |\n| --- | --- |\n| one | two |\n\n```swift\nlet x = 1\n```\n").blocks
         try #require(blocks.count == 3)
@@ -376,4 +433,8 @@ struct CodexReadingTests {
         }
         #expect(blocks.last?.kind == .codeBlock(languageHint: "swift"))
     }
+}
+
+private final class ComposingInputText: NSTextView {
+    override func hasMarkedText() -> Bool { true }
 }
