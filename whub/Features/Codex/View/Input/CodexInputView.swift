@@ -25,39 +25,69 @@ struct CodexInputToken: Equatable {
 
 struct CodexInputView: View {
     @EnvironmentObject private var store: CodexStore
+    @EnvironmentObject private var tabsStore: CodexTabsStore
     let focus: CodexBookFocus
     let newConversation: () -> Void
     @State private var selection = NSRange(location: 0, length: 0)
     @State private var candidateIndex = 0
     @State private var dismissedToken: CodexInputToken?
     @State private var showsSkills = false
+    @State private var dismissedResume = false
 
     private var token: CodexInputToken? { CodexInputToken.at(selection, in: store.draft) }
-    private var candidates: [(name: String, detail: String, skill: CodexSkill?)] {
+    static func isResumeInput(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines) == CodexCommand.resume.rawValue
+    }
+
+    private var showsResume: Bool { Self.isResumeInput(store.draft) && !dismissedResume }
+    private var candidates: [(name: String, detail: String, skill: CodexSkill?, thread: CodexRecentThread?)] {
+        if showsResume {
+            var entries = store.recentThreads.map {
+                (name: $0.title, detail: $0.directory + " · " + $0.updatedAt.formatted(date: .abbreviated, time: .shortened),
+                 skill: Optional<CodexSkill>.none, thread: Optional($0))
+            }
+            if store.nextThreadCursor != nil { entries.append(("さらに読み込む", "", nil, nil)) }
+            return entries
+        }
         if showsSkills {
-            return store.skills.map { ("$" + $0.name, $0.description, $0) }
+            return store.skills.map { ("$" + $0.name, $0.description, $0, nil) }
         }
         guard let token, token != dismissedToken else { return [] }
         if token.text.hasPrefix("/") {
-            return CodexCommand.allCases.filter { $0.rawValue.hasPrefix(token.text.lowercased()) }.map { ($0.rawValue, $0.description, nil) }
+            return CodexCommand.allCases.filter { $0.rawValue.hasPrefix(token.text.lowercased()) }.map { ($0.rawValue, $0.description, nil, nil) }
         }
         return store.skills.filter { ("$" + $0.name).lowercased().hasPrefix(token.text.lowercased()) }
-            .map { ("$" + $0.name, $0.description, $0) }
+            .map { ("$" + $0.name, $0.description, $0, nil) }
     }
 
     var body: some View {
         Group {
             VStack(alignment: .leading, spacing: 10) {
                 imageAttachments()
-                if showsSkills || (token?.text.hasPrefix("$") == true && token != dismissedToken) || !candidates.isEmpty {
+                if showsResume || showsSkills || (token?.text.hasPrefix("$") == true && token != dismissedToken) || !candidates.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        if store.isLoadingSkills { Text("Skillを読み込み中…").foregroundStyle(.secondary) }
-                        if let error = store.skillError {
-                            Text(error).foregroundStyle(.red).textSelection(.enabled)
-                            Button("再読み込み") { Task { await store.loadSkills(forceReload: true) } }
-                        }
-                        if candidates.isEmpty && !store.isLoadingSkills && store.skillError == nil {
-                            Text("該当するSkillはありません").foregroundStyle(.secondary)
+                        if showsResume {
+                            if store.isLoadingThreads { Text("会話を読み込み中…").foregroundStyle(.secondary) }
+                            if tabsStore.isResuming { Text("会話を再開中…").foregroundStyle(.secondary) }
+                            if let error = store.threadListError {
+                                Text(error).foregroundStyle(.red).textSelection(.enabled)
+                                Button("再読み込み") { Task { await store.loadRecentThreads(more: store.nextThreadCursor != nil) } }
+                            }
+                            if let error = tabsStore.resumeError {
+                                Text(error).foregroundStyle(.red).textSelection(.enabled)
+                            }
+                            if candidates.isEmpty && !store.isLoadingThreads && store.threadListError == nil {
+                                Text("再開できる会話はありません").foregroundStyle(.secondary)
+                            }
+                        } else {
+                            if store.isLoadingSkills { Text("Skillを読み込み中…").foregroundStyle(.secondary) }
+                            if let error = store.skillError {
+                                Text(error).foregroundStyle(.red).textSelection(.enabled)
+                                Button("再読み込み") { Task { await store.loadSkills(forceReload: true) } }
+                            }
+                            if candidates.isEmpty && !store.isLoadingSkills && store.skillError == nil {
+                                Text("該当するSkillはありません").foregroundStyle(.secondary)
+                            }
                         }
                         ScrollViewReader { proxy in
                             ScrollView {
@@ -65,8 +95,15 @@ struct CodexInputView: View {
                                     ForEach(candidates.indices, id: \.self) { index in
                                         Button { acceptCandidate(index) } label: {
                                             HStack {
-                                                Text(candidates[index].name).fontWeight(.medium)
-                                                Text(candidates[index].detail).foregroundStyle(.secondary).lineLimit(1)
+                                                if showsResume {
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(candidates[index].name).fontWeight(.medium).lineLimit(1)
+                                                        Text(candidates[index].detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                                    }
+                                                } else {
+                                                    Text(candidates[index].name).fontWeight(.medium)
+                                                    Text(candidates[index].detail).foregroundStyle(.secondary).lineLimit(1)
+                                                }
                                                 Spacer()
                                             }
                                             .padding(6)
@@ -74,6 +111,7 @@ struct CodexInputView: View {
                                             .background(index == candidateIndex ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 6))
                                         }
                                         .buttonStyle(.plain)
+                                        .disabled(showsResume && (tabsStore.isResuming || store.isLoadingThreads))
                                         .accessibilityValue(index == candidateIndex ? "選択中" : "")
                                         .id(index)
                                     }
@@ -119,7 +157,11 @@ struct CodexInputView: View {
         .onChange(of: token) { _, _ in candidateIndex = 0 }
         .onChange(of: store.directory) { _, _ in store.selectedSkills = [] }
         .onChange(of: store.draft) { _, text in
+            dismissedResume = false
             if text.isEmpty { showsSkills = false }
+        }
+        .task(id: showsResume) {
+            if showsResume { await store.loadRecentThreads() }
         }
     }
 
@@ -157,6 +199,20 @@ struct CodexInputView: View {
     private func acceptCandidate(_ index: Int) {
         guard candidates.indices.contains(index) else { return }
         let candidate = candidates[index]
+        if showsResume {
+            guard !tabsStore.isResuming, !store.isLoadingThreads else { return }
+            if let thread = candidate.thread {
+                let source = store
+                Task {
+                    if await tabsStore.resume(thread), Self.isResumeInput(source.draft) {
+                        source.draft = ""
+                    }
+                }
+            } else {
+                Task { await store.loadRecentThreads(more: true) }
+            }
+            return
+        }
         let range = showsSkills ? selection : token?.range ?? selection
         store.draft = (store.draft as NSString).replacingCharacters(in: range, with: candidate.name + " ")
         selection = NSRange(location: range.location + (candidate.name as NSString).length + 1, length: 0)
@@ -173,6 +229,14 @@ struct CodexInputView: View {
             guard store.canSend else { return }
             let skills = store.selectedSkills.filter { $0.isMentioned(in: store.draft) }
             Task { await store.send(skills: skills) }
+            return
+        }
+        if command == .resume {
+            if dismissedResume {
+                dismissedResume = false
+            } else if showsResume && !candidates.isEmpty {
+                acceptCandidate(min(candidateIndex, candidates.count - 1))
+            }
             return
         }
         if command == .new {
@@ -193,10 +257,14 @@ struct CodexInputView: View {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if [36, 76].contains(event.keyCode), modifiers == .command { submit(); return true }
         guard modifiers.isEmpty else { return false }
-        if event.keyCode == 53, showsSkills || token != nil {
+        if event.keyCode == 53, showsResume || showsSkills || token != nil {
             dismissedToken = token
+            dismissedResume = true
             showsSkills = false
             return true
+        }
+        if showsResume && (store.isLoadingThreads || tabsStore.isResuming || candidates.isEmpty) {
+            return [36, 76, 48, 125, 126].contains(event.keyCode)
         }
         guard !candidates.isEmpty else { return false }
         switch event.keyCode {

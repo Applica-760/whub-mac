@@ -21,6 +21,7 @@ struct CodexView: View {
                 store.select(id)
             }
         }
+        .id(store.selectedSessionID)
         .environmentObject(store.selectedSession)
         .task(id: store.selectedSessionID) {
             if books[store.selectedSessionID] == nil { books[store.selectedSessionID] = CodexBookPagination() }
@@ -142,7 +143,9 @@ private struct CodexSessionView<Tabs: View>: View {
         needsUpdate = true
         guard isActive, let book, viewport.width > 100, viewport.height > 100 else { return }
         expandedApprovalDetailsIDs.formIntersection(turns.flatMap(\.approvals).map(\.id))
+        let firstLayout = book.pageSize == nil
         book.update(turns, viewport: viewport, expandedApprovalDetailsIDs: expandedApprovalDetailsIDs)
+        if firstLayout, store.resumedDirectory != nil { book.move(book.spreadCount - 1) }
         let pending = turns.flatMap(\.approvals).filter { $0.outcome == nil }
         if let request = pending.first(where: { !pendingApprovalIDs.contains($0.id) }) {
             book.revealApproval(request.id)

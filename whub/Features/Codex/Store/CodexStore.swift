@@ -9,6 +9,7 @@ enum CodexCommand: String, CaseIterable {
     case stop = "/stop"
     case skills = "/skills"
     case status = "/status"
+    case resume = "/resume"
 
     var description: String {
         switch self {
@@ -16,6 +17,7 @@ enum CodexCommand: String, CaseIterable {
         case .stop: "作業を停止"
         case .skills: "Skillを選択"
         case .status: "状態を確認"
+        case .resume: "過去の会話を再開"
         }
     }
 }
@@ -129,6 +131,13 @@ final class CodexStore: ObservableObject, Identifiable {
     @Published private(set) var isStopping = false
     @Published private(set) var model = "Codexの既存設定"
     @Published private(set) var errorMessage: String?
+    @Published private(set) var isResuming = false
+    @Published private(set) var recentThreads: [CodexRecentThread] = []
+    @Published private(set) var isLoadingThreads = false
+    @Published private(set) var threadListError: String?
+    @Published private(set) var nextThreadCursor: String?
+    @Published private(set) var resumedDirectory: String?
+    private var historyGeneration = UUID()
     private(set) var threadID: String?
     var onCompletionChange: ((Bool) -> Void)?
     var onNotification: ((String) -> Void)?
@@ -149,12 +158,12 @@ final class CodexStore: ObservableObject, Identifiable {
     }
 
     var directory: String {
-        (try? HostStore(context: context).fetchHosts().first { $0 is LocalHost }?.basePath)
+        resumedDirectory ?? (try? HostStore(context: context).fetchHosts().first { $0 is LocalHost }?.basePath)
             ?? NSHomeDirectory()
     }
 
     var canSend: Bool {
-        !isBusy && !directory.isEmpty
+        !isBusy && !isResuming && !directory.isEmpty
             && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftImages.isEmpty)
     }
 
@@ -172,9 +181,105 @@ final class CodexStore: ObservableObject, Identifiable {
         turns.lastIndex { $0.status == "inProgress" }
     }
 
+    func loadRecentThreads(more: Bool = false) async {
+        guard !isLoadingThreads, !isResuming, !more || nextThreadCursor != nil else { return }
+        let generation = historyGeneration
+        isLoadingThreads = true
+        threadListError = nil
+        defer { if generation == historyGeneration { isLoadingThreads = false } }
+        do {
+            try await client.connect(directory: directory)
+            var params: [String: Any] = ["limit": 20, "sortKey": "updated_at", "sortDirection": "desc",
+                                        "sourceKinds": ["cli", "appServer", "vscode"], "archived": false]
+            if more { params["cursor"] = nextThreadCursor }
+            let result = try await client.request("thread/list", params)
+            guard generation == historyGeneration else { return }
+            guard let data = result["data"] as? [[String: Any]] else {
+                throw CodexError(message: "会話一覧を読み込めませんでした。")
+            }
+            let threads = try data.map(CodexRecentThread.init)
+            var seen = Set(more ? recentThreads.map(\.id) : [])
+            let additions = threads.filter { seen.insert($0.id).inserted }
+            recentThreads = (more ? recentThreads : []) + additions
+            nextThreadCursor = result["nextCursor"] as? String
+        } catch {
+            if generation == historyGeneration { threadListError = error.localizedDescription }
+        }
+    }
+
+    func resume(_ thread: CodexRecentThread) async -> Bool {
+        guard !isBusy, !isResuming, !isLoadingThreads, threadID == nil, turns.isEmpty else { return false }
+        let generation = historyGeneration
+        isResuming = true
+        errorMessage = nil
+        defer { if generation == historyGeneration { isResuming = false } }
+        do {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: thread.directory, isDirectory: &isDirectory), isDirectory.boolValue else {
+                throw CodexError(message: "会話の作業フォルダが存在しません: \(thread.directory)")
+            }
+            try await client.connect(directory: thread.directory)
+            let metadata = try await client.request("thread/read", ["threadId": thread.id])
+            guard let stored = metadata["thread"] as? [String: Any], stored["id"] as? String == thread.id else {
+                throw CodexError(message: "指定した会話を読み込めませんでした。")
+            }
+            var params: [String: Any] = ["threadId": thread.id]
+            let paginated = stored["historyMode"] as? String == "paginated"
+            if paginated { params["excludeTurns"] = true }
+            var result = try await client.request("thread/resume", params)
+            if paginated {
+                var turns: [[String: Any]] = []
+                var cursor: String?
+                var seen = Set<String>()
+                repeat {
+                    guard generation == historyGeneration else { return false }
+                    var pageParams: [String: Any] = ["threadId": thread.id, "limit": 100,
+                                                    "sortDirection": "asc", "itemsView": "full"]
+                    if let cursor { pageParams["cursor"] = cursor }
+                    let page = try await client.request("thread/turns/list", pageParams)
+                    guard let data = page["data"] as? [[String: Any]] else {
+                        throw CodexError(message: "会話履歴を読み込めませんでした。")
+                    }
+                    turns += data
+                    cursor = page["nextCursor"] as? String
+                    if let cursor, !seen.insert(cursor).inserted {
+                        throw CodexError(message: "会話履歴の取得位置が進みませんでした。")
+                    }
+                } while cursor != nil
+                var hydrated = result["thread"] as? [String: Any] ?? [:]
+                hydrated["turns"] = turns
+                result["thread"] = hydrated
+            }
+            guard generation == historyGeneration else { return false }
+            try restoreHistory(result, expectedID: thread.id)
+            return true
+        } catch {
+            if generation == historyGeneration {
+                client.disconnect()
+                errorMessage = error.localizedDescription
+            }
+            return false
+        }
+    }
+
+    func restoreHistory(_ result: [String: Any], expectedID: String) throws {
+        guard threadID == nil, turns.isEmpty else {
+            throw CodexError(message: "既存の会話を上書きできません。")
+        }
+        let history = try CodexThreadHistory(result, expectedID: expectedID)
+        threadID = expectedID
+        resumedDirectory = history.directory
+        model = history.model
+        turns = history.turns
+        needsResume = false
+    }
+
     func runCommand(_ command: CodexCommand) async {
         let output: String
         switch command {
+        case .resume:
+            await loadRecentThreads()
+            return
         case .new:
             reset()
             return
@@ -323,10 +428,13 @@ final class CodexStore: ObservableObject, Identifiable {
     }
 
     func reset() {
-        guard !isBusy else { return }
+        guard !isBusy, !isResuming else { return }
+        historyGeneration = UUID()
+        isLoadingThreads = false
         onCompletionChange?(false)
         client.disconnect()
         threadID = nil
+        resumedDirectory = nil
         needsResume = false
         turns = []
         draftImages = []
@@ -337,7 +445,12 @@ final class CodexStore: ObservableObject, Identifiable {
         appendCommandOutput(.new, "新しい会話を開始しました。")
     }
 
-    func disconnect() { client.disconnect() }
+    func disconnect() {
+        historyGeneration = UUID()
+        isLoadingThreads = false
+        isResuming = false
+        client.disconnect()
+    }
 
     func approve(_ request: CodexRequest, allow: Bool) {
         let result: [String: Any] = request.method == "item/permissions/requestApproval"

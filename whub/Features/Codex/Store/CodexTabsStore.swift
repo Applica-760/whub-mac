@@ -7,6 +7,9 @@ final class CodexTabsStore: ObservableObject {
     @Published private(set) var sessions: [CodexStore]
     @Published private(set) var selectedSessionID: CodexStore.ID
     @Published private(set) var completedSessionIDs: Set<CodexStore.ID> = []
+    @Published private(set) var isResuming = false
+    @Published private(set) var resumeError: String?
+    private var pendingResume: CodexStore?
     private let context: ModelContext
 
     init(context: ModelContext) {
@@ -26,6 +29,47 @@ final class CodexTabsStore: ObservableObject {
         observe(session)
         sessions.append(session)
         selectedSessionID = session.id
+    }
+
+    @discardableResult
+    func resume(_ thread: CodexRecentThread) async -> Bool {
+        guard !isResuming else { return false }
+        resumeError = nil
+        if let existing = sessions.first(where: { $0.threadID == thread.id }) {
+            select(existing.id)
+            return true
+        }
+        let session = CodexStore(context: context)
+        pendingResume = session
+        isResuming = true
+        defer {
+            if pendingResume?.id == session.id {
+                pendingResume = nil
+                isResuming = false
+            }
+        }
+        let succeeded = await session.resume(thread)
+        guard pendingResume?.id == session.id else { return false }
+        guard succeeded else {
+            resumeError = session.errorMessage ?? "会話を再開できませんでした。"
+            session.disconnect()
+            return false
+        }
+        return openResumedSession(session)
+    }
+
+    @discardableResult
+    func openResumedSession(_ session: CodexStore) -> Bool {
+        guard let threadID = session.threadID, !session.isResuming else { return false }
+        if let existing = sessions.first(where: { $0.threadID == threadID }) {
+            if existing.id != session.id { session.disconnect() }
+            select(existing.id)
+        } else {
+            observe(session)
+            sessions.append(session)
+            select(session.id)
+        }
+        return true
     }
 
     func select(_ id: CodexStore.ID) {
@@ -71,6 +115,9 @@ final class CodexTabsStore: ObservableObject {
     }
 
     func disconnect() {
+        pendingResume?.disconnect()
+        pendingResume = nil
+        isResuming = false
         for session in sessions { session.disconnect() }
     }
 }

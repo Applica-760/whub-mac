@@ -13,6 +13,152 @@ import WhubCore
 @testable import whub
 
 @Suite @MainActor
+struct CodexResumeTests {
+    @Test func resumeInputRequiresTheWholeCommand() {
+        #expect(CodexInputView.isResumeInput("/resume"))
+        #expect(CodexInputView.isResumeInput(" /resume \n"))
+        #expect(!CodexInputView.isResumeInput("/res"))
+        #expect(!CodexInputView.isResumeInput("説明 /resume"))
+        #expect(!CodexInputView.isResumeInput("/resume 続き"))
+        #expect(CodexCommand.allCases.contains(.resume))
+    }
+
+    private func makeContainer() throws -> ModelContainer {
+        try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    }
+
+    private func response(_ turns: [[String: Any]]) -> [String: Any] {
+        ["thread": ["id": "thread-1", "turns": turns], "cwd": "/original/project", "model": "saved-model"]
+    }
+
+    @Test func recentThreadUsesTitleThenPreviewAndRejectsMissingDirectory() throws {
+        var data: [String: Any] = ["id": "thread-1", "cwd": "/project", "updatedAt": 123.0,
+                                   "name": "  タイトル  ", "preview": "冒頭文"]
+        #expect(try CodexRecentThread(data).title == "タイトル")
+        data["name"] = NSNull()
+        #expect(try CodexRecentThread(data).title == "冒頭文")
+        #expect(try CodexRecentThread(data).updatedAt == Date(timeIntervalSince1970: 123))
+        data.removeValue(forKey: "cwd")
+        #expect(throws: CodexError.self) { try CodexRecentThread(data) }
+    }
+
+    @Test func restoresHistoryDirectoryAndLegacyFinalAnswer() throws {
+        let container = try makeContainer()
+        let store = CodexStore(context: container.mainContext)
+        let originalDirectory = store.directory
+        let items: [[String: Any]] = [
+            ["id": "u", "type": "userMessage", "content": [["type": "text", "text": "質問"]]],
+            ["id": "progress", "type": "agentMessage", "phase": "commentary", "text": "確認中"],
+            ["id": "cmd", "type": "commandExecution", "command": "pwd", "aggregatedOutput": "/project", "status": "completed"],
+            ["id": "answer", "type": "agentMessage", "text": "回答"]
+        ]
+        try store.restoreHistory(response([["id": "turn-1", "status": "completed", "items": items]]), expectedID: "thread-1")
+        #expect(store.threadID == "thread-1")
+        #expect(store.directory == "/original/project")
+        #expect(store.model == "saved-model")
+        let turn = try #require(store.turns.first)
+        #expect(turn.remoteID == "turn-1")
+        #expect(turn.prompt == "質問")
+        #expect(turn.answers.map(\.text) == ["回答"])
+        #expect(turn.history.map(\.id) == ["progress", "cmd"])
+        #expect(!store.isBusy)
+        store.reset()
+        #expect(store.threadID == nil)
+        #expect(store.directory == originalDirectory)
+    }
+
+    @Test func incompleteHistoryDoesNotPartiallyReplaceState() throws {
+        let container = try makeContainer()
+        let store = CodexStore(context: container.mainContext)
+        let directory = store.directory
+        let complete: [String: Any] = ["id": "a", "status": "completed", "items": [[String: Any]]()]
+        let invalidTurns: [[String: Any]] = [
+            ["id": "b", "status": "inProgress", "items": [[String: Any]]()],
+            ["id": "b", "status": "completed", "itemsView": "summary", "items": [[String: Any]]()],
+            ["id": "b", "status": "completed"]
+        ]
+        for invalid in invalidTurns {
+            #expect(throws: CodexError.self) {
+                try store.restoreHistory(response([complete, invalid]), expectedID: "thread-1")
+            }
+            #expect(store.turns.isEmpty)
+            #expect(store.threadID == nil)
+            #expect(store.directory == directory)
+        }
+        #expect(throws: CodexError.self) { try store.restoreHistory(response([]), expectedID: "wrong-id") }
+    }
+
+    @Test func attachmentsRemainVisibleAndCommentaryIsNotAnAnswer() throws {
+        let container = try makeContainer()
+        let store = CodexStore(context: container.mainContext)
+        let items: [[String: Any]] = [
+            ["id": "u", "type": "userMessage", "content": [["type": "image", "url": "https://example.invalid/image"]]],
+            ["id": "p", "type": "agentMessage", "phase": "commentary", "text": "途中"]
+        ]
+        try store.restoreHistory(response([["id": "turn-1", "status": "interrupted", "items": items]]), expectedID: "thread-1")
+        #expect(store.turns.first?.prompt == "［添付: image］")
+        #expect(store.turns.first?.answers.isEmpty == true)
+        #expect(store.turns.first?.status == "interrupted")
+        #expect(throws: CodexError.self) { try store.restoreHistory(response([]), expectedID: "thread-1") }
+        #expect(store.turns.count == 1)
+    }
+
+    @Test func resumedTabKeepsOriginalDraftAndParticipatesInNotifications() throws {
+        let container = try makeContainer()
+        let tabs = CodexTabsStore(context: container.mainContext)
+        let original = tabs.selectedSession
+        original.draft = "編集中の入力"
+        let resumed = CodexStore(context: container.mainContext)
+        try resumed.restoreHistory(response([]), expectedID: "thread-1")
+        #expect(tabs.openResumedSession(resumed))
+        #expect(tabs.sessions.map(\.id) == [original.id, resumed.id])
+        #expect(tabs.selectedSessionID == resumed.id)
+        #expect(original.draft == "編集中の入力")
+        resumed.onCompletionChange?(true)
+        #expect(tabs.completedSessionIDs == [resumed.id])
+        tabs.remove(resumed.id)
+        #expect(tabs.selectedSessionID == original.id)
+        #expect(tabs.completedSessionIDs.isEmpty)
+    }
+
+    @Test func alreadyOpenThreadIsSelectedWithoutCreatingAnotherTab() async throws {
+        let container = try makeContainer()
+        let tabs = CodexTabsStore(context: container.mainContext)
+        let original = tabs.selectedSession
+        try original.restoreHistory(response([]), expectedID: "thread-1")
+        tabs.add()
+        original.onCompletionChange?(true)
+        let thread = try CodexRecentThread(["id": "thread-1", "cwd": "/not-needed", "updatedAt": 1.0])
+        #expect(await tabs.resume(thread))
+        #expect(tabs.sessions.count == 2)
+        #expect(tabs.selectedSessionID == original.id)
+        #expect(tabs.completedSessionIDs.isEmpty)
+        let duplicate = CodexStore(context: container.mainContext)
+        try duplicate.restoreHistory(response([]), expectedID: "thread-1")
+        #expect(tabs.openResumedSession(duplicate))
+        #expect(tabs.sessions.count == 2)
+        #expect(tabs.selectedSessionID == original.id)
+    }
+
+    @Test func failedResumeLeavesTabsAndInputUntouched() async throws {
+        let container = try makeContainer()
+        let tabs = CodexTabsStore(context: container.mainContext)
+        let original = tabs.selectedSession
+        original.draft = "入力を保持"
+        let thread = try CodexRecentThread(["id": "missing", "cwd": "/nonexistent-" + UUID().uuidString, "updatedAt": 1.0])
+        #expect(await tabs.resume(thread) == false)
+        #expect(tabs.sessions.map(\.id) == [original.id])
+        #expect(tabs.selectedSessionID == original.id)
+        #expect(original.draft == "入力を保持")
+        #expect(tabs.resumeError?.contains("作業フォルダが存在しません") == true)
+        #expect(!tabs.isResuming)
+        #expect(!tabs.openResumedSession(CodexStore(context: container.mainContext)))
+        #expect(tabs.sessions.count == 1)
+    }
+}
+
+@Suite @MainActor
 struct CodexCompletionTests {
     private func makeContainer() throws -> ModelContainer {
         try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
