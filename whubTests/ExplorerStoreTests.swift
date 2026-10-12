@@ -335,6 +335,54 @@ struct ExplorerStoreTests {
         #expect(files.activeEditor.tabs.isEmpty)
     }
 
+    @Test func browserConsumesOnlyUnhandledPlainArrowsFromVisibleWebContent() throws {
+        final class KeyReceiver: NSResponder {
+            var count = 0
+            override func keyDown(with event: NSEvent) { count += 1 }
+        }
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let container = BrowserContainerView(frame: window.contentView!.bounds)
+        window.contentView = container
+        let webView = WKWebView(frame: container.bounds)
+        container.addSubview(webView)
+        #expect(window.makeFirstResponder(webView))
+        let receiver = KeyReceiver()
+        container.nextResponder = receiver
+
+        func send(_ keyCode: UInt16, modifiers: NSEvent.ModifierFlags = [], repeatKey: Bool = false) throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: modifiers, timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, characters: "", charactersIgnoringModifiers: "",
+                isARepeat: repeatKey, keyCode: keyCode))
+            container.keyDown(with: event)
+        }
+
+        for key in UInt16(123)...126 {
+            try send(key)
+            try send(key, modifiers: [.function, .numericPad], repeatKey: true)
+        }
+        #expect(receiver.count == 0)
+        for modifier: NSEvent.ModifierFlags in [.command, .option, .control, .shift] {
+            try send(125, modifiers: modifier)
+        }
+        try send(0)
+        #expect(receiver.count == 5)
+
+        webView.isHidden = true
+        try send(125)
+        #expect(receiver.count == 6)
+        webView.isHidden = false
+        let input = NSTextView(frame: container.bounds)
+        container.addSubview(input)
+        #expect(window.makeFirstResponder(input))
+        try send(125)
+        #expect(receiver.count == 7)
+    }
+
     @Test func browserLoadsLocalHTMLAndRelativeResources() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/ExplorerStoreTests/" + UUID().uuidString)

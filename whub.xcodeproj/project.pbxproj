@@ -10,6 +10,7 @@
 		A49000000000000000000001 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = A49000000000000000000002 /* SwiftMath */; };
 		C8244DC530553E480038A6AF /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C8244DC430553E480038A6AF /* SwiftTerm */; };
 		C8244E5C3056B24F0038A6AF /* WhubCore in Frameworks */ = {isa = PBXBuildFile; productRef = C8244E5B3056B24F0038A6AF /* WhubCore */; };
+		C8FC99EA307C641200355EB0 /* whub-terminal.icon in Resources */ = {isa = PBXBuildFile; fileRef = C8FC99E9307C641200355EB0 /* whub-terminal.icon */; };
 		CAA6689B4CD1D40F57C3DB8D /* Highlighter in Frameworks */ = {isa = PBXBuildFile; productRef = E46B7CCC8930061F68FD4E6E /* Highlighter */; };
 /* End PBXBuildFile section */
 
@@ -26,6 +27,7 @@
 /* Begin PBXFileReference section */
 		C8244D853052F9300038A6AF /* whub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = whub.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8B58CA43077887B0039C5F5 /* whubTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = whubTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C8FC99E9307C641200355EB0 /* whub-terminal.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "whub-terminal.icon"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -68,6 +70,7 @@
 			children = (
 				C8244D873052F9300038A6AF /* whub */,
 				C8B58CA53077887B0039C5F5 /* whubTests */,
+				C8FC99E9307C641200355EB0 /* whub-terminal.icon */,
 				C8244D863052F9300038A6AF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -183,6 +186,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C8FC99EA307C641200355EB0 /* whub-terminal.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -349,7 +353,7 @@
 		C8244D913052F9310038A6AF /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "whub-terminal";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
@@ -384,7 +388,7 @@
 		C8244D923052F9310038A6AF /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "whub-terminal";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
@@ -498,20 +502,20 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		A49000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mgriebling/SwiftMath.git";
-			requirement = {
-				kind = exactVersion;
-				version = 1.7.3;
-			};
-		};
 		03AEE2700291130EC651D647 /* XCRemoteSwiftPackageReference "HighlighterSwift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/smittytone/HighlighterSwift.git";
 			requirement = {
 				kind = exactVersion;
 				version = 3.1.0;
+			};
+		};
+		A49000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mgriebling/SwiftMath.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.7.3;
 			};
 		};
 		C8244DC330553E480038A6AF /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {

@@ -110,7 +110,7 @@ private struct RetainedBrowserSessions: NSViewRepresentable {
     @Environment(\.self) private var environment
 
     func makeCoordinator() -> Coordinator { Coordinator() }
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context: Context) -> NSView { BrowserContainerView() }
 
     func updateNSView(_ container: NSView, context: Context) {
         let coordinator = context.coordinator
@@ -150,6 +150,24 @@ private struct RetainedBrowserSessions: NSViewRepresentable {
 
     final class Coordinator {
         var pages: [BrowserSession.ID: NSHostingView<AnyView>] = [:]
+    }
+}
+
+final class BrowserContainerView: NSView {
+    override func keyDown(with event: NSEvent) {
+        if [123, 124, 125, 126].contains(event.keyCode),
+           event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty {
+            var view = window?.firstResponder as? NSView
+            while let current = view, current !== self {
+                if current is WKWebView, current.isDescendant(of: self),
+                   !current.isHiddenOrHasHiddenAncestor {
+                    // WebKit has already received this key; stop its unhandled fallback from beeping.
+                    return
+                }
+                view = current.superview
+            }
+        }
+        super.keyDown(with: event)
     }
 }
 
