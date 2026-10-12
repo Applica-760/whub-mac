@@ -4,8 +4,8 @@ struct AppView: View {
     enum Section: CaseIterable, Hashable {
         case file
         case terminal
-        case browser
         case codex
+        case browser
         case overview
         case motion
 
