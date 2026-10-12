@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import SwiftData
 
@@ -53,6 +54,10 @@ final class CodexTabsStore: ObservableObject {
 
     private func observe(_ session: CodexStore) {
         let id = session.id
+        session.onNotification = { [weak self] sound in
+            guard let self, self.sessions.contains(where: { $0.id == id }) else { return }
+            NSSound(named: sound)?.play()
+        }
         session.onCompletionChange = { [weak self] completed in
             guard let self, self.sessions.contains(where: { $0.id == id }) else { return }
             if completed { self.completedSessionIDs.insert(id) }

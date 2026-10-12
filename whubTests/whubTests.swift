@@ -273,13 +273,20 @@ struct CodexApprovalTests {
         let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
                                            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let store = CodexStore(context: container.mainContext)
+        var sounds: [String] = []
+        store.onNotification = { sounds.append($0) }
         for id in [1, 1, 2] {
             store.receive("item/commandExecution/requestApproval", params: [:], requestID: id)
         }
         #expect(store.requests.count == 2)
+        #expect(sounds == ["Blow", "Blow"])
+        let notificationDate = store.notificationDate
+        #expect(notificationDate != nil)
         let first = try #require(store.requests.first)
         store.receive("serverRequest/resolved", params: ["requestId": 1], requestID: nil)
         #expect(store.requests.map(\.id) == ["2"])
+        #expect(sounds == ["Blow", "Blow"])
+        #expect(store.notificationDate == notificationDate)
         store.approve(first, allow: true)
         #expect(store.errorMessage == nil)
         #expect(store.requests.count == 1)

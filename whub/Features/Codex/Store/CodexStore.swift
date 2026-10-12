@@ -131,6 +131,8 @@ final class CodexStore: ObservableObject, Identifiable {
     @Published private(set) var errorMessage: String?
     private(set) var threadID: String?
     var onCompletionChange: ((Bool) -> Void)?
+    var onNotification: ((String) -> Void)?
+    @Published private(set) var notificationDate: Date?
     private let client = CodexClient()
     private let context: ModelContext
     private var stopRequested = false
@@ -376,6 +378,10 @@ final class CodexStore: ObservableObject, Identifiable {
                 if request.isApproval, let index = activeTurnIndex {
                     turns[index].approvals.append(request)
                 }
+                if request.isApproval {
+                    notificationDate = Date()
+                    onNotification?("Blow")
+                }
             } else {
                 do { try client.rejectUnsupported(id: requestID) } catch { fail(error.localizedDescription) }
                 errorMessage = "このMVPでは未対応の要求です: \(method)。要求は許可していません。"
@@ -412,6 +418,8 @@ final class CodexStore: ObservableObject, Identifiable {
             finish(turn["status"] as? String ?? "completed")
             if turn["status"] as? String == "completed", turn["error"] as? [String: Any] == nil {
                 onCompletionChange?(true)
+                notificationDate = Date()
+                onNotification?("Glass")
             }
         case "error":
             let error = params["error"] as? [String: Any]

@@ -122,14 +122,54 @@ private struct CodexRoundTab: View {
         .buttonStyle(.plain)
         .overlay(alignment: .bottomTrailing) {
             if let status {
-                Circle().fill(status.color)
-                    .frame(width: 5, height: 5)
-                    .allowsHitTesting(false)
+                CodexStatusBadge(color: status.color,
+                                 isRunning: session.isBusy && session.requests.isEmpty,
+                                 notificationDate: session.notificationDate)
             }
         }
         .accessibilityLabel("Codex \(number)")
         .accessibilityValue(status?.label ?? "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .help("Codex \(number)" + (status.map { "・" + $0.label } ?? ""))
+    }
+}
+
+private struct CodexStatusBadge: View {
+    let color: Color
+    let isRunning: Bool
+    let notificationDate: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isArriving = false
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30,
+                                paused: reduceMotion || (!isRunning && !isArriving))) { context in
+            let elapsed = context.date.timeIntervalSince(notificationDate ?? .distantPast)
+            let arrival = !isRunning && !reduceMotion && elapsed >= 0 && elapsed < 0.8
+            let pulse = (1 + cos(context.date.timeIntervalSinceReferenceDate * .pi)) / 2
+            Circle().fill(color)
+                .frame(width: 5, height: 5)
+                .opacity(isRunning && !reduceMotion ? 0.35 + 0.65 * pulse : 1)
+                .scaleEffect(arrival ? 1 + 1.5 * sin(.pi * elapsed / 0.8) : 1)
+                .overlay {
+                    if arrival {
+                        Circle().stroke(color, lineWidth: 1.5)
+                            .frame(width: 5 + 24 * elapsed / 0.8,
+                                   height: 5 + 24 * elapsed / 0.8)
+                            .opacity(1 - elapsed / 0.8)
+                    }
+                }
+        }
+        .allowsHitTesting(false)
+        .task(id: notificationDate) {
+            isArriving = false
+            guard let notificationDate else { return }
+            let remaining = 0.8 - Date().timeIntervalSince(notificationDate)
+            guard remaining > 0 else { return }
+            isArriving = true
+            do { try await Task.sleep(for: .seconds(remaining)) }
+            catch { return }
+            isArriving = false
+        }
     }
 }
