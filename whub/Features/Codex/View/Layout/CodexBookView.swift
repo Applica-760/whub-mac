@@ -82,23 +82,26 @@ struct CodexBookView: View {
         .frame(width: size.width, height: size.height)
         .overlay(alignment: index.isMultiple(of: 2) ? .bottomLeading : .bottomTrailing) {
             HStack(spacing: 0) {
-                if index.isMultiple(of: 2) {
+                if index.isMultiple(of: 2), book.spread > 0 {
                     Button { move(-1) } label: {
                         Image(systemName: "chevron.left").frame(width: 28, height: 28).contentShape(Rectangle())
                     }
-                    .disabled(book.spread == 0)
                     .accessibilityLabel("前の見開き")
+                } else if index.isMultiple(of: 2) {
+                    Color.clear.frame(width: 28, height: 28).allowsHitTesting(false)
                 }
                 Text("\(index + 1)")
-                if !index.isMultiple(of: 2) {
+                if !index.isMultiple(of: 2), book.spread < book.spreadCount - 1 {
                     Button { move(1) } label: {
                         Image(systemName: "chevron.right").frame(width: 28, height: 28).contentShape(Rectangle())
                     }
-                    .disabled(book.spread == book.spreadCount - 1)
                     .accessibilityLabel("次の見開き")
+                } else if !index.isMultiple(of: 2) {
+                    Color.clear.frame(width: 28, height: 28).allowsHitTesting(false)
                 }
             }
             .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            .fontWeight((index.isMultiple(of: 2) ? book.spread > 0 : book.spread < book.spreadCount - 1) ? .bold : .regular)
             .buttonStyle(.plain)
             .padding(.horizontal, 12).padding(.bottom, 20)
         }
