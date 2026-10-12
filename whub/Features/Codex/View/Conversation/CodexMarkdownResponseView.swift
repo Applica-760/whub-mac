@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Keep Markdown containers so nested lists and multi-paragraph quotes stay together.
@@ -110,7 +111,19 @@ struct CodexMarkdownBlockView: View {
                 CodexMathText(text: AttributedString(String(block.text.characters)), fontSize: 14, weight: .regular, lineSpacing: 0, monospaced: true)
                     .padding(12)
             }
+            .padding(.trailing, 36)
             .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(alignment: .topTrailing) {
+                Button("コードをコピー", systemImage: "doc.on.doc") {
+                    // shortcut: copies the page fragment; retain source text if whole-block copying is needed.
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(String(block.text.characters), forType: .string)
+                }
+                .labelStyle(.iconOnly).buttonStyle(.plain)
+                .help("コードをコピー")
+                .padding(12)
+                .background(CodexSelectionExclusion())
+            }
         case .table(let columns):
             TableView(block: block, columns: columns, width: width)
         default:
@@ -155,10 +168,11 @@ private struct TableView: View {
                                 .frame(width: columnWidth - 24, alignment: columns[index].alignment == .right ? .trailing
                                     : columns[index].alignment == .center ? .center : .leading)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .padding(12)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
                         }
                     }
-                    .background(row.kind == .tableHeaderRow ? Color.secondary.opacity(0.12) : .clear)
+                    .background(row.kind == .tableHeaderRow ? Color.secondary.opacity(0.12) : .clear, in: Rectangle())
                     Divider().gridCellUnsizedAxes(.horizontal)
                 }
             }
