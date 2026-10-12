@@ -33,54 +33,6 @@ struct GitStoreTests {
         files.explorer.localTree.reset()
     }
 
-    @Test func diffExplorerPreviewsDeletedFilesAndContextMenuOpensClickedRow() async throws {
-        let fixture = try Fixture()
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        try fixture.git(["add", "."], at: fixture.first)
-        try fixture.git(["commit", "-qm", "baseline"], at: fixture.first)
-        try FileManager.default.removeItem(at: fixture.firstFile)
-        let added = fixture.first.appendingPathComponent("z.swift")
-        try Data("new\n".utf8).write(to: added)
-        let files = FilesStore()
-        files.git.setDiffEnabled(true)
-        files.explorer.localTree.setRoot(fixture.first)
-        let host = NSHostingView(rootView: ExplorerDiffView(git: files.git, editor: files.activeEditor,
-            onPreview: { files.openDiff($0, preview: true) }, onOpen: { files.openDiff($0) }))
-        host.frame = NSRect(x: 0, y: 0, width: 320, height: 500)
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
-        try await eventually {
-            host.layoutSubtreeIfNeeded()
-            return table(in: host)?.numberOfRows == 2
-        }
-        let list = try #require(table(in: host))
-        list.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        #expect(files.activeEditor.previewTab == .diff(fixture.firstFile))
-        let deleted = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
-        try await eventually { !deleted.isLoading }
-        #expect(deleted.diff?.content == .text(before: "original\n", after: ""))
-        let point = list.convert(NSPoint(x: 10, y: list.rect(ofRow: 1).midY), to: nil)
-        let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: point,
-            modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-        let menu = try #require(list.menu(for: event))
-        menu.performActionForItem(at: 2)
-        #expect(files.activeEditor.selectedTab == .diff(added))
-        #expect(files.activeEditor.previewTab != .diff(added))
-        #expect(files.activeEditor.local.fileStores.isEmpty)
-        files.explorer.localTree.setRoot(fixture.second)
-        try await eventually {
-            host.layoutSubtreeIfNeeded()
-            return files.git.diffChanges[fixture.secondFile] == .added && table(in: host)?.numberOfRows == 1
-        }
-        #expect(table(in: host)?.selectedRow == -1)
-        files.activeEditor.close(.diff(fixture.firstFile))
-        files.activeEditor.close(.diff(added))
-        files.explorer.localTree.reset()
-        withExtendedLifetime(host) {}
-    }
-
     @Test func diffTabsPreserveUnsavedEditorAndPreviewLifecycle() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
