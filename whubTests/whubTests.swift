@@ -63,7 +63,7 @@ struct CodexResumeTests {
         let turn = try #require(store.turns.first)
         #expect(turn.remoteID == "turn-1")
         #expect(turn.displayPrompt == "質問")
-        #expect(turn.answers.map(\.text) == ["回答"])
+        #expect(turn.answers.map(\.displayText) == ["回答"])
         #expect(turn.history.map(\.id) == ["progress", "cmd"])
         #expect(!store.isBusy)
         store.reset()
@@ -365,7 +365,7 @@ struct CodexImageTests {
                 }
             }
             turn.items = [CodexItem(id: "answer", type: "agentMessage", phase: "final_answer",
-                                   title: "", text: "確認しました", status: "completed")]
+                                   text: "確認しました", status: "completed")]
             turn.status = "completed"
             book.update([turn])
             book.update([turn, CodexTurn(prompt: "次の質問")])
@@ -385,6 +385,50 @@ struct CodexImageTests {
 
 @Suite @MainActor
 struct CodexApprovalTests {
+    @Test func streamedItemsAndApprovalPreviewsKeepTheirProtocolData() async throws {
+        let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let store = CodexStore(context: container.mainContext) { method, _, _ in
+            if method == "thread/start" { return ["thread": ["id": "thread-1"]] }
+            return ["turn": ["id": "turn-1"]]
+        }
+        store.draft = "test"
+        await store.send()
+        func item(_ data: [String: Any], completed: Bool = false) {
+            store.receive(completed ? "item/completed" : "item/started",
+                          params: ["threadId": "thread-1", "item": data], requestID: nil)
+        }
+        item(["id": "answer", "type": "agentMessage"])
+        for delta in ["答", "え"] {
+            store.receive("item/agentMessage/delta", params: ["threadId": "thread-1", "itemId": "answer", "delta": delta], requestID: nil)
+        }
+        item(["id": "answer", "type": "agentMessage", "phase": "final_answer"], completed: true)
+        #expect(store.turns.last?.answers.first?.displayText == "答え")
+
+        item(["id": "command", "type": "commandExecution", "command": "pwd"])
+        store.receive("item/commandExecution/outputDelta", params: ["threadId": "thread-1", "itemId": "command", "delta": "/old"], requestID: nil)
+        item(["id": "command", "type": "commandExecution", "command": "pwd", "aggregatedOutput": "/project"], completed: true)
+        let command = try #require(store.turns.last?.items.first { $0.id == "command" })
+        #expect(command.displayTitle == "pwd")
+        #expect(command.displayText == "/project")
+
+        let changes = [["path": "file.swift", "diff": "+new"]]
+        item(["id": "file", "type": "fileChange", "changes": changes])
+        let file = try #require(store.turns.last?.items.first { $0.id == "file" })
+        #expect(file.text == nil)
+        #expect(file.displayTitle == "ファイル変更")
+        #expect(file.displayText == "file.swift\n+new")
+        store.receive("item/fileChange/requestApproval", params: ["itemId": "file"], requestID: 1)
+        #expect(store.requests.first?.params["changes"] as? [[String: String]] == changes)
+        #expect(store.requests.first?.params["changePreview"] == nil)
+        store.resolveRequest("1", outcome: .accepted)
+        store.receive("item/commandExecution/requestApproval", params: [:], requestID: 2)
+        store.receive("turn/completed", params: ["threadId": "thread-1", "turn": ["id": "turn-1", "status": "completed"]], requestID: nil)
+        let outcomes = try #require(store.turns.last).approvals.compactMap(\.outcome)
+        #expect(outcomes == [.accepted, .unanswered])
+        #expect(outcomes.map(\.displayText) == ["承認済み", "終了（未回答）"])
+    }
+
     @Test func approvalArrivalAndResolutionKeepPagesAndReadingPosition() throws {
         let book = CodexBookPagination()
         book.configure(viewport: CGSize(width: 800, height: 650))
@@ -405,7 +449,7 @@ struct CodexApprovalTests {
             #expect(book.spread == spread)
         }
         for index in turn.approvals.indices {
-            turn.approvals[index].outcome = index.isMultiple(of: 2) ? "承認済み" : "拒否済み"
+            turn.approvals[index].outcome = index.isMultiple(of: 2) ? .accepted : .declined
             book.update([turn])
             #expect(book.pages.map(\.usedHeight) == pages)
             #expect(book.spread == spread)

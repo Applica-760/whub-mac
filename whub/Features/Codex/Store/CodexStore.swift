@@ -139,9 +139,9 @@ final class CodexStore: ObservableObject, Identifiable {
         needsResume = false
     }
 
-    func appendCommandOutput(_ command: CodexCommand, _ output: String) {
+    func appendCommandOutput(_ command: CodexCommand, _ output: CodexCommandOutput) {
         let item = CodexItem(id: UUID().uuidString, type: "commandOutput", phase: nil,
-                             title: command.rawValue, text: CodexStatus.codeBlock(output), status: "completed")
+                             text: nil, status: "completed", data: ["command": command.rawValue], output: output)
         turns.append(CodexTurn(prompt: command.rawValue, items: [item], status: "completed"))
     }
 
@@ -194,7 +194,7 @@ final class CodexStore: ObservableObject, Identifiable {
         settings["model"] = choice.model
         settings["effort"] = effort
         model = choice.model
-        appendCommandOutput(.model, "Model changed to \(choice.displayName) (\(effort)) for this session only")
+        appendCommandOutput(.model, .modelChanged(name: choice.displayName, effort: effort))
     }
 
     func send(skills selectedSkills: [CodexSkill] = []) async {
@@ -277,7 +277,7 @@ final class CodexStore: ObservableObject, Identifiable {
         model = "Codexの既存設定"
         settings = [:]
         tokenUsage = nil
-        appendCommandOutput(.new, "新しい会話を開始しました。")
+        appendCommandOutput(.new, .newConversation)
     }
 
     func disconnect() {
@@ -292,10 +292,10 @@ final class CodexStore: ObservableObject, Identifiable {
         let result: [String: Any] = request.method == "item/permissions/requestApproval"
             ? ["permissions": allow ? (request.params["permissions"] as? [String: Any] ?? [:]) : [:], "scope": "turn"]
             : ["decision": allow ? "accept" : "decline"]
-        answer(request, result: result, outcome: allow ? "承認済み" : "拒否済み")
+        answer(request, result: result, outcome: allow ? .accepted : .declined)
     }
 
-    func resolveRequest(_ id: String, outcome: String) {
+    func resolveRequest(_ id: String, outcome: CodexRequestOutcome) {
         requests.removeAll { $0.id == id }
         for turn in turns.indices {
             if let index = turns[turn].approvals.firstIndex(where: { $0.id == id && $0.outcome == nil }) {
@@ -304,11 +304,11 @@ final class CodexStore: ObservableObject, Identifiable {
         }
     }
 
-    func answer(_ request: CodexRequest, result: [String: Any], outcome: String? = nil) {
+    func answer(_ request: CodexRequest, result: [String: Any], outcome: CodexRequestOutcome? = nil) {
         guard requests.contains(where: { $0.id == request.id }) else { return }
         do {
             try client.respond(id: request.rpcID, result: result)
-            resolveRequest(request.id, outcome: outcome ?? "回答済み")
+            resolveRequest(request.id, outcome: outcome ?? .answered)
         } catch { fail(error.localizedDescription) }
     }
 
@@ -319,7 +319,7 @@ final class CodexStore: ObservableObject, Identifiable {
                 if method == "item/fileChange/requestApproval",
                    let index = activeTurnIndex,
                    let item = turns[index].items.first(where: { $0.id == params["itemId"] as? String }) {
-                    details["changePreview"] = item.text
+                    details["changes"] = item.data["changes"] as? [[String: Any]] ?? []
                 }
                 let request = CodexRequest(rpcID: requestID, method: method, params: details)
                 guard !requests.contains(where: { $0.id == request.id }) else { return }
@@ -338,7 +338,7 @@ final class CodexStore: ObservableObject, Identifiable {
             return
         }
         if method == "serverRequest/resolved", let id = params["requestId"] {
-            resolveRequest(Self.pretty(id), outcome: "解決済み")
+            resolveRequest(CodexJSON.pretty(id), outcome: .resolved)
             return
         }
         guard params["threadId"] as? String == threadID else { return }
@@ -363,7 +363,7 @@ final class CodexStore: ObservableObject, Identifiable {
         case "item/agentMessage/delta", "item/commandExecution/outputDelta", "item/plan/delta":
             guard let id = params["itemId"] as? String, let delta = params["delta"] as? String,
                   let itemIndex = turns[index].items.firstIndex(where: { $0.id == id }) else { return }
-            turns[index].items[itemIndex].text += delta
+            turns[index].items[itemIndex].delta += delta
         case "turn/completed":
             guard let turn = params["turn"] as? [String: Any],
                   turn["id"] as? String == turns[index].remoteID else { return }
@@ -389,7 +389,7 @@ final class CodexStore: ObservableObject, Identifiable {
     }
 
     private func finish(_ status: String) {
-        for request in requests { resolveRequest(request.id, outcome: "終了（未回答）") }
+        for request in requests { resolveRequest(request.id, outcome: .unanswered) }
         if let index = activeTurnIndex { turns[index].status = status }
         if status != "completed", let pendingInput {
             if draft.isEmpty { draft = pendingInput.text }
@@ -399,11 +399,5 @@ final class CodexStore: ObservableObject, Identifiable {
         isBusy = false
         isStopping = false
         requests = []
-    }
-
-    nonisolated static func pretty(_ value: Any) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed]),
-              let string = String(data: data, encoding: .utf8) else { return String(describing: value) }
-        return string
     }
 }

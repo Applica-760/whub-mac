@@ -64,15 +64,15 @@ struct CodexHistoryView: View {
                             DisclosureGroup {
                                 ScrollView(.horizontal) {
                                     VStack(alignment: .leading, spacing: 8) {
-                                        if item.type == "commandExecution" { Text(item.title).bold() }
-                                        Text(item.text.isEmpty ? "出力なし" : item.text)
+                                        if item.type == "commandExecution" { Text(item.displayTitle).bold() }
+                                        Text(item.displayText.isEmpty ? "出力なし" : item.displayText)
                                     }
                                     .font(.system(size: 12, design: .monospaced))
                                     .textSelection(.enabled)
                                     .padding(.vertical, 8)
                                 }
                             } label: {
-                                Label(item.title, systemImage: item.status == "failed" ? "xmark.circle" : "terminal")
+                                Label(item.displayTitle, systemImage: item.status == "failed" ? "xmark.circle" : "terminal")
                                     .lineLimit(2)
                             }
                             .focusEffectDisabled()

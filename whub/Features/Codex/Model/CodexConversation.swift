@@ -5,9 +5,11 @@ struct CodexItem: Identifiable {
     let id: String
     var type: String
     var phase: String?
-    var title: String
-    var text: String
+    var text: String?
     var status: String
+    var data: [String: Any] = [:]
+    var delta = ""
+    var output: CodexCommandOutput? = nil
     var isAnswer: Bool { type == "commandOutput" || (type == "agentMessage" && phase == "final_answer") }
 }
 
@@ -40,31 +42,13 @@ struct CodexTurn: Identifiable {
         guard let id = data["id"] as? String, let type = data["type"] as? String,
               type != "userMessage", type != "reasoning" else { return }
         let existing = items.firstIndex { $0.id == id }
-        var title = type
-        var text = data["text"] as? String
-        switch type {
-        case "agentMessage": title = "進捗メッセージ"
-        case "commandExecution":
-            title = data["command"] as? String ?? "コマンド実行"
-            text = data["aggregatedOutput"] as? String
-        case "fileChange":
-            title = "ファイル変更"
-            text = (data["changes"] as? [[String: Any]] ?? []).map {
-                ($0["path"] as? String ?? "") + "\n" + ($0["diff"] as? String ?? "")
-            }.joined(separator: "\n\n")
-        case "webSearch": title = "Web検索 · " + (data["query"] as? String ?? "")
-        case "mcpToolCall", "dynamicToolCall", "collabAgentToolCall":
-            title = data["tool"] as? String ?? type
-        case "plan": title = "計画"
-        case "contextCompaction": title = "会話を圧縮"
-        default: break
-        }
-        if text == nil, type != "agentMessage", type != "commandExecution" {
-            text = CodexStore.pretty(data)
-        }
+        let text = type == "commandExecution" ? data["aggregatedOutput"] as? String : data["text"] as? String
+        let keepsStreamedText = text == nil && (type == "agentMessage" || type == "commandExecution")
+        let previous = existing.map { items[$0] }
         let item = CodexItem(id: id, type: type, phase: data["phase"] as? String,
-                             title: title, text: text ?? existing.map { items[$0].text } ?? "",
-                             status: data["status"] as? String ?? (completed ? "completed" : "inProgress"))
+                             text: text ?? (keepsStreamedText ? previous?.text : nil),
+                             status: data["status"] as? String ?? (completed ? "completed" : "inProgress"),
+                             data: data, delta: keepsStreamedText ? previous?.delta ?? "" : "")
         if let existing { items[existing] = item } else { items.append(item) }
     }
 
@@ -77,13 +61,17 @@ struct CodexTurn: Identifiable {
     }
 }
 
+enum CodexRequestOutcome: Equatable {
+    case accepted, declined, answered, resolved, unanswered
+}
+
 struct CodexRequest: Identifiable {
     let rpcID: Any
     let method: String
     let params: [String: Any]
-    var outcome: String? = nil
+    var outcome: CodexRequestOutcome? = nil
     var isApproval: Bool { method != "item/tool/requestUserInput" }
-    var id: String { CodexStore.pretty(rpcID) }
+    var id: String { CodexJSON.pretty(rpcID) }
 }
 
 struct CodexImageAttachment: Identifiable {

@@ -1,37 +1,6 @@
 import Combine
 import Foundation
 
-enum CodexCommand: String, CaseIterable {
-    case new = "/new"
-    case stop = "/stop"
-    case skills = "/skills"
-    case status = "/status"
-    case model = "/model"
-    case resume = "/resume"
-
-    var description: String {
-        switch self {
-        case .new: "新しい会話"
-        case .stop: "作業を停止"
-        case .skills: "Skillを選択"
-        case .status: "状態を確認"
-        case .model: "モデルと推論設定を選択"
-        case .resume: "過去の会話を再開"
-        }
-    }
-}
-
-struct CodexSkill: Identifiable {
-    let name: String
-    let description: String
-    let path: String
-    var id: String { path }
-    func isMentioned(in text: String) -> Bool {
-        let pattern = "(?<!\\S)\\$" + NSRegularExpression.escapedPattern(for: name) + "(?![\\p{L}\\p{N}_-])"
-        return text.range(of: pattern, options: .regularExpression) != nil
-    }
-}
-
 @MainActor
 final class CodexCommandsStore: ObservableObject {
     let request: (String, [String: Any], String) async throws -> [String: Any]
@@ -90,11 +59,11 @@ final class CodexCommandsStore: ObservableObject {
     }
 
     @discardableResult
-    func loadSkills(directory: String, forceReload: Bool = false) async -> String {
+    func loadSkills(directory: String, forceReload: Bool = false) async -> CodexCommandOutput {
         let cwd = directory
         let requestID = UUID()
         skillsRequestID = requestID
-        guard !cwd.isEmpty else { return "作業フォルダがありません。" }
+        guard !cwd.isEmpty else { return .missingDirectory }
         let generation = generationID
         isLoadingSkills = true
         if skillsDirectory != cwd { skills = [] }
@@ -102,7 +71,7 @@ final class CodexCommandsStore: ObservableObject {
         defer { if generation == generationID && skillsRequestID == requestID { isLoadingSkills = false } }
         do {
             let result = try await request("skills/list", ["cwds": [cwd], "forceReload": forceReload], cwd)
-            guard generation == generationID && skillsRequestID == requestID else { return "作業フォルダが変更されました。再実行してください。" }
+            guard generation == generationID && skillsRequestID == requestID else { return .directoryChanged }
             let entries = result["data"] as? [[String: Any]] ?? []
             skills = entries.flatMap { $0["skills"] as? [[String: Any]] ?? [] }.compactMap {
                 guard $0["enabled"] as? Bool != false,
@@ -111,17 +80,17 @@ final class CodexCommandsStore: ObservableObject {
             }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             skillsDirectory = cwd
             let errors = entries.flatMap { $0["errors"] as? [[String: Any]] ?? [] }
-            if !errors.isEmpty { skillError = CodexStore.pretty(errors) }
-            return CodexStore.pretty(result)
+            if !errors.isEmpty { skillError = CodexJSON.pretty(errors) }
+            return .json(result)
         } catch {
             if generation == generationID && skillsRequestID == requestID { skillError = error.localizedDescription }
-            return error.localizedDescription
+            return .text(error.localizedDescription)
         }
     }
 
     func runCommand(_ command: CodexCommand, session: CodexStore) async {
         let generation = generationID
-        let output: String
+        let output: CodexCommandOutput
         switch command {
         case .model:
             await loadModels(directory: session.directory)
@@ -135,13 +104,16 @@ final class CodexCommandsStore: ObservableObject {
         case .stop:
             let wasBusy = session.isBusy
             await session.interrupt()
-            output = wasBusy ? (session.isStopping ? "停止を要求しました。" : session.errorMessage ?? "作業を停止しました。") : "実行中の作業はありません。"
+            if !wasBusy { output = .noRunningTask }
+            else if session.isStopping { output = .stopRequested }
+            else if let error = session.errorMessage { output = .text(error) }
+            else { output = .stopped }
         case .skills:
             output = await loadSkills(directory: session.directory, forceReload: true)
         case .status:
             guard !isLoadingStatus else { return }
             isLoadingStatus = true
-            output = await statusText(session: session)
+            output = .status(await loadStatus(session: session))
             if generation == generationID { isLoadingStatus = false }
         }
         guard generation == generationID else { return }

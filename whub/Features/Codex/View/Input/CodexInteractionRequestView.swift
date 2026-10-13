@@ -74,7 +74,7 @@ struct CodexInteractionRequestView: View {
                     ScrollView { approvalDetails() }
                 }
                 if let outcome = request.outcome {
-                    Text(outcome).font(.callout).foregroundStyle(.secondary)
+                    Text(outcome.displayText).font(.callout).foregroundStyle(.secondary)
                 } else {
                     HStack {
                         Button("拒否", role: .destructive) { decide(allow: false) }
@@ -95,6 +95,11 @@ struct CodexInteractionRequestView: View {
         }
     }
 
+    private var changePreview: String? {
+        if let changes = request.params["changes"] as? [[String: Any]] { return CodexItem.changePreview(changes) }
+        return request.params["changePreview"] as? String
+    }
+
     private func approvalDetails() -> some View {
         VStack(alignment: .leading, spacing: 12) {
             if let reason = request.params["reason"] as? String { Text(reason) }
@@ -102,16 +107,16 @@ struct CodexInteractionRequestView: View {
                 Text(command).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
             }
             if let cwd = request.params["cwd"] as? String { Text(cwd).font(.caption).foregroundStyle(.secondary) }
-            if let preview = request.params["changePreview"] as? String {
+            if let preview = changePreview {
                 ScrollView {
                     Text(preview).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                 }.frame(maxHeight: 120)
             }
             if let permissions = request.params["permissions"] as? [String: Any] {
-                Text(CodexStore.pretty(permissions)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                Text(CodexJSON.pretty(permissions)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
             }
             DisclosureGroup("要求の詳細", isExpanded: Binding(get: { detailsExpanded }, set: { _ in toggleDetails() })) {
-                Text(CodexStore.pretty(request.params)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                Text(CodexJSON.pretty(request.params)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

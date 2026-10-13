@@ -99,7 +99,7 @@ final class CodexBookPagination: ObservableObject {
                 append([Block(id: 0, kind: .paragraph)], turnID: turn.id, isUser: false, to: &output)
             }
             for answer in turn.answers {
-                append(CodexMarkdown(source: answer.text).blocks,
+                append(CodexMarkdown(source: answer.displayMarkdown).blocks,
                        turnID: turn.id, isUser: false, to: &output)
             }
             // Only the unfinished response may reflow as Markdown delimiters arrive.
