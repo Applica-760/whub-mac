@@ -12,6 +12,8 @@ final class BrowserSession: Identifiable {
 
     init(navigationDecider: some WebPage.NavigationDeciding) {
         page = WebPage(navigationDecider: navigationDecider)
+        // shortcut: fixed Safari version for site compatibility; update when supported WebKit versions change.
+        page.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0.1 Safari/605.1.15"
     }
 
     var title: String {

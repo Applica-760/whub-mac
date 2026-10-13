@@ -198,6 +198,7 @@ private struct BrowserSessionView: View {
                 }
             } else {
                 WebView(session.page)
+                    .webViewElementFullscreenBehavior(.enabled)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
