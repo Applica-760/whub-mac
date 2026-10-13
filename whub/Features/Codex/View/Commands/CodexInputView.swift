@@ -307,12 +307,17 @@ struct CodexInputView: View {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
         if [36, 76].contains(event.keyCode), modifiers == .command { submit(); return true }
         guard modifiers.isEmpty else { return false }
+        if event.keyCode == 53 {
+            dismissedToken = token
+            dismissedResume = true
+            dismissedModel = true
+            showsSkills = false
+            selectedModel = nil
+            candidateIndex = 0
+            focus.activateReading()
+            return true
+        }
         if showsModel {
-            if event.keyCode == 53 {
-                if selectedModel != nil { selectedModel = nil; candidateIndex = 0 }
-                else { dismissedModel = true; dismissedToken = token }
-                return true
-            }
             guard !commands.isLoadingModels, commands.modelError == nil, !store.isChangingModel,
                   !store.isBusy, !store.isResuming, modelChoiceCount > 0 else {
                 return [36, 76, 48, 125, 126].contains(event.keyCode)
@@ -323,12 +328,6 @@ struct CodexInputView: View {
             case 36, 76: acceptModel(candidateIndex)
             default: return false
             }
-            return true
-        }
-        if event.keyCode == 53, showsResume || showsSkills || token != nil {
-            dismissedToken = token
-            dismissedResume = true
-            showsSkills = false
             return true
         }
         if showsResume && (commands.isLoadingThreads || tabsStore.isResuming || candidates.isEmpty) {

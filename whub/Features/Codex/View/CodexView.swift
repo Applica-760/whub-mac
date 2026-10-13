@@ -29,7 +29,7 @@ struct CodexView: View {
             ids: store.sessions.map(\.id), selection: store.selectedSessionID,
             select: { id in tabFocus.activate(); store.select(id) }, close: requestClose,
             canClose: { _ in true },
-            isShortcutTarget: { pendingCloseID == nil && tabFocus.contains($0) },
+            isShortcutTarget: { _ in pendingCloseID == nil },
             handlesNumberKeys: false
         ))
         .navigationTitle("AgentBook")
@@ -64,7 +64,7 @@ private struct CodexSessionView<Tabs: View>: View {
     @State private var composerClearance: CGFloat = 64
     @State private var bookFocus = CodexBookFocus()
     @State private var viewport = CGSize.zero
-    @State private var needsUpdate = true
+    @State private var needsLatestPage = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -107,13 +107,17 @@ private struct CodexSessionView<Tabs: View>: View {
         }
         .onChange(of: store.id) { _, _ in
             confirmsReset = false
+            needsLatestPage = true
             updateBook(store.turns)
         }
         .onReceive(store.$turns.throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)) {
             updateBook($0)
         }
         .onChange(of: isActive) { _, active in
-            if active, needsUpdate { updateBook(store.turns) }
+            if active {
+                needsLatestPage = true
+                updateBook(store.turns)
+            }
         }
         .alert("新しい会話を始めますか？", isPresented: $confirmsReset) {
             Button("キャンセル", role: .cancel) {}
@@ -124,12 +128,13 @@ private struct CodexSessionView<Tabs: View>: View {
     }
 
     private func updateBook(_ turns: [CodexTurn]) {
-        needsUpdate = true
         guard isActive, let book, viewport.width > 100, viewport.height > 100 else { return }
-        let firstLayout = book.pageSize == nil
         book.update(turns, viewport: viewport)
-        if firstLayout, store.resumedDirectory != nil { book.move(book.spreadCount - 1) }
-        needsUpdate = false
+        if needsLatestPage {
+            book.move(book.spreadCount - 1 - book.spread)
+            assert(book.spread == book.spreadCount - 1)
+            needsLatestPage = false
+        }
     }
 
 }
