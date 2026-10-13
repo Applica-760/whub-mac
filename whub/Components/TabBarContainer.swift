@@ -227,6 +227,7 @@ struct TabBarShortcuts<ID: Hashable>: View {
     let close: (ID) -> Void
     let canClose: (ID) -> Bool
     let isShortcutTarget: (NSWindow) -> Bool
+    var handlesNumberKeys = true
 
     var body: some View {
         TabBarEventMonitor { event, _ in handle(event) }
@@ -241,7 +242,7 @@ struct TabBarShortcuts<ID: Hashable>: View {
             if canClose(selection) { close(selection) }
             return true
         }
-        guard key.count == 1, let digit = Int(key), (1...9).contains(digit) else {
+        guard handlesNumberKeys, key.count == 1, let digit = Int(key), (1...9).contains(digit) else {
             return false
         }
         if ids.indices.contains(digit - 1) { select(ids[digit - 1]) }

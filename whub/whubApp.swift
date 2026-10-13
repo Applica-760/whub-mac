@@ -87,6 +87,16 @@ struct whubApp: App {
                 ForEach(AppView.Section.allCases, id: \.self) { destination in
                     Button(destination.label) { section = destination }
                 }
+                Divider()
+                ForEach(1...9, id: \.self) { number in
+                    Button("AgentBook \(number)") {
+                        guard section == .codex, codexStore.sessions.indices.contains(number - 1) else { return }
+                        codexStore.select(codexStore.sessions[number - 1].id)
+                    }
+                    .keyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: .command)
+                    .disabled(section != .codex || !codexStore.sessions.indices.contains(number - 1))
+                }
+                Divider()
                 Button("Previous Page") { moveSection(by: -1) }
                     .keyboardShortcut("h", modifiers: [.command, .shift])
                 Button("Next Page") { moveSection(by: 1) }

@@ -29,7 +29,8 @@ struct CodexView: View {
             ids: store.sessions.map(\.id), selection: store.selectedSessionID,
             select: { id in tabFocus.activate(); store.select(id) }, close: requestClose,
             canClose: { _ in true },
-            isShortcutTarget: { pendingCloseID == nil && tabFocus.contains($0) }
+            isShortcutTarget: { pendingCloseID == nil && tabFocus.contains($0) },
+            handlesNumberKeys: false
         ))
         .navigationTitle("AgentBook")
         .alert("このタブを閉じますか？", isPresented: Binding(
