@@ -36,10 +36,12 @@ struct CodexResumeTests {
     @Test func recentThreadUsesTitleThenPreviewAndRejectsMissingDirectory() throws {
         var data: [String: Any] = ["id": "thread-1", "cwd": "/project", "updatedAt": 123.0,
                                    "name": "  タイトル  ", "preview": "冒頭文"]
-        #expect(try CodexRecentThread(data).title == "タイトル")
+        #expect(try CodexRecentThread(data).displayTitle == "タイトル")
         data["name"] = NSNull()
-        #expect(try CodexRecentThread(data).title == "冒頭文")
+        #expect(try CodexRecentThread(data).displayTitle == "冒頭文")
         #expect(try CodexRecentThread(data).updatedAt == Date(timeIntervalSince1970: 123))
+        data["preview"] = "  "
+        #expect(try CodexRecentThread(data).displayTitle == "thread-1")
         data.removeValue(forKey: "cwd")
         #expect(throws: CodexError.self) { try CodexRecentThread(data) }
     }
@@ -60,7 +62,7 @@ struct CodexResumeTests {
         #expect(store.model == "saved-model")
         let turn = try #require(store.turns.first)
         #expect(turn.remoteID == "turn-1")
-        #expect(turn.prompt == "質問")
+        #expect(turn.displayPrompt == "質問")
         #expect(turn.answers.map(\.text) == ["回答"])
         #expect(turn.history.map(\.id) == ["progress", "cmd"])
         #expect(!store.isBusy)
@@ -98,7 +100,28 @@ struct CodexResumeTests {
             ["id": "p", "type": "agentMessage", "phase": "commentary", "text": "途中"]
         ]
         try store.restoreHistory(response([["id": "turn-1", "status": "interrupted", "items": items]]), expectedID: "thread-1")
-        #expect(store.turns.first?.prompt == "［添付: image］")
+        #expect(store.turns.first?.input == [.attachment(type: "image", name: nil)])
+        #expect(store.turns.first?.displayPrompt == "［添付: image］")
+        let book = CodexBookPagination()
+        book.configure(viewport: CGSize(width: 800, height: 450))
+        book.update(store.turns)
+        #expect(book.pages.flatMap(\.fragments).contains {
+            $0.isUser && String($0.block.text.characters) == "［添付: image］"
+        })
+        let mixedInput: [[String: Any]] = [
+            ["type": "text", "text": "質問"],
+            ["type": "skill", "name": "review"],
+            ["type": "mention"],
+            ["type": "image", "name": "ignored"],
+            [:]
+        ]
+        let mixed = try CodexThreadHistory(response([["id": "mixed", "status": "completed", "items": [
+            ["id": "u", "type": "userMessage", "content": mixedInput]
+        ]]]), expectedID: "thread-1")
+        #expect(mixed.turns.first?.input == [.text("質問"), .attachment(type: "skill", name: "review"),
+            .attachment(type: "mention", name: nil), .attachment(type: "image", name: "ignored"),
+            .attachment(type: nil, name: nil)])
+        #expect(mixed.turns.first?.displayPrompt == "質問\nreview\n添付参照\n［添付: image］\n［添付: 不明］")
         #expect(store.turns.first?.answers.isEmpty == true)
         #expect(store.turns.first?.status == "interrupted")
         #expect(throws: CodexError.self) { try store.restoreHistory(response([]), expectedID: "thread-1") }
@@ -310,7 +333,7 @@ struct CodexImageTests {
         let fragments = book.pages.flatMap(\.fragments).filter(\.isUser)
         #expect(fragments.count == 1)
         let fragment = try #require(fragments.first)
-        #expect(String(fragment.block.text.characters) == turn.prompt)
+        #expect(String(fragment.block.text.characters) == turn.displayPrompt)
         #expect(fragment.images.map(\.id) == images.map(\.id))
         #expect(fragment.height <= book.contentHeight)
 
@@ -527,8 +550,73 @@ struct CodexApprovalTests {
     }
 }
 
+private struct RetainedInputProbe: NSViewRepresentable {
+    let created: (NSTextView) -> Void
+    func makeNSView(context: Context) -> NSTextView {
+        let input = NSTextView()
+        created(input)
+        return input
+    }
+    func updateNSView(_ view: NSTextView, context: Context) {}
+}
+
 @Suite @MainActor
 struct CodexReadingTests {
+    @Test func sessionViewsSurviveSwitchesAndClosedTabsAreRemoved() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let container = try #require(window.contentView)
+        let coordinator = RetainedPageContainer<Int, RetainedInputProbe>.Coordinator()
+        var inputs: [Int: NSTextView] = [:]
+        let root: (Int, RetainedPageActivity) -> AnyView = { id, _ in
+            AnyView(RetainedInputProbe { inputs[id] = $0 })
+        }
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
+        let first = try #require(coordinator.pages[1])
+        first.view.layoutSubtreeIfNeeded()
+        let input = try #require(inputs[1])
+        input.string = "draft"
+        input.setSelectedRange(NSRange(location: 2, length: 0))
+        #expect(window.makeFirstResponder(input))
+
+        coordinator.update(container, selection: 2, availablePages: [1, 2], isActive: true, rootView: root)
+        #expect(first.view.isHidden)
+        #expect(!first.activity.isActive.value)
+        #expect(window.firstResponder !== input)
+        let second = try #require(coordinator.pages[2])
+        #expect(second.activity.isActive.value)
+
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
+        #expect(coordinator.pages[1]?.view === first.view)
+        #expect(coordinator.pages[2]?.view === second.view)
+        #expect(!first.view.isHidden)
+        #expect(first.activity.isActive.value)
+        #expect(!second.activity.isActive.value)
+        first.view.layoutSubtreeIfNeeded()
+        #expect(inputs[1] === input)
+        #expect(input.string == "draft")
+        #expect(input.selectedRange() == NSRange(location: 2, length: 0))
+
+        coordinator.update(container, selection: 1, availablePages: [1], isActive: true, rootView: root)
+        #expect(coordinator.pages.count == 1)
+        #expect(second.view.superview == nil)
+        #expect(!second.activity.isActive.value)
+        #expect(coordinator.pages[1]?.view === first.view)
+    }
+
+    @Test func hiddenFeatureDeactivatesItsRetainedSession() throws {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let coordinator = RetainedPageContainer<Int, Text>.Coordinator()
+        let root: (Int, RetainedPageActivity) -> AnyView = { id, _ in AnyView(Text("Session \(id)")) }
+        coordinator.update(container, selection: 1, availablePages: nil, isActive: true, rootView: root)
+        let session = try #require(coordinator.pages[1])
+        coordinator.update(container, selection: 1, availablePages: nil, isActive: false, rootView: root)
+        #expect(!session.activity.isActive.value)
+        coordinator.update(container, selection: 1, availablePages: nil, isActive: true, rootView: root)
+        #expect(session.activity.isActive.value)
+        #expect(coordinator.pages[1]?.view === session.view)
+    }
+
     @Test func textReplacementKeepsReadingFocusAndSelection() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)

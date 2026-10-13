@@ -6,23 +6,20 @@ struct CodexView: View {
     @EnvironmentObject private var store: CodexTabsStore
     @State private var tabFocus = TabPaneFocus()
     @State private var pendingCloseID: CodexStore.ID?
-    @State private var books: [CodexStore.ID: CodexBookPagination] = [:]
+    @Environment(\.retainedPageActivity) private var featureActivity
 
     var body: some View {
-        CodexSessionView(book: books[store.selectedSessionID]) {
-            CodexTabBar(sessions: store.sessions, selection: store.selectedSessionID,
-                        completedSessionIDs: store.completedSessionIDs) { id in
-                tabFocus.activate()
-                store.select(id)
+        RetainedPageContainer(selection: store.selectedSessionID, availablePages: store.sessions.map(\.id)) { id in
+            if let session = store.sessions.first(where: { $0.id == id }) {
+                CodexSessionView(featureActivity: featureActivity) {
+                    CodexTabBar(sessions: store.sessions, selection: store.selectedSessionID,
+                                completedSessionIDs: store.completedSessionIDs) { id in
+                        tabFocus.activate()
+                        store.select(id)
+                    }
+                }
+                .environmentObject(session)
             }
-        }
-        .id(store.selectedSessionID)
-        .environmentObject(store.selectedSession)
-        .task(id: store.selectedSessionID) {
-            if books[store.selectedSessionID] == nil { books[store.selectedSessionID] = CodexBookPagination() }
-        }
-        .onChange(of: store.sessions.map(\.id)) { _, ids in
-            books = books.filter { ids.contains($0.key) }
         }
         .background(TabPaneFocusView(focus: tabFocus))
         .background(TabBarShortcuts(
@@ -58,7 +55,9 @@ struct CodexView: View {
 private struct CodexSessionView<Tabs: View>: View {
     @Environment(\.isRetainedPageActive) private var isActive
     @EnvironmentObject private var store: CodexStore
-    let book: CodexBookPagination?
+    let featureActivity: RetainedPageActivity?
+    @Environment(\.retainedPageActivity) private var activity
+    @StateObject private var book = CodexBookPagination()
     @ViewBuilder let tabs: () -> Tabs
     @State private var confirmsReset = false
     @State private var composerClearance: CGFloat = 64
@@ -70,20 +69,14 @@ private struct CodexSessionView<Tabs: View>: View {
         VStack(spacing: 0) {
             WidgetFrame {
                 ZStack {
-                    if let book {
-                        CodexBookView(book: book, bookFocus: bookFocus,
-                            updateViewport: { viewport = $0; updateBook(store.turns) },
-                            composerClearance: composerClearance)
-                            .id(store.id)
-                    } else {
-                        Color.clear.frame(maxHeight: .infinity)
-                    }
+                    CodexBookView(book: book, bookFocus: bookFocus,
+                        updateViewport: { viewport = $0; updateBook(store.turns) },
+                        composerClearance: composerClearance)
                 }
                     .overlay(alignment: .bottom) {
                         CodexInputView(commands: store.commands, focus: bookFocus) {
                             if store.turns.isEmpty { store.reset() } else { confirmsReset = true }
                         }
-                        .id(store.id)
                         .padding(.horizontal, 212)
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
                             composerClearance = $0 + 4
@@ -128,7 +121,8 @@ private struct CodexSessionView<Tabs: View>: View {
     }
 
     private func updateBook(_ turns: [CodexTurn]) {
-        guard isActive, let book, viewport.width > 100, viewport.height > 100 else { return }
+        guard isActive, activity?.isActive.value != false, featureActivity?.isActive.value != false,
+              viewport.width > 100, viewport.height > 100 else { return }
         book.update(turns, viewport: viewport)
         if needsLatestPage {
             book.move(book.spreadCount - 1 - book.spread)

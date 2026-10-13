@@ -53,7 +53,7 @@ struct CodexInputView: View {
         if showsModel { return [] }
         if showsResume {
             var entries = commands.recentThreads.map {
-                (name: $0.title, detail: $0.directory + " · " + $0.updatedAt.formatted(date: .abbreviated, time: .shortened),
+                (name: $0.displayTitle, detail: $0.directory + " · " + $0.updatedAt.formatted(date: .abbreviated, time: .shortened),
                  skill: Optional<CodexSkill>.none, thread: Optional($0))
             }
             if commands.nextThreadCursor != nil { entries.append(("さらに読み込む", "", nil, nil)) }

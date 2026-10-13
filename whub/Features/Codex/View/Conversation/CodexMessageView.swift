@@ -59,7 +59,7 @@ struct CodexHistoryView: View {
                 Text("作業履歴").font(.headline)
                 ForEach(turns) { turn in
                     if !turn.history.isEmpty {
-                        Text(turn.prompt).font(.callout.weight(.semibold)).lineLimit(2)
+                        Text(turn.displayPrompt).font(.callout.weight(.semibold)).lineLimit(2)
                         ForEach(turn.history) { item in
                             DisclosureGroup {
                                 ScrollView(.horizontal) {
