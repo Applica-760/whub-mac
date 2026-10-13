@@ -767,14 +767,16 @@ struct CodexApprovalTests {
         #expect(CodexApprovalKeys.approvalDecision(keyCode: 123, isRepeat: false, hasMarkedText: false) == nil)
     }
 
-    @Test func approvalButtonsRespondToNativeKeyEquivalents() throws {
+    @Test(arguments: [true, false])
+    func approvalButtonsOnlyUseNativeKeyEquivalentsWhenEnabled(_ usesNativeKeyEquivalents: Bool) throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
                               styleMask: [.titled], backing: .buffered, defer: false)
         var decisions: [Bool] = []
         let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
                                    params: ["command": "pwd"])
         let view = NSHostingView(rootView:
-            CodexInteractionRequestView(request: request, approvalDecision: { decisions.append($0) }) { _ in }
+            CodexInteractionRequestView(request: request, approvalDecision: { decisions.append($0) },
+                                       usesNativeKeyEquivalents: usesNativeKeyEquivalents) { _ in }
                 .frame(width: 320, height: 240))
         window.contentView = view
         view.layoutSubtreeIfNeeded()
@@ -782,12 +784,12 @@ struct CodexApprovalTests {
             let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
                 timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters,
                 charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
-            #expect(window.performKeyEquivalent(with: event))
+            #expect(window.performKeyEquivalent(with: event) == usesNativeKeyEquivalents)
         }
-        #expect(decisions == [true, false])
+        #expect(decisions == (usesNativeKeyEquivalents ? [true, false] : []))
     }
 
-    @Test func approvalKeyViewActivatesItsPopoverWindow() throws {
+    @Test func approvalKeyViewDoesNotActivateItsWindow() throws {
         final class Window: NSWindow {
             var requestedKey = false
             override func makeKey() { requestedKey = true }
@@ -797,13 +799,92 @@ struct CodexApprovalTests {
         let content = try #require(window.contentView)
         let view = CodexApprovalKeys.EventView(frame: content.bounds)
         content.addSubview(view)
-        #expect(window.requestedKey)
+        #expect(!window.requestedKey)
         window.requestedKey = false
         view.removeFromSuperview()
         #expect(!window.requestedKey)
     }
 
-    @Test func popoverKeysOnlyDecideInTheirOwnWindow() throws {
+    @Test func inactiveBooksDoNotConsumeApprovalKeysOrResolveRequests() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let store = CodexStore(context: container.mainContext)
+        store.receive("item/commandExecution/requestApproval", params: ["command": "pwd"], requestID: 1)
+        let session = RetainedPageActivity()
+        let feature = RetainedPageActivity()
+        var decisions: [Bool] = []
+        let keys = CodexApprovalKeys(isActive: { session.isActive.value && feature.isActive.value }) {
+            decisions.append($0)
+        }
+        func event(_ code: UInt16) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "",
+                charactersIgnoringModifiers: "", isARepeat: false, keyCode: code))
+        }
+        for (sessionActive, featureActive) in [(true, false), (false, true), (false, false)] {
+            session.setActive(sessionActive)
+            feature.setActive(featureActive)
+            #expect(!keys.handle(try event(36), in: window))
+            #expect(!keys.handle(try event(53), in: window))
+        }
+        #expect(decisions.isEmpty)
+        #expect(store.requests.map(\.id) == ["1"])
+        #expect(store.requests[0].outcome == nil)
+        session.setActive(true)
+        feature.setActive(true)
+        #expect(keys.handle(try event(36), in: window))
+        #expect(keys.handle(try event(53), in: window))
+        #expect(decisions == [true, false])
+    }
+
+    @Test func approvalCardBelongsToItsRetainedBookAcrossTabAndFeatureSwitches() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let container = try #require(window.contentView)
+        let coordinator = RetainedPageContainer<Int, CodexApprovalEntryView>.Coordinator()
+        let feature = RetainedPageActivity()
+        feature.setActive(true)
+        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
+                                   params: ["command": "pwd"])
+        var decisions: [Bool] = []
+        let root: (Int, RetainedPageActivity) -> AnyView = { id, activity in
+            AnyView(CodexApprovalEntryView(request: id == 1 ? request : nil,
+                pageSize: CGSize(width: 400, height: 600), contentBottom: 100, scale: 1,
+                sessionActivity: activity, featureActivity: feature,
+                decide: { _, allow in decisions.append(allow) }))
+        }
+        func approvalKeyViews(in view: NSView) -> [CodexApprovalKeys.EventView] {
+            (view as? CodexApprovalKeys.EventView).map { [$0] } ?? view.subviews.flatMap { approvalKeyViews(in: $0) }
+        }
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
+        let first = try #require(coordinator.pages[1])
+        first.view.layoutSubtreeIfNeeded()
+        let keyView = try #require(approvalKeyViews(in: first.view).first)
+        #expect(keyView.window === window)
+        #expect(window.childWindows?.isEmpty != false)
+        coordinator.update(container, selection: 2, availablePages: [1, 2], isActive: true, rootView: root)
+        #expect(keyView.isHiddenOrHasHiddenAncestor)
+        #expect(!first.activity.isActive.value)
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
+        first.view.layoutSubtreeIfNeeded()
+        #expect(approvalKeyViews(in: first.view).first === keyView)
+        #expect(!keyView.isHiddenOrHasHiddenAncestor)
+        feature.setActive(false)
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: false, rootView: root)
+        #expect(!first.activity.isActive.value)
+        feature.setActive(true)
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
+        first.view.layoutSubtreeIfNeeded()
+        #expect(approvalKeyViews(in: first.view).first === keyView)
+        #expect(first.activity.isActive.value)
+        #expect(decisions.isEmpty)
+        #expect(request.outcome == nil)
+        #expect(window.childWindows?.isEmpty != false)
+    }
+
+    @Test func approvalKeysOnlyDecideInTheirOwnWindow() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),

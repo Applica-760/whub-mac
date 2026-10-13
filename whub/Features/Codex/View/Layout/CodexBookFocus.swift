@@ -80,10 +80,11 @@ struct CodexApprovalKeys: NSViewRepresentable {
         }
     }
 
+    var isActive: () -> Bool = { true }
     let approve: (Bool) -> Void
 
     func handle(_ event: NSEvent, in window: NSWindow) -> Bool {
-        guard event.window === window, window.attachedSheet == nil,
+        guard isActive(), event.window === window, window.attachedSheet == nil,
               event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 .subtracting([.numericPad, .function]).isEmpty,
               [36, 76, 53].contains(event.keyCode),
@@ -116,11 +117,6 @@ struct CodexApprovalKeys: NSViewRepresentable {
         var handle: ((NSEvent, NSWindow) -> Bool)?
     }
     final class EventView: NSView {
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            window?.makeKey()
-        }
-
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }

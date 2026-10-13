@@ -36,10 +36,11 @@ struct CodexBookView: View {
                                     .offset(x: pageX(header.page) + header.frame.minX, y: header.frame.minY)
                             }
                         }
-                        if canInteract, visiblePages.contains(book.pageCount - 1),
-                           let contentBottom = book.contentBottoms.last {
+                        if let contentBottom = book.contentBottoms.last {
                             CodexApprovalEntryView(request: store.requests.first(where: \.isApproval),
                                 pageSize: book.pageSize, contentBottom: contentBottom, scale: 1,
+                                isActive: canInteract && visiblePages.contains(book.pageCount - 1),
+                                sessionActivity: activity, featureActivity: featureActivity,
                                 decide: { store.approve($0, allow: $1) })
                                 .offset(x: pageX(book.pageCount - 1))
                         }
