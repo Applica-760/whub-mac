@@ -311,39 +311,53 @@ struct CodexResumeTests {
         #expect(store.turns.count == 1)
     }
 
-    @Test func resumedTabKeepsOriginalDraftAndParticipatesInNotifications() throws {
+    @Test func resumedBookReplacesSourceInPlaceAndParticipatesInNotifications() throws {
         let container = try makeContainer()
         let tabs = CodexTabsStore(context: container.mainContext)
+        let before = tabs.selectedSession
+        tabs.add()
         let original = tabs.selectedSession
         original.draft = "編集中の入力"
+        original.onCompletionChange?(true)
+        tabs.add()
+        let after = tabs.selectedSession
         let resumed = CodexStore(context: container.mainContext)
         try resumed.restoreHistory(response([]), expectedID: "thread-1")
-        #expect(tabs.openResumedSession(resumed))
-        #expect(tabs.sessions.map(\.id) == [original.id, resumed.id])
+        #expect(tabs.openResumedSession(resumed, replacing: original.id))
+        #expect(tabs.sessions.map(\.id) == [before.id, resumed.id, after.id])
         #expect(tabs.selectedSessionID == resumed.id)
-        #expect(original.draft == "編集中の入力")
+        #expect(tabs.completedSessionIDs.isEmpty)
+        original.onCompletionChange?(true)
+        #expect(tabs.completedSessionIDs.isEmpty)
         resumed.onCompletionChange?(true)
         #expect(tabs.completedSessionIDs == [resumed.id])
         tabs.remove(resumed.id)
-        #expect(tabs.selectedSessionID == original.id)
+        #expect(tabs.selectedSessionID == after.id)
         #expect(tabs.completedSessionIDs.isEmpty)
     }
 
-    @Test func alreadyOpenThreadIsSelectedWithoutCreatingAnotherTab() async throws {
+    @Test(arguments: [true, false])
+    func alreadyOpenBookMovesToSourceWithoutDuplicateTabs(_ targetBeforeSource: Bool) async throws {
         let container = try makeContainer()
         let tabs = CodexTabsStore(context: container.mainContext)
-        let original = tabs.selectedSession
-        try original.restoreHistory(response([]), expectedID: "thread-1")
         tabs.add()
+        tabs.add()
+        let original = tabs.sessions[targetBeforeSource ? 0 : 2]
+        let source = tabs.sessions[1]
+        let other = tabs.sessions[targetBeforeSource ? 2 : 0]
+        try original.restoreHistory(response([]), expectedID: "thread-1")
+        original.draft = "既存Bookの下書き"
         original.onCompletionChange?(true)
+        source.onCompletionChange?(true)
         let thread = try CodexRecentThread(["id": "thread-1", "cwd": "/not-needed", "updatedAt": 1.0])
-        #expect(await tabs.resume(thread))
-        #expect(tabs.sessions.count == 2)
+        #expect(await tabs.resume(thread, replacing: source.id))
+        #expect(tabs.sessions.map(\.id) == (targetBeforeSource ? [original.id, other.id] : [other.id, original.id]))
         #expect(tabs.selectedSessionID == original.id)
         #expect(tabs.completedSessionIDs.isEmpty)
+        #expect(original.draft == "既存Bookの下書き")
         let duplicate = CodexStore(context: container.mainContext)
         try duplicate.restoreHistory(response([]), expectedID: "thread-1")
-        #expect(tabs.openResumedSession(duplicate))
+        #expect(tabs.openResumedSession(duplicate, replacing: original.id))
         #expect(tabs.sessions.count == 2)
         #expect(tabs.selectedSessionID == original.id)
     }
@@ -354,14 +368,94 @@ struct CodexResumeTests {
         let original = tabs.selectedSession
         original.draft = "入力を保持"
         let thread = try CodexRecentThread(["id": "missing", "cwd": "/nonexistent-" + UUID().uuidString, "updatedAt": 1.0])
-        #expect(await tabs.resume(thread) == false)
+        #expect(await tabs.resume(thread, replacing: original.id) == false)
         #expect(tabs.sessions.map(\.id) == [original.id])
         #expect(tabs.selectedSessionID == original.id)
         #expect(original.draft == "入力を保持")
         #expect(tabs.resumeError?.contains("作業フォルダが存在しません") == true)
         #expect(!tabs.isResuming)
-        #expect(!tabs.openResumedSession(CodexStore(context: container.mainContext)))
+        #expect(!tabs.openResumedSession(CodexStore(context: container.mainContext), replacing: original.id))
         #expect(tabs.sessions.count == 1)
+    }
+
+    @Test(arguments: ["select", "close", "start"])
+    func pendingResumeKeepsItsSourceAndDoesNotReplaceClosedOrBusyTabs(_ action: String) async throws {
+        let container = try makeContainer()
+        var reply: CheckedContinuation<[String: Any], Never>?
+        var methods: [String] = []
+        let tabs = CodexTabsStore(context: container.mainContext) { method, _, _ in
+            methods.append(method)
+            switch method {
+            case "thread/read": return ["thread": ["id": "thread-1"]]
+            case "thread/resume": return await withCheckedContinuation { reply = $0 }
+            case "thread/start": return ["thread": ["id": "source-thread"]]
+            case "turn/start": return ["turn": ["id": "source-turn"]]
+            default: throw CodexError(message: "Unexpected request: \(method)")
+            }
+        }
+        let source = tabs.selectedSession
+        source.draft = "/resume"
+        tabs.add()
+        let other = tabs.selectedSession
+        other.draft = "他タブの下書き"
+        let thread = try CodexRecentThread(["id": "thread-1", "cwd": NSHomeDirectory(), "updatedAt": 1.0])
+        let loading = Task { await tabs.resume(thread, replacing: source.id) }
+        while reply == nil { await Task.yield() }
+        #expect(tabs.isResuming)
+        #expect(!tabs.openResumedSession(CodexStore(context: container.mainContext), replacing: source.id))
+        if action == "close" {
+            tabs.remove(source.id)
+            #expect(!tabs.isResuming)
+        } else if action == "start" {
+            source.draft = "開始する依頼"
+            await source.send()
+        } else {
+            tabs.select(other.id)
+        }
+        reply?.resume(returning: response([]))
+        let succeeded = await loading.value
+        #expect(!tabs.isResuming)
+        #expect(other.draft == "他タブの下書き")
+        if action == "select" {
+            #expect(succeeded)
+            #expect(tabs.sessions.count == 2)
+            #expect(tabs.sessions[0].threadID == "thread-1")
+            #expect(tabs.sessions[1] === other)
+            #expect(!tabs.sessions.contains { $0.id == source.id })
+            #expect(tabs.selectedSessionID == tabs.sessions[0].id)
+        } else if action == "close" {
+            #expect(!succeeded)
+            #expect(tabs.sessions.map(\.id) == [other.id])
+            #expect(tabs.selectedSessionID == other.id)
+        } else {
+            #expect(!succeeded)
+            #expect(tabs.sessions.map(\.id) == [source.id, other.id])
+            #expect(source.isBusy)
+            #expect(source.threadID == "source-thread")
+            #expect(!methods.contains("turn/interrupt"))
+            #expect(tabs.resumeError != nil)
+        }
+    }
+
+    @Test func busySourceRejectsResumeBeforeReadingHistory() async throws {
+        let container = try makeContainer()
+        var methods: [String] = []
+        let tabs = CodexTabsStore(context: container.mainContext) { method, _, _ in
+            methods.append(method)
+            if method == "thread/start" { return ["thread": ["id": "source-thread"]] }
+            return ["turn": ["id": "source-turn"]]
+        }
+        let source = tabs.selectedSession
+        source.draft = "処理中の依頼"
+        await source.send()
+        source.draft = "/resume"
+        let thread = try CodexRecentThread(["id": "thread-1", "cwd": NSHomeDirectory(), "updatedAt": 1.0])
+        #expect(await tabs.resume(thread, replacing: source.id) == false)
+        #expect(methods == ["thread/start", "turn/start"])
+        #expect(source.isBusy)
+        #expect(source.draft == "/resume")
+        #expect(tabs.sessions.map(\.id) == [source.id])
+        #expect(tabs.resumeError != nil)
     }
 }
 
