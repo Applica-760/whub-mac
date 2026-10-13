@@ -131,34 +131,9 @@ struct CodexMathText: View {
     }
 
     private func attributed(_ source: AttributedString, display: Bool = false) -> NSAttributedString {
-        let result = NSMutableAttributedString(string: "")
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = alignment
-        paragraph.lineSpacing = lineSpacing
-        for run in source.runs {
-            if let formula = run[CodexFormulaAttribute.self], let rendered = render(formula, size: display ? 22 : fontSize) {
-                let attachment = NSTextAttachment()
-                attachment.image = rendered.image
-                attachment.bounds = CGRect(x: 0, y: -rendered.descent, width: rendered.image.size.width, height: rendered.image.size.height)
-                let part = NSMutableAttributedString(attachment: attachment)
-                part.addAttribute(.codexFormulaSource, value: formula.source, range: NSRange(location: 0, length: part.length))
-                result.append(part)
-                continue
-            }
-            let intent = run.inlinePresentationIntent ?? []
-            let runWeight: NSFont.Weight = intent.contains(.stronglyEmphasized) ? .bold : weight
-            var font = monospaced || intent.contains(.code)
-                ? NSFont.monospacedSystemFont(ofSize: monospaced ? fontSize : 14, weight: runWeight)
-                : NSFont.systemFont(ofSize: fontSize, weight: runWeight)
-            if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
-            var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
-            if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            if intent.contains(.code) { attributes[.backgroundColor] = NSColor.secondaryLabelColor.withAlphaComponent(0.16) }
-            if let link = run.link { attributes[.link] = link }
-            result.append(NSAttributedString(string: String(source[run.range].characters), attributes: attributes))
-        }
-        result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
-        return result
+        CodexMathRenderer(fontSize: fontSize, weight: weight, alignment: alignment,
+                          lineSpacing: lineSpacing, monospaced: monospaced, colorScheme: colorScheme)
+            .attributed(source, display: display)
     }
 
     var body: some View {
@@ -189,6 +164,47 @@ struct CodexMathText: View {
         var source = AttributedString(formula.source)
         source[CodexFormulaAttribute.self] = formula
         return source
+    }
+
+}
+
+struct CodexMathRenderer {
+    var fontSize: CGFloat = 15
+    var weight: NSFont.Weight = .light
+    var alignment: NSTextAlignment = .left
+    var lineSpacing: CGFloat = 4
+    var monospaced = false
+    var colorScheme: ColorScheme = .light
+
+    func attributed(_ source: AttributedString, display: Bool = false) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: "")
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        paragraph.lineSpacing = lineSpacing
+        for run in source.runs {
+            if let formula = run[CodexFormulaAttribute.self], let rendered = render(formula, size: display || formula.display ? 22 : fontSize) {
+                let attachment = NSTextAttachment()
+                attachment.image = rendered.image
+                attachment.bounds = CGRect(x: 0, y: -rendered.descent, width: rendered.image.size.width, height: rendered.image.size.height)
+                let part = NSMutableAttributedString(attachment: attachment)
+                part.addAttribute(.codexFormulaSource, value: formula.source, range: NSRange(location: 0, length: part.length))
+                result.append(part)
+                continue
+            }
+            let intent = run.inlinePresentationIntent ?? []
+            let runWeight: NSFont.Weight = intent.contains(.stronglyEmphasized) ? .bold : weight
+            var font = monospaced || intent.contains(.code)
+                ? NSFont.monospacedSystemFont(ofSize: monospaced ? fontSize : 14, weight: runWeight)
+                : NSFont.systemFont(ofSize: fontSize, weight: runWeight)
+            if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
+            var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
+            if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            if intent.contains(.code) { attributes[.backgroundColor] = NSColor.secondaryLabelColor.withAlphaComponent(0.16) }
+            if let link = run.link { attributes[.link] = link }
+            result.append(NSAttributedString(string: String(source[run.range].characters), attributes: attributes))
+        }
+        result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
+        return result
     }
 
     private final class Rendered: NSObject {

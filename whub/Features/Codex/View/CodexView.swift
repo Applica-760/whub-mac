@@ -69,9 +69,16 @@ private struct CodexSessionView<Tabs: View>: View {
         VStack(spacing: 0) {
             WidgetFrame {
                 ZStack {
-                    CodexBookView(book: book, bookFocus: bookFocus,
-                        updateViewport: { viewport = $0; updateBook(store.turns) },
-                        composerClearance: composerClearance)
+                    CodexBookTextView()
+                        .overlay(alignment: .top) {
+                            GeometryReader { geometry in
+                                Rectangle().fill(.secondary.opacity(0.18))
+                                    .frame(width: 1, height: max(0, geometry.size.height - 20))
+                                    .position(x: geometry.size.width / 2, y: 20 + max(0, geometry.size.height - 20) / 2)
+                            }
+                            .allowsHitTesting(false)
+                        }
+                        .padding(.bottom, composerClearance)
                 }
                     .overlay(alignment: .bottom) {
                         CodexInputView(commands: store.commands, focus: bookFocus) {
