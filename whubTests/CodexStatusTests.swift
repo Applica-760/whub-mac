@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 import Testing
 import WhubCore
 @testable import whub
@@ -25,11 +26,10 @@ struct CodexStatusTests {
         #expect(raw.displayText == "value\n```\ninjected\n````")
         #expect(raw.displayMarkdown.hasPrefix("`````\n"))
         #expect(raw.displayMarkdown.hasSuffix("\n`````"))
-        let book = CodexBookPagination()
-        book.configure(viewport: CGSize(width: 800, height: 450))
+        let book = CodexBookDocument()
         book.update([try #require(session.turns.last)])
-        let blocks = book.pages.flatMap(\.fragments).filter { !$0.isUser }.map(\.block)
-        #expect(blocks.contains { $0.kind == .codeBlock(languageHint: nil) })
+        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
+        #expect(book.codes.map(\.text).joined().trimmingCharacters(in: .newlines) == raw.displayText)
     }
 
     @Test func showsSessionValuesAndRemainingQuotaWithoutSecrets() {

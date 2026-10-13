@@ -10,7 +10,6 @@ struct CodexMarkdown {
         let kind: PresentationIntent.Kind
         var text = AttributedString()
         var children: [Block] = []
-        var continued = false
 
         mutating func append(_ text: AttributedString, path: ArraySlice<PresentationIntent.IntentType>) {
             guard let component = path.first else {
@@ -50,137 +49,6 @@ struct CodexMarkdown {
 
 }
 
-struct CodexMarkdownBlockView: View {
-    typealias Block = CodexMarkdown.Block
-    let block: Block
-    var ordered = false
-    let width: CGFloat
-    @Environment(\.codexSelectionOrder) private var selectionOrder
-    @Environment(\.codexSelectionSource) private var selectionSource
-
-    private var contents: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(block.children.enumerated()), id: \.element.id) { index, child in
-                CodexMarkdownBlockView(block: child, width: width - (block.kind == .blockQuote ? 14 : 32))
-                    .environment(\.codexSelectionOrder, selectionOrder + [index])
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    var body: some View {
-        rendered.environment(\.codexSelectionSource, selectionSource + ":" + String(block.id))
-    }
-
-    @ViewBuilder private var rendered: some View {
-        switch block.kind {
-        case .thematicBreak:
-            Divider().padding(.vertical, 6)
-        case .header(let level):
-            CodexMathText(text: block.text, fontSize: [25.0, 22, 20, 18, 16, 15][min(max(level, 1), 6) - 1], weight: .regular)
-                .font(.system(size: [25.0, 22, 20, 18, 16, 15][min(max(level, 1), 6) - 1],
-                              weight: .regular))
-                .foregroundStyle(level == 6 ? Color.secondary : Color.primary)
-                .padding(.top, level <= 2 ? 10 : 4)
-                .padding(.bottom, level <= 2 ? 4 : 0)
-        case .orderedList, .unorderedList:
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(block.children.enumerated()), id: \.element.id) { index, child in
-                    CodexMarkdownBlockView(block: child, ordered: block.kind == .orderedList, width: width)
-                        .environment(\.codexSelectionOrder, selectionOrder + [index])
-                }
-            }
-        case .listItem(let ordinal):
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(ordered ? "\(ordinal)." : "•")
-                    .font(.system(size: 15, weight: .light).monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 22, alignment: .trailing)
-                    .opacity(block.continued ? 0 : 1)
-                contents
-            }
-        case .blockQuote:
-            contents
-                .padding(.leading, 14)
-                .padding(.vertical, 4)
-                .overlay(alignment: .leading) {
-                    Rectangle().fill(.secondary.opacity(0.5)).frame(width: 3)
-                }
-        case .codeBlock:
-            ScrollView(.horizontal) {
-                CodexMathText(text: AttributedString(String(block.text.characters)), fontSize: 14, weight: .regular, lineSpacing: 0, monospaced: true)
-                    .padding(12)
-            }
-            .padding(.trailing, 36)
-            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(alignment: .topTrailing) {
-                Button("コードをコピー", systemImage: "doc.on.doc") {
-                    // shortcut: copies the page fragment; retain source text if whole-block copying is needed.
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(String(block.text.characters), forType: .string)
-                }
-                .labelStyle(.iconOnly).buttonStyle(.plain)
-                .help("コードをコピー")
-                .padding(12)
-                .background(CodexSelectionExclusion())
-            }
-        case .table(let columns):
-            TableView(block: block, columns: columns, width: width)
-        default:
-            if block.children.isEmpty {
-                CodexMathText(text: block.text)
-                    .font(.system(size: 15, weight: .light))
-                    .lineSpacing(4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                contents
-            }
-        }
-    }
-}
-
-private struct TableView: View {
-    let block: CodexMarkdown.Block
-    let columns: [PresentationIntent.TableColumn]
-    let width: CGFloat
-    @Environment(\.codexSelectionSource) private var selectionSource
-    @Environment(\.codexSelectionOrder) private var selectionOrder
-
-    private var columnWidth: CGFloat {
-        max(120, min(300, width / CGFloat(max(columns.count, 1))))
-    }
-
-    var body: some View {
-        ScrollView(.horizontal) {
-            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
-                ForEach(Array(block.children.enumerated()), id: \.element.id) { rowIndex, row in
-                    GridRow {
-                        ForEach(columns.indices, id: \.self) { index in
-                            let cell = row.children.first { $0.kind == .tableCell(columnIndex: index) }
-                            CodexMathText(text: cell?.text ?? AttributedString(),
-                                          weight: row.kind == .tableHeaderRow ? .regular : .light,
-                                          alignment: columns[index].alignment == .right ? .right : columns[index].alignment == .center ? .center : .left, lineSpacing: 0)
-                                .environment(\.codexSelectionOrder, selectionOrder + [rowIndex, index])
-                                .environment(\.codexSelectionSource, selectionSource + ":" + String(cell?.id ?? -index - 1))
-                                .font(.system(size: 15, weight: row.kind == .tableHeaderRow ? .regular : .light))
-                                .multilineTextAlignment(columns[index].alignment == .right ? .trailing
-                                    : columns[index].alignment == .center ? .center : .leading)
-                                .frame(width: columnWidth - 24, alignment: columns[index].alignment == .right ? .trailing
-                                    : columns[index].alignment == .center ? .center : .leading)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                        }
-                    }
-                    .background(row.kind == .tableHeaderRow ? Color.secondary.opacity(0.12) : .clear, in: Rectangle())
-                    Divider().gridCellUnsizedAxes(.horizontal)
-                }
-            }
-        }
-    }
-}
-
-/// AppKit rendering shares the parser and math renderer with the existing SwiftUI view.
 struct CodexMarkdownDocument {
     let text: NSAttributedString
     let codes: [Code]
@@ -244,10 +112,9 @@ struct CodexMarkdownDocument {
                           indent: indent, blocks: decorations, before: level <= 2 ? 10 : 4)
             case .codeBlock:
                 let code = String(block.text.characters)
-                let font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
                 let lines = code.components(separatedBy: "\n")
-                let lineHeight = ceil(font.ascender - font.descender + font.leading)
-                let size = CGSize(width: max(1, width - indent), height: CGFloat(max(1, lines.count)) * lineHeight + 24)
+                let lineHeight = CodexBookLayout.codeLineHeight
+                let size = CGSize(width: max(1, width - indent), height: CGFloat(max(1, lines.count)) * lineHeight + 2 * CodexBookLayout.codeInset)
                 let attachment = NSTextAttachment()
                 attachment.bounds = CGRect(origin: .zero, size: size)
                 let part = NSMutableAttributedString(attachment: attachment)

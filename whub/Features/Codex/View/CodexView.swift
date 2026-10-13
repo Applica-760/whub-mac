@@ -57,28 +57,18 @@ private struct CodexSessionView<Tabs: View>: View {
     @EnvironmentObject private var store: CodexStore
     let featureActivity: RetainedPageActivity?
     @Environment(\.retainedPageActivity) private var activity
-    @StateObject private var book = CodexBookPagination()
+    @StateObject private var book = CodexBookDocument()
     @ViewBuilder let tabs: () -> Tabs
     @State private var confirmsReset = false
     @State private var composerClearance: CGFloat = 64
     @State private var bookFocus = CodexBookFocus()
-    @State private var viewport = CGSize.zero
-    @State private var needsLatestPage = true
 
     var body: some View {
         VStack(spacing: 0) {
             WidgetFrame {
                 ZStack {
-                    CodexBookTextView()
-                        .overlay(alignment: .top) {
-                            GeometryReader { geometry in
-                                Rectangle().fill(.secondary.opacity(0.18))
-                                    .frame(width: 1, height: max(0, geometry.size.height - 20))
-                                    .position(x: geometry.size.width / 2, y: 20 + max(0, geometry.size.height - 20) / 2)
-                            }
-                            .allowsHitTesting(false)
-                        }
-                        .padding(.bottom, composerClearance)
+                    CodexBookView(book: book, bookFocus: bookFocus, featureActivity: featureActivity,
+                                  composerClearance: composerClearance)
                 }
                     .overlay(alignment: .bottom) {
                         CodexInputView(commands: store.commands, focus: bookFocus) {
@@ -107,17 +97,13 @@ private struct CodexSessionView<Tabs: View>: View {
         }
         .onChange(of: store.id) { _, _ in
             confirmsReset = false
-            needsLatestPage = true
             updateBook(store.turns)
         }
         .onReceive(store.$turns.throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)) {
             updateBook($0)
         }
         .onChange(of: isActive) { _, active in
-            if active {
-                needsLatestPage = true
-                updateBook(store.turns)
-            }
+            if active { updateBook(store.turns) }
         }
         .alert("新しい会話を始めますか？", isPresented: $confirmsReset) {
             Button("キャンセル", role: .cancel) {}
@@ -128,14 +114,8 @@ private struct CodexSessionView<Tabs: View>: View {
     }
 
     private func updateBook(_ turns: [CodexTurn]) {
-        guard isActive, activity?.isActive.value != false, featureActivity?.isActive.value != false,
-              viewport.width > 100, viewport.height > 100 else { return }
-        book.update(turns, viewport: viewport)
-        if needsLatestPage {
-            book.move(book.spreadCount - 1 - book.spread)
-            assert(book.spread == book.spreadCount - 1)
-            needsLatestPage = false
-        }
+        guard isActive, activity?.isActive.value != false, featureActivity?.isActive.value != false else { return }
+        book.update(turns)
     }
 
 }

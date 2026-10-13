@@ -102,12 +102,10 @@ struct CodexResumeTests {
         try store.restoreHistory(response([["id": "turn-1", "status": "interrupted", "items": items]]), expectedID: "thread-1")
         #expect(store.turns.first?.input == [.attachment(type: "image", name: nil)])
         #expect(store.turns.first?.displayPrompt == "［添付: image］")
-        let book = CodexBookPagination()
-        book.configure(viewport: CGSize(width: 800, height: 450))
+        let book = CodexBookDocument()
         book.update(store.turns)
-        #expect(book.pages.flatMap(\.fragments).contains {
-            $0.isUser && String($0.block.text.characters) == "［添付: image］"
-        })
+        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
+        #expect(book.storage.string.contains("［添付: image］"))
         let mixedInput: [[String: Any]] = [
             ["type": "text", "text": "質問"],
             ["type": "skill", "name": "review"],
@@ -324,52 +322,44 @@ struct CodexImageTests {
         #expect(first.draftImages.isEmpty)
     }
 
-    @Test func notebookGroupsTextAndImagesInOneBox() throws {
+    @Test func notebookKeepsPromptAndImagesInOrder() throws {
         let images = try (0..<2).map { _ in try #require(CodexImageAttachment(image: image())) }
-        let book = CodexBookPagination()
-        book.configure(viewport: CGSize(width: 800, height: 450))
+        let book = CodexBookDocument()
         let turn = CodexTurn(prompt: "何が写ってる？", images: images)
         book.update([turn])
-        let fragments = book.pages.flatMap(\.fragments).filter(\.isUser)
-        #expect(fragments.count == 1)
-        let fragment = try #require(fragments.first)
-        #expect(String(fragment.block.text.characters) == turn.displayPrompt)
-        #expect(fragment.images.map(\.id) == images.map(\.id))
-        #expect(fragment.height <= book.contentHeight)
-
-        let earlier = CodexTurn(prompt: "前の投稿", images: images, status: "completed")
-        book.update([earlier, turn])
-        let moved = book.pages.flatMap(\.fragments).filter { $0.isUser && $0.turnID == turn.id }
-        #expect(moved.count == 1)
-        #expect(moved.first?.images.map(\.id) == images.map(\.id))
-        #expect(!book.pages[0].fragments.contains { $0.turnID == turn.id })
+        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
+        #expect(book.storage.string.hasPrefix(turn.displayPrompt))
+        var rendered: [NSImage] = []
+        book.storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: book.storage.length)) { value, _, _ in
+            if let image = (value as? NSTextAttachment)?.image { rendered.append(image) }
+        }
+        #expect(rendered.count == images.count)
+        for (actual, expected) in zip(rendered, images) { #expect(actual === expected.image) }
+        #expect(NSMaxRange(try #require(book.ranges.last)) == book.storage.length)
     }
 
     @Test func notebookKeepsImagesAcrossPagesAndResponseUpdates() throws {
         let images = try (0..<3).map { _ in try #require(CodexImageAttachment(image: image())) }
         for prompt in ["", String(repeating: "画像を確認してください。", count: 100)] {
-            let book = CodexBookPagination()
-            book.configure(viewport: CGSize(width: 600, height: 320))
+            let book = CodexBookDocument()
             var turn = CodexTurn(prompt: prompt, images: images)
-            book.update([turn])
-            let fragments = book.pages.flatMap(\.fragments)
-            #expect(fragments.flatMap { $0.images.map(\.id) } == images.map(\.id))
-            #expect(book.pages.count > 1)
-            if prompt.isEmpty {
-                #expect(fragments.filter { $0.isUser }.allSatisfy { !$0.images.isEmpty })
-            }
-            for page in book.pages {
-                #expect(page.usedHeight <= book.contentHeight + 1)
-                for pair in zip(page.fragments, page.fragments.dropFirst()) {
-                    #expect(pair.0.y + pair.0.height <= pair.1.y)
+            for completed in [false, true] {
+                if completed {
+                    turn.items = [CodexItem(id: "answer", type: "agentMessage", phase: "final_answer",
+                                           text: "確認しました", status: "completed")]
+                    turn.status = "completed"
                 }
+                book.update(completed ? [turn, CodexTurn(prompt: "次の質問")] : [turn])
+                book.prepare(viewport: CGSize(width: 600, height: 320), colorScheme: .dark)
+                var rendered: [NSImage] = []
+                book.storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: book.storage.length)) { value, _, _ in
+                    if let image = (value as? NSTextAttachment)?.image { rendered.append(image) }
+                }
+                #expect(rendered.count == images.count)
+                for (actual, expected) in zip(rendered, images) { #expect(actual === expected.image) }
+                #expect(book.ranges.count > 1)
+                #expect(NSMaxRange(try #require(book.ranges.last)) == book.storage.length)
             }
-            turn.items = [CodexItem(id: "answer", type: "agentMessage", phase: "final_answer",
-                                   text: "確認しました", status: "completed")]
-            turn.status = "completed"
-            book.update([turn])
-            book.update([turn, CodexTurn(prompt: "次の質問")])
-            #expect(book.pages.flatMap(\.fragments).flatMap { $0.images.map(\.id) } == images.map(\.id))
         }
     }
 
@@ -429,34 +419,39 @@ struct CodexApprovalTests {
         #expect(outcomes.map(\.displayText) == ["承認済み", "終了（未回答）"])
     }
 
-    @Test func approvalArrivalAndResolutionKeepPagesAndReadingPosition() throws {
-        let book = CodexBookPagination()
-        book.configure(viewport: CGSize(width: 800, height: 650))
+    @Test func approvalArrivalAndResolutionKeepPagesAndReadingPosition() async throws {
+        let book = CodexBookDocument()
         var turn = CodexTurn(prompt: String(repeating: "本文を読み続ける。\n\n", count: 100))
         book.update([turn])
+        book.prepare(viewport: CGSize(width: 800, height: 650), colorScheme: .dark)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(NSMaxRange(try #require(book.ranges.last)) == book.storage.length)
+        #expect(book.storage.string.hasPrefix(turn.displayPrompt))
         #expect(book.spreadCount > 2)
-        book.move(1)
-        let pages = book.pages.map(\.usedHeight)
-        let blocks = book.pages.map { $0.fragments.map(\.block) }
+        book.move(-1)
+        let pages = book.ranges
+        let revision = book.revision
         let spread = book.spread
         for (index, method) in ["item/commandExecution/requestApproval", "item/fileChange/requestApproval",
                                 "item/permissions/requestApproval"].enumerated() {
             turn.approvals.append(CodexRequest(rpcID: index, method: method,
                 params: ["command": String(repeating: "echo long-command\n", count: 100)]))
             book.update([turn])
-            #expect(book.pages.map(\.usedHeight) == pages)
-            #expect(book.pages.map { $0.fragments.map(\.block) } == blocks)
+            #expect(book.ranges == pages)
+            #expect(book.revision == revision)
             #expect(book.spread == spread)
         }
         for index in turn.approvals.indices {
             turn.approvals[index].outcome = index.isMultiple(of: 2) ? .accepted : .declined
             book.update([turn])
-            #expect(book.pages.map(\.usedHeight) == pages)
+            #expect(book.ranges == pages)
             #expect(book.spread == spread)
         }
         turn.status = "completed"
         book.update([turn])
-        #expect(book.pages.map(\.usedHeight) == pages)
+        #expect(book.ranges == pages)
         #expect(book.spread == spread)
         #expect(turn.approvals.count == 3)
     }
@@ -662,69 +657,58 @@ struct CodexReadingTests {
     }
 
     @Test func textReplacementKeepsReadingFocusAndSelection() throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = try #require(window.contentView)
-        let selection = CodexBookSelection()
-        let focus = CodexBookFocus()
-        let surface = CodexBookSurfaceView(frame: content.bounds)
-        surface.selection = selection
-        selection.surface = surface
-        focus.readingView = surface
+        let book = CodexBookDocument()
+        var turn = CodexTurn(prompt: "first page")
+        book.update([turn])
+        let surface = CodexBookTextSurface(book: book)
+        surface.frame = content.bounds
         content.addSubview(surface)
-        let text = CodexSelectableTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
-        text.isEditable = false
-        text.isSelectable = true
-        text.string = "first page"
-        text.bookSelection = selection
-        selection.texts.add(text)
-        content.addSubview(text)
+        surface.needsLayout = true
+        surface.layoutSubtreeIfNeeded()
+        let focus = CodexBookFocus()
+        focus.readingView = surface
         focus.activateReading()
-        surface.selectAll(nil)
-        #expect(selection.selectedString == "first page")
+        let text = try #require(window.firstResponder as? NSTextView)
+        text.setSelectedRange(NSRange(location: 0, length: 5))
+        turn.items = [CodexItem(id: "answer", type: "agentMessage", phase: "final_answer",
+                               text: "appended answer", status: "completed")]
+        book.update([turn])
+        surface.needsLayout = true
+        surface.layoutSubtreeIfNeeded()
         #expect(focus.isReading(in: window))
-        text.removeFromSuperview()
-        selection.remove(text)
-        #expect(window.firstResponder === surface)
-        #expect(selection.selectedString.isEmpty)
-
-        let replacement = CodexSelectableTextView(frame: text.frame)
-        replacement.isEditable = false
-        replacement.isSelectable = true
-        replacement.string = "next page"
-        replacement.bookSelection = selection
-        selection.texts.add(replacement)
-        content.addSubview(replacement)
-        surface.selectAll(nil)
-        #expect(selection.selectedString == "next page")
-        // Native multi-click selection may temporarily focus an individual text view.
-        #expect(window.makeFirstResponder(replacement))
-        #expect(focus.isReading(in: window))
-        replacement.removeFromSuperview()
-        #expect(window.firstResponder === surface)
+        #expect(text.selectedRange() == NSRange(location: 0, length: 5))
+        #expect(book.storage.string.contains("appended answer"))
     }
 
-    @Test func removingTextDoesNotStealInputFocus() throws {
+    @Test func removingPagesDoesNotStealInputFocus() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = try #require(window.contentView)
-        let selection = CodexBookSelection()
         let focus = CodexBookFocus()
-        let surface = CodexBookSurfaceView(frame: content.bounds)
-        surface.selection = selection
-        selection.surface = surface
+        let book = CodexBookDocument()
+        book.update([CodexTurn(prompt: String(repeating: "長い本文。\n\n", count: 100))])
+        let surface = CodexBookTextSurface(book: book)
+        surface.frame = content.bounds
         focus.readingView = surface
         content.addSubview(surface)
-        let text = CodexSelectableTextView(frame: content.bounds)
-        text.bookSelection = selection
-        content.addSubview(text)
+        surface.needsLayout = true
+        surface.layoutSubtreeIfNeeded()
+        let originalPages = surface.subviews.compactMap { $0 as? NSTextView }
+        try #require(originalPages.count > 2)
         let input = CodexTextView(frame: content.bounds)
         input.string = "draft"
         content.addSubview(input)
         focus.inputView = input
         input.setSelectedRange(NSRange(location: 2, length: 0))
         focus.activateInput()
-        text.removeFromSuperview()
+        book.update([CodexTurn(prompt: "短い本文")])
+        surface.needsLayout = true
+        surface.layoutSubtreeIfNeeded()
+        #expect(surface.subviews.compactMap { $0 as? NSTextView }.count == 1)
+        #expect(originalPages.dropFirst().allSatisfy { $0.superview == nil })
         #expect(window.firstResponder === input)
         #expect(!focus.isReading(in: window))
         #expect(input.string == "draft")
@@ -738,11 +722,9 @@ struct CodexReadingTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = try #require(window.contentView)
-        let selection = CodexBookSelection()
         let focus = CodexBookFocus()
-        let surface = CodexBookSurfaceView(frame: content.bounds)
-        surface.selection = selection
-        selection.surface = surface
+        let surface = CodexBookTextSurface(book: CodexBookDocument())
+        surface.frame = content.bounds
         focus.readingView = surface
         content.addSubview(surface)
         let input = CodexTextView(frame: content.bounds)
@@ -775,7 +757,8 @@ struct CodexReadingTests {
         for (characters, code) in [("h", UInt16(4)), ("l", 37), ("/", 44), ("", 123), ("", 124)] {
             #expect(!keys.handle(try event(characters, code: code)))
         }
-        let other = CodexBookSurfaceView(frame: content.bounds)
+        let other = CodexBookTextSurface(book: CodexBookDocument())
+        other.frame = content.bounds
         content.addSubview(other)
         #expect(window.makeFirstResponder(other))
         #expect(!keys.handle(try event("l", code: 37)))

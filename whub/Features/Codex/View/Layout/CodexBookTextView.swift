@@ -1,136 +1,148 @@
 import AppKit
 import SwiftUI
 
-/// Two-page rendering surface; conversation integration and pagination follow in stage two.
 struct CodexBookTextView: NSViewRepresentable {
-    var markdown = Self.sample
+    @ObservedObject var book: CodexBookDocument
+    let focus: CodexBookFocus
     @Environment(\.colorScheme) private var colorScheme
 
-    func makeNSView(context: Context) -> CodexBookTextSurface { CodexBookTextSurface() }
+    func makeNSView(context: Context) -> CodexBookTextSurface { CodexBookTextSurface(book: book) }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: CodexBookTextSurface, context: Context) -> CGSize? {
         proposal.replacingUnspecifiedDimensions(by: CGSize(width: 800, height: 600))
     }
 
     func updateNSView(_ view: CodexBookTextSurface, context: Context) {
-        view.update(markdown: markdown, colorScheme: colorScheme)
+        focus.readingView = view
+        view.colorScheme = colorScheme
+        view.needsLayout = true
     }
 
-    private static let sample = """
-    # AppKit 見開き試作
-    この段落から表や数式をまたいで範囲選択できます。**太字**・*斜体*・`インラインコード`も描画します。
-
-    | 項目 | 内容 |
-    | --- | --- |
-    | 本文 | 段落をまたぐコピー |
-    | 数式 | コピー時に元の式へ復元 |
-
-    数式：$E = mc^2$
-
-    > 引用もMarkdownから描画しています。
-
-    1. コードは横スクロールできます。
-    2. 長い行を含めて複数行を選択し、コピーしてください。
-
-    ```swift
-    let message = "この行は横スクロール確認用です。折り返さず、見えていない部分も元のコードのままコピーできることを確認します。"
-    print(message)
-    ```
-    """
+    static func dismantleNSView(_ view: CodexBookTextSurface, coordinator: ()) {
+        if view.isReading(in: view.window) { view.window?.makeFirstResponder(nil) }
+    }
 }
 
 final class CodexBookTextSurface: NSView {
-    private let storage = NSTextStorage()
-    private let manager = NSLayoutManager()
+    private let book: CodexBookDocument
+    var colorScheme: ColorScheme = .light
     private var pages: [CodexBookNativeTextView] = []
-    private var markdown = ""
-    private var colorScheme: ColorScheme = .light
-    private var document: CodexMarkdownDocument?
-    private var documentWidth: CGFloat = 0
-    private var needsDocument = true
-    private var codeViews: [NSHostingView<CodexBookCodeBlock>] = []
-
+    private var codeViews: [String: NSHostingView<CodexBookCodeBlock>] = [:]
+    private var navigationRevision = 0
     override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
 
-    init() {
+    func isReading(in window: NSWindow?) -> Bool {
+        guard let window, self.window === window, !isHiddenOrHasHiddenAncestor else { return false }
+        if window.firstResponder === self { return true }
+        guard let text = window.firstResponder as? NSTextView, !text.isHiddenOrHasHiddenAncestor else { return false }
+        return text.isDescendant(of: self)
+    }
+
+    func activateReading() {
+        guard !isHiddenOrHasHiddenAncestor else { return }
+        if let page = pages.first(where: { !$0.isHidden }) { window?.makeFirstResponder(page) }
+        else { window?.makeFirstResponder(self) }
+    }
+
+    override func mouseDown(with event: NSEvent) { activateReading() }
+    @objc func copy(_ sender: Any?) { pages.first(where: { !$0.isHidden })?.copy(sender) }
+
+    override func selectAll(_ sender: Any?) {
+        let first = book.spread * 2
+        guard book.ranges.indices.contains(first), let page = pages.first(where: { !$0.isHidden }) else { return }
+        let start = book.ranges[first].location
+        let end = NSMaxRange(book.ranges[min(first + 1, book.ranges.count - 1)])
+        page.setSelectedRange(NSRange(location: start, length: end - start))
+        activateReading()
+    }
+
+    init(book: CodexBookDocument) {
+        self.book = book
         super.init(frame: .zero)
-        storage.addLayoutManager(manager)
-        for _ in 0..<2 {
-            let container = NSTextContainer(containerSize: .zero)
-            container.lineFragmentPadding = 0
-            container.widthTracksTextView = false
-            container.heightTracksTextView = false
-            manager.addTextContainer(container)
-            let page = CodexBookNativeTextView(frame: .zero, textContainer: container)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layout() {
+        super.layout()
+        let wasReading = isReading(in: window)
+        let selected = pages.first?.selectedRange() ?? NSRange(location: 0, length: 0)
+        let startAnchor = book.anchor(at: selected.location)
+        let endAnchor = book.anchor(at: NSMaxRange(selected))
+        let changed = book.prepare(viewport: bounds.size, colorScheme: colorScheme)
+        let containers = book.manager.textContainers
+        while pages.count > containers.count { pages.removeLast().removeFromSuperview() }
+        while pages.count < containers.count {
+            let page = CodexBookNativeTextView(frame: .zero, textContainer: containers[pages.count])
+            page.readingSurface = self
             page.isEditable = false
             page.isSelectable = true
             page.isRichText = true
             page.isVerticallyResizable = false
             page.isHorizontallyResizable = false
-            page.textContainerInset = NSSize(width: 28, height: 28)
+            page.textContainerInset = NSSize(width: CodexBookLayout.pageInset, height: CodexBookLayout.pageInset)
             page.drawsBackground = false
             page.autoresizingMask = []
             addSubview(page)
             pages.append(page)
         }
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    func update(markdown: String, colorScheme: ColorScheme) {
-        guard self.markdown != markdown || self.colorScheme != colorScheme else { return }
-        self.markdown = markdown
-        self.colorScheme = colorScheme
-        needsDocument = true
-        needsLayout = true
-    }
-
-    override func layout() {
-        super.layout()
-        let width = max(1, (bounds.width - 32) / 2)
-        let contentWidth = max(1, width - 56)
+        if changed, let first = pages.first {
+            let start = min(startAnchor.flatMap { book.location(of: $0) } ?? selected.location, book.storage.length)
+            let end = min(endAnchor.flatMap { book.location(of: $0) } ?? NSMaxRange(selected), book.storage.length)
+            first.setSelectedRange(NSRange(location: start, length: max(0, end - start)))
+        }
+        let firstPage = min(book.spread * 2, max(0, pages.count - 1))
         for (index, page) in pages.enumerated() {
-            page.frame = NSRect(x: CGFloat(index) * (width + 32), y: 0,
-                                width: width, height: bounds.height)
-            page.textContainer?.containerSize = NSSize(width: contentWidth, height: max(1, bounds.height - 56))
-        }
-        if needsDocument || documentWidth != contentWidth {
-            let selected = pages[0].selectedRange()
-            let rendered = CodexMarkdownDocument(source: markdown, width: contentWidth, colorScheme: colorScheme)
-            storage.setAttributedString(rendered.text)
-            let start = min(selected.location, storage.length)
-            pages[0].setSelectedRange(NSRange(location: start, length: min(selected.length, storage.length - start)))
-            document = rendered
-            documentWidth = contentWidth
-            needsDocument = false
-            codeViews.forEach { $0.removeFromSuperview() }
-            codeViews = rendered.codes.map { code in
-                NSHostingView(rootView: CodexBookCodeBlock(code: code.text))
+            page.isHidden = !(firstPage..<firstPage + 2).contains(index)
+            if !page.isHidden {
+                page.frame = NSRect(x: CGFloat(index - firstPage) * (book.pageSize.width + CodexBookLayout.pageGap), y: 0,
+                                    width: book.pageSize.width, height: book.pageSize.height)
             }
         }
-        guard let document else { return }
-        for (index, code) in document.codes.enumerated() {
-            let scroll = codeViews[index]
-            scroll.isHidden = true
-            let glyphs = manager.glyphRange(forCharacterRange: code.range, actualCharacterRange: nil)
-            for page in pages {
-                guard let container = page.textContainer else { continue }
-                manager.ensureLayout(for: container)
-                let range = manager.glyphRange(for: container)
-                guard NSLocationInRange(glyphs.location, range) else { continue }
-                if scroll.superview !== page { page.addSubview(scroll) }
-                let rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
-                scroll.frame = NSRect(x: rect.minX + page.textContainerOrigin.x,
-                                      y: rect.minY + page.textContainerOrigin.y,
-                                      width: code.size.width, height: code.size.height)
-                scroll.isHidden = false
-                break
+        if navigationRevision != book.navigationRevision {
+            navigationRevision = book.navigationRevision
+            pages.first?.setSelectedRange(NSRange(location: 0, length: 0))
+            if wasReading { activateReading() }
+        } else if wasReading && !isReading(in: window) {
+            activateReading()
+        }
+        let liveIDs = Set(book.codes.map(\.id))
+        for id in Array(codeViews.keys) where !liveIDs.contains(id) {
+            codeViews.removeValue(forKey: id)?.removeFromSuperview()
+        }
+        codeViews.values.forEach { $0.isHidden = true }
+        for code in book.codes {
+            guard let pageIndex = book.ranges.firstIndex(where: { NSLocationInRange(code.range.location, $0) }),
+                  pages.indices.contains(pageIndex), !pages[pageIndex].isHidden else { continue }
+            let page = pages[pageIndex]
+            guard let container = page.textContainer else { continue }
+            let view: NSHostingView<CodexBookCodeBlock>
+            if let existing = codeViews[code.id] {
+                view = existing
+                if view.rootView.code != code.text { view.rootView = CodexBookCodeBlock(code: code.text) }
+            } else {
+                view = NSHostingView(rootView: CodexBookCodeBlock(code: code.text))
+                codeViews[code.id] = view
             }
+            if view.superview !== page { page.addSubview(view) }
+            let glyphs = book.manager.glyphRange(forCharacterRange: code.range, actualCharacterRange: nil)
+            let rect = book.manager.boundingRect(forGlyphRange: glyphs, in: container)
+            view.frame = NSRect(x: rect.minX + page.textContainerOrigin.x,
+                                y: rect.minY + page.textContainerOrigin.y,
+                                width: code.size.width, height: code.size.height)
+            view.isHidden = false
         }
     }
 }
 
 private final class CodexBookNativeTextView: NSTextView {
+    weak var readingSurface: CodexBookTextSurface?
+
+    override func selectAll(_ sender: Any?) {
+        if let readingSurface { readingSurface.selectAll(sender) } else { super.selectAll(sender) }
+    }
+
     override func writeSelection(to pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         guard type == .string, let storage = textStorage else {
             return super.writeSelection(to: pasteboard, type: type)
@@ -162,7 +174,7 @@ private struct CodexBookCodeBlock: View {
                 }
                 .labelStyle(.iconOnly).buttonStyle(.plain)
                 .help("コードをコピー")
-                .padding(12)
+                .padding(CodexBookLayout.codeInset)
             }
     }
 }
@@ -181,10 +193,10 @@ private struct CodexBookCodeScroll: NSViewRepresentable {
         text.isEditable = false
         text.isSelectable = true
         text.isRichText = false
-        text.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
+        text.font = CodexBookLayout.codeFont
         text.textColor = .labelColor
         text.drawsBackground = false
-        text.textContainerInset = NSSize(width: 12, height: 12)
+        text.textContainerInset = NSSize(width: CodexBookLayout.codeInset, height: CodexBookLayout.codeInset)
         text.textContainer?.lineFragmentPadding = 0
         text.textContainer?.widthTracksTextView = false
         text.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
@@ -199,11 +211,18 @@ private struct CodexBookCodeScroll: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let text = scroll.documentView as? NSTextView else { return }
-        if text.string != code { text.string = code }
+        if text.string != code {
+            let selection = text.selectedRange()
+            let origin = scroll.contentView.bounds.origin
+            text.string = code
+            let start = min(selection.location, (code as NSString).length)
+            text.setSelectedRange(NSRange(location: start, length: min(selection.length, (code as NSString).length - start)))
+            scroll.contentView.scroll(to: origin)
+        }
         guard let layout = text.layoutManager, let container = text.textContainer else { return }
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
-        text.frame.size = NSSize(width: ceil(used.width) + 24, height: ceil(used.height) + 24)
+        text.frame.size = NSSize(width: ceil(used.width) + 2 * CodexBookLayout.codeInset, height: ceil(used.height) + 2 * CodexBookLayout.codeInset)
         assert(text.string == code, "Horizontal scrolling must not insert line breaks into the source")
     }
 }

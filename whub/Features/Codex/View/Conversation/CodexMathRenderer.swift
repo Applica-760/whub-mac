@@ -100,74 +100,6 @@ struct CodexMathSource {
     }
 }
 
-struct CodexMathText: View {
-    let text: AttributedString
-    var fontSize: CGFloat = 15
-    var weight: NSFont.Weight = .light
-    var alignment: NSTextAlignment = .left
-    var lineSpacing: CGFloat = 4
-    var monospaced = false
-    @Environment(\.codexSelectionOrder) private var selectionOrder
-    @Environment(\.colorScheme) private var colorScheme
-
-    private enum Segment {
-        case text(AttributedString)
-        case display(CodexFormula)
-    }
-
-    private var segments: [Segment] {
-        var result: [Segment] = []
-        var inline = AttributedString()
-        for run in text.runs {
-            if let formula = run[CodexFormulaAttribute.self], formula.display, formula.latex != nil {
-                if !inline.characters.isEmpty { result.append(.text(inline)); inline = AttributedString() }
-                result.append(.display(formula))
-            } else {
-                inline.append(AttributedString(text[run.range]))
-            }
-        }
-        if !inline.characters.isEmpty || result.isEmpty { result.append(.text(inline)) }
-        return result
-    }
-
-    private func attributed(_ source: AttributedString, display: Bool = false) -> NSAttributedString {
-        CodexMathRenderer(fontSize: fontSize, weight: weight, alignment: alignment,
-                          lineSpacing: lineSpacing, monospaced: monospaced, colorScheme: colorScheme)
-            .attributed(source, display: display)
-    }
-
-    var body: some View {
-        let parts = segments
-        if parts.count == 1, case .text(let source) = parts[0] {
-            CodexSelectableText(text: attributed(source), wraps: !monospaced)
-        } else {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(parts.indices, id: \.self) { index in
-                    switch parts[index] {
-                    case .text(let source):
-                        CodexSelectableText(text: attributed(source), wraps: !monospaced)
-                            .environment(\.codexSelectionOrder, selectionOrder + [index])
-                    case .display(let formula):
-                        ScrollView(.horizontal) {
-                            let source = formulaText(formula)
-                            CodexSelectableText(text: attributed(source, display: true), wraps: false)
-                                .environment(\.codexSelectionOrder, selectionOrder + [index])
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-        }
-    }
-
-    private func formulaText(_ formula: CodexFormula) -> AttributedString {
-        var source = AttributedString(formula.source)
-        source[CodexFormulaAttribute.self] = formula
-        return source
-    }
-
-}
-
 struct CodexMathRenderer {
     var fontSize: CGFloat = 15
     var weight: NSFont.Weight = .light
@@ -232,4 +164,8 @@ struct CodexMathRenderer {
         Self.cache.setObject(rendered, forKey: key)
         return rendered
     }
+}
+
+extension NSAttributedString.Key {
+    static let codexFormulaSource = NSAttributedString.Key("whub.formulaSource")
 }
