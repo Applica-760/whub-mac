@@ -14,6 +14,191 @@ import WhubCore
 @testable import whub
 
 @Suite @MainActor
+struct CodexSteeringTests {
+    private func makeStore(steer: @escaping ([String: Any]) async throws -> [String: Any]) throws -> (ModelContainer, CodexStore) {
+        let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let store = CodexStore(context: container.mainContext) { method, params, _ in
+            switch method {
+            case "thread/start": return ["thread": ["id": "thread-1"]]
+            case "turn/start": return ["turn": ["id": "turn-1"]]
+            case "turn/steer": return try await steer(params)
+            case "turn/interrupt": return [:]
+            default: throw CodexError(message: "Unexpected request: \(method)")
+            }
+        }
+        return (container, store)
+    }
+
+    private func image() throws -> NSImage {
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let image = NSImage(size: NSSize(width: 2, height: 2))
+        image.addRepresentation(bitmap)
+        return image
+    }
+
+    private func complete(_ store: CodexStore) {
+        store.receive("turn/completed", params: ["threadId": "thread-1",
+            "turn": ["id": "turn-1", "status": "completed"]], requestID: nil)
+    }
+
+    @Test func additionalTextImagesAndSkillsStayInTheActiveTurn() async throws {
+        var sent: [String: Any] = [:]
+        let (container, store) = try makeStore { params in
+            sent = params
+            return ["turnId": "turn-1"]
+        }
+        defer { withExtendedLifetime(container) {} }
+        store.draft = "first"
+        await store.send()
+        let original = try #require(store.turns.first)
+        store.draft = "追加 $review"
+        store.addImages([try image()])
+        let attachment = try #require(store.draftImages.first)
+        let skill = CodexSkill(name: "review", description: "review", path: "/skills/review")
+        #expect(store.canSend)
+        await store.send(skills: [skill])
+
+        #expect(sent["threadId"] as? String == "thread-1")
+        #expect(sent["expectedTurnId"] as? String == "turn-1")
+        let input = try #require(sent["input"] as? [[String: String]])
+        #expect(input == [["type": "text", "text": "追加 $review"], attachment.input,
+                          ["type": "skill", "name": "review", "path": "/skills/review"]])
+        #expect(store.turns.count == 1)
+        #expect(store.turns[0].id == original.id)
+        #expect(store.turns[0].input == [.text("first"), .text("追加 $review"), .attachment(type: "skill", name: "review")])
+        #expect(store.turns[0].images.map(\.id) == [attachment.id])
+        #expect(store.isBusy)
+        #expect(!store.isSteering)
+        #expect(store.draft.isEmpty && store.draftImages.isEmpty)
+        let book = CodexBookDocument()
+        book.update(store.turns)
+        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
+        #expect(book.storage.string.contains("first\n追加 $review\nreview"))
+
+        store.receive("item/completed", params: ["threadId": "thread-1", "turnId": "turn-1",
+            "item": ["id": "user-2", "type": "userMessage", "content": [["type": "text", "text": "追加 $review"]]]], requestID: nil)
+        #expect(store.turns[0].input.count == 3)
+        complete(store)
+        #expect(!store.isBusy)
+    }
+
+    @Test(arguments: ["rejected", "ended", "wrongTurn"])
+    func failedSteeringRetainsInputWithoutFailingTheTurn(_ scenario: String) async throws {
+        var store: CodexStore!
+        let (container, session) = try makeStore { _ in
+            if scenario == "ended" { self.complete(store) }
+            if scenario == "wrongTurn" { return ["turnId": "other-turn"] }
+            throw CodexError(message: "no active turn")
+        }
+        defer { withExtendedLifetime(container) {} }
+        store = session
+        store.draft = "first"
+        await store.send()
+        store.draft = "追加 $review"
+        store.addImages([try image()])
+        let imageIDs = store.draftImages.map(\.id)
+        let skill = CodexSkill(name: "review", description: "review", path: "/skills/review")
+        store.selectedSkills = [skill]
+        await store.send(skills: [skill])
+        #expect(store.draft == "追加 $review")
+        #expect(store.draftImages.map(\.id) == imageIDs)
+        #expect(store.selectedSkills.map(\.path) == [skill.path])
+        #expect(store.turns[0].input == [.text("first")])
+        #expect(store.turns[0].status == (scenario == "ended" ? "completed" : "inProgress"))
+        #expect(store.isBusy == (scenario != "ended"))
+        #expect(!store.isSteering)
+        #expect(store.errorMessage != nil)
+    }
+
+    @Test func inFlightSteeringBlocksDuplicatesAndPreservesNewEditsAfterCompletion() async throws {
+        var reply: CheckedContinuation<[String: Any], Never>?
+        var calls = 0
+        let (container, store) = try makeStore { _ in
+            calls += 1
+            return await withCheckedContinuation { reply = $0 }
+        }
+        defer { withExtendedLifetime(container) {} }
+        store.draft = "first"
+        await store.send()
+        store.draft = "追加"
+        store.addImages([try image()])
+        let sentImage = try #require(store.draftImages.first)
+        let sending = Task { await store.send() }
+        while reply == nil { await Task.yield() }
+        #expect(store.isSteering)
+        #expect(!store.canSend)
+        await store.send()
+        #expect(calls == 1)
+        store.draft = "次の下書き"
+        store.addImages([try image()])
+        let nextImage = try #require(store.draftImages.last)
+        complete(store)
+        #expect(!store.isBusy)
+        #expect(!store.canSend)
+        await store.send()
+        #expect(store.turns.count == 1)
+        reply?.resume(returning: ["turnId": "turn-1"])
+        await sending.value
+        #expect(store.turns[0].status == "completed")
+        #expect(store.turns[0].input == [.text("first"), .text("追加")])
+        #expect(store.turns[0].images.map(\.id) == [sentImage.id])
+        #expect(store.draft == "次の下書き")
+        #expect(store.draftImages.map(\.id) == [nextImage.id])
+        #expect(store.canSend)
+        await store.send()
+        #expect(store.turns.count == 2)
+        #expect(store.turns[1].input == [.text("次の下書き")])
+        #expect(store.turns[1].images.map(\.id) == [nextImage.id])
+        #expect(calls == 1)
+    }
+
+    @Test func startingAndStoppingTurnsDoNotAcceptSteering() async throws {
+        let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        var startReply: CheckedContinuation<[String: Any], Never>?
+        var methods: [String] = []
+        let store = CodexStore(context: container.mainContext) { method, _, _ in
+            methods.append(method)
+            if method == "thread/start" { return ["thread": ["id": "thread-1"]] }
+            if method == "turn/start" { return await withCheckedContinuation { startReply = $0 } }
+            return [:]
+        }
+        store.draft = "first"
+        let starting = Task { await store.send() }
+        while startReply == nil { await Task.yield() }
+        store.draft = "追加"
+        #expect(!store.canSend)
+        await store.send()
+        startReply?.resume(returning: ["turn": ["id": "turn-1"]])
+        await starting.value
+        #expect(store.canSend)
+        await store.interrupt()
+        #expect(store.isStopping)
+        #expect(!store.canSend)
+        await store.send()
+        #expect(methods == ["thread/start", "turn/start", "turn/interrupt"])
+        #expect(store.draft == "追加")
+    }
+
+    @Test func resumedHistoryIncludesEveryAdditionalUserMessage() throws {
+        let result: [String: Any] = ["cwd": "/project", "model": "model", "thread": [
+            "id": "thread-1", "turns": [["id": "turn-1", "status": "completed", "items": [
+                ["id": "u1", "type": "userMessage", "content": [["type": "text", "text": "first"]]],
+                ["id": "u2", "type": "userMessage", "content": [["type": "text", "text": "追加"], ["type": "skill", "name": "review"]]],
+                ["id": "u3", "type": "userMessage", "content": [["type": "image"]]]
+            ]]]]]
+        let history = try CodexThreadHistory(result, expectedID: "thread-1")
+        #expect(history.turns.count == 1)
+        #expect(history.turns[0].input == [.text("first"), .text("追加"), .attachment(type: "skill", name: "review"),
+                                          .attachment(type: "image", name: nil)])
+        #expect(history.turns[0].displayPrompt == "first\n追加\nreview\n［添付: image］")
+    }
+}
+
+@Suite @MainActor
 struct CodexResumeTests {
     @Test func resumeInputRequiresTheWholeCommand() {
         #expect(CodexInputView.isResumeInput("/resume"))

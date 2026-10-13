@@ -14,6 +14,7 @@ final class CodexStore: ObservableObject, Identifiable {
     @Published private(set) var requests: [CodexRequest] = []
     @Published private(set) var isBusy = false
     @Published private(set) var isStopping = false
+    @Published private(set) var isSteering = false
     @Published private(set) var isChangingModel = false
     private(set) var settings: [String: Any] = [:]
     private(set) var tokenUsage: [String: Any]?
@@ -55,7 +56,8 @@ final class CodexStore: ObservableObject, Identifiable {
     }
 
     var canSend: Bool {
-        !isBusy && !isResuming && !isChangingModel && !directory.isEmpty
+        !isSteering && !isResuming && !isChangingModel && !directory.isEmpty
+            && (!isBusy || (!stopRequested && !needsResume && activeTurnIndex.map { turns[$0].remoteID != nil } == true))
             && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftImages.isEmpty)
     }
 
@@ -211,6 +213,13 @@ final class CodexStore: ObservableObject, Identifiable {
         }
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = draftImages
+        var input: [[String: Any]] = prompt.isEmpty ? [] : [["type": "text", "text": prompt]]
+        input += images.map(\.input)
+        input += selectedSkills.map { ["type": "skill", "name": $0.name, "path": $0.path] }
+        if isBusy {
+            await steer(input: input, prompt: prompt, images: images, skills: selectedSkills)
+            return
+        }
         pendingInput = (prompt, images)
         onCompletionChange?(false)
         draft = ""
@@ -223,9 +232,6 @@ final class CodexStore: ObservableObject, Identifiable {
             try await prepareThread()
             guard !stopRequested else { finish("interrupted"); return }
             guard let threadID else { return }
-            var input: [[String: Any]] = prompt.isEmpty ? [] : [["type": "text", "text": prompt]]
-            input += images.map(\.input)
-            input += selectedSkills.map { ["type": "skill", "name": $0.name, "path": $0.path] }
             let result = try await commands.request("turn/start", ["threadId": threadID, "input": input], directory)
             if let turn = result["turn"] as? [String: Any], let id = turn["id"] as? String, isBusy, let index = activeTurnIndex {
                 turns[index].remoteID = id
@@ -233,6 +239,33 @@ final class CodexStore: ObservableObject, Identifiable {
             }
         } catch {
             fail(error.localizedDescription)
+        }
+    }
+
+    private func steer(input: [[String: Any]], prompt: String, images: [CodexImageAttachment], skills: [CodexSkill]) async {
+        guard let threadID, let index = activeTurnIndex, let turnID = turns[index].remoteID else { return }
+        let generation = historyGeneration
+        let localID = turns[index].id
+        let submittedDraft = draft
+        isSteering = true
+        errorMessage = nil
+        defer { isSteering = false }
+        do {
+            let result = try await commands.request("turn/steer", ["threadId": threadID, "input": input,
+                                                                  "expectedTurnId": turnID], directory)
+            guard generation == historyGeneration else { return }
+            guard result["turnId"] as? String == turnID else {
+                throw CodexError(message: "追加送信の対象ターンを確認できませんでした。")
+            }
+            guard let target = turns.firstIndex(where: { $0.id == localID }) else { return }
+            if !prompt.isEmpty { turns[target].input.append(.text(prompt)) }
+            turns[target].input += skills.map { .attachment(type: "skill", name: $0.name) }
+            turns[target].images += images
+            if draft == submittedDraft { draft = "" }
+            let sentImages = Set(images.map(\.id))
+            draftImages.removeAll { sentImages.contains($0.id) }
+        } catch {
+            if generation == historyGeneration { errorMessage = error.localizedDescription }
         }
     }
 
