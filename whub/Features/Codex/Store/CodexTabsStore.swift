@@ -10,11 +10,14 @@ final class CodexTabsStore: ObservableObject {
     @Published private(set) var isResuming = false
     @Published private(set) var resumeError: String?
     private var pendingResume: CodexStore?
+    private var pendingResumeSourceID: CodexStore.ID?
     private let context: ModelContext
+    private let request: ((String, [String: Any], String) async throws -> [String: Any])?
 
-    init(context: ModelContext) {
+    init(context: ModelContext, request: ((String, [String: Any], String) async throws -> [String: Any])? = nil) {
         self.context = context
-        let session = CodexStore(context: context)
+        self.request = request
+        let session = CodexStore(context: context, request: request)
         sessions = [session]
         selectedSessionID = session.id
         observe(session)
@@ -25,26 +28,32 @@ final class CodexTabsStore: ObservableObject {
     }
 
     func add() {
-        let session = CodexStore(context: context)
+        let session = CodexStore(context: context, request: request)
         observe(session)
         sessions.append(session)
         selectedSessionID = session.id
     }
 
     @discardableResult
-    func resume(_ thread: CodexRecentThread) async -> Bool {
+    func resume(_ thread: CodexRecentThread, replacing sourceID: CodexStore.ID) async -> Bool {
         guard !isResuming else { return false }
         resumeError = nil
-        if let existing = sessions.first(where: { $0.threadID == thread.id }) {
-            select(existing.id)
-            return true
+        guard let source = sessions.first(where: { $0.id == sourceID }) else { return false }
+        guard !source.isBusy, !source.isSteering, !source.isResuming, !source.isChangingModel else {
+            resumeError = "作業や送信が終わってから会話を再開してください。"
+            return false
         }
-        let session = CodexStore(context: context)
+        if let existing = sessions.first(where: { $0.threadID == thread.id }) {
+            return openResumedSession(existing, replacing: sourceID)
+        }
+        let session = CodexStore(context: context, request: request)
         pendingResume = session
+        pendingResumeSourceID = sourceID
         isResuming = true
         defer {
             if pendingResume?.id == session.id {
                 pendingResume = nil
+                pendingResumeSourceID = nil
                 isResuming = false
             }
         }
@@ -55,20 +64,34 @@ final class CodexTabsStore: ObservableObject {
             session.disconnect()
             return false
         }
-        return openResumedSession(session)
+        return openResumedSession(session, replacing: sourceID)
     }
 
     @discardableResult
-    func openResumedSession(_ session: CodexStore) -> Bool {
+    func openResumedSession(_ session: CodexStore, replacing sourceID: CodexStore.ID) -> Bool {
         guard let threadID = session.threadID, !session.isResuming else { return false }
-        if let existing = sessions.first(where: { $0.threadID == threadID }) {
-            if existing.id != session.id { session.disconnect() }
-            select(existing.id)
-        } else {
-            observe(session)
-            sessions.append(session)
-            select(session.id)
+        guard let sourceIndex = sessions.firstIndex(where: { $0.id == sourceID }),
+              !sessions[sourceIndex].isBusy, !sessions[sourceIndex].isSteering,
+              !sessions[sourceIndex].isResuming, !sessions[sourceIndex].isChangingModel else {
+            if !sessions.contains(where: { $0.id == session.id }) { session.disconnect() }
+            if sessions.contains(where: { $0.id == sourceID }) {
+                resumeError = "作業や送信が終わってから会話を再開してください。"
+            }
+            return false
         }
+        let existingIndex = sessions.firstIndex(where: { $0.threadID == threadID })
+        let target = existingIndex.map { sessions[$0] } ?? session
+        if target.id != session.id { session.disconnect() }
+        if target.id != sourceID {
+            sessions[sourceIndex].disconnect()
+            completedSessionIDs.remove(sourceID)
+            observe(target)
+            var updated = sessions
+            updated[sourceIndex] = target
+            if let existingIndex { updated.remove(at: existingIndex) }
+            sessions = updated
+        }
+        select(target.id)
         return true
     }
 
@@ -80,9 +103,15 @@ final class CodexTabsStore: ObservableObject {
 
     func remove(_ id: CodexStore.ID) {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        if pendingResumeSourceID == id {
+            pendingResume?.disconnect()
+            pendingResume = nil
+            pendingResumeSourceID = nil
+            isResuming = false
+        }
         sessions[index].disconnect()
         if sessions.count == 1 {
-            let replacement = CodexStore(context: context)
+            let replacement = CodexStore(context: context, request: request)
             observe(replacement)
             sessions[index] = replacement
         } else {
@@ -117,6 +146,7 @@ final class CodexTabsStore: ObservableObject {
     func disconnect() {
         pendingResume?.disconnect()
         pendingResume = nil
+        pendingResumeSourceID = nil
         isResuming = false
         for session in sessions { session.disconnect() }
     }

@@ -5,12 +5,18 @@ struct CodexErrorView: View {
 
     var body: some View {
         DisclosureGroup {
-            Text(message).textSelection(.enabled).font(.callout)
+            ScrollView {
+                Text(message).textSelection(.enabled).font(.callout)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 160)
         } label: {
             Label(String(message.prefix(160)), systemImage: "exclamationmark.triangle")
                 .lineLimit(2)
         }
         .foregroundStyle(.red)
-        .padding(.horizontal, 24).padding(.vertical, 8)
+        .padding(12)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
+        .frame(maxWidth: 420)
     }
 }

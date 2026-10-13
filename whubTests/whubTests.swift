@@ -14,6 +14,191 @@ import WhubCore
 @testable import whub
 
 @Suite @MainActor
+struct CodexSteeringTests {
+    private func makeStore(steer: @escaping ([String: Any]) async throws -> [String: Any]) throws -> (ModelContainer, CodexStore) {
+        let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let store = CodexStore(context: container.mainContext) { method, params, _ in
+            switch method {
+            case "thread/start": return ["thread": ["id": "thread-1"]]
+            case "turn/start": return ["turn": ["id": "turn-1"]]
+            case "turn/steer": return try await steer(params)
+            case "turn/interrupt": return [:]
+            default: throw CodexError(message: "Unexpected request: \(method)")
+            }
+        }
+        return (container, store)
+    }
+
+    private func image() throws -> NSImage {
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let image = NSImage(size: NSSize(width: 2, height: 2))
+        image.addRepresentation(bitmap)
+        return image
+    }
+
+    private func complete(_ store: CodexStore) {
+        store.receive("turn/completed", params: ["threadId": "thread-1",
+            "turn": ["id": "turn-1", "status": "completed"]], requestID: nil)
+    }
+
+    @Test func additionalTextImagesAndSkillsStayInTheActiveTurn() async throws {
+        var sent: [String: Any] = [:]
+        let (container, store) = try makeStore { params in
+            sent = params
+            return ["turnId": "turn-1"]
+        }
+        defer { withExtendedLifetime(container) {} }
+        store.draft = "first"
+        await store.send()
+        let original = try #require(store.turns.first)
+        store.draft = "追加 $review"
+        store.addImages([try image()])
+        let attachment = try #require(store.draftImages.first)
+        let skill = CodexSkill(name: "review", description: "review", path: "/skills/review")
+        #expect(store.canSend)
+        await store.send(skills: [skill])
+
+        #expect(sent["threadId"] as? String == "thread-1")
+        #expect(sent["expectedTurnId"] as? String == "turn-1")
+        let input = try #require(sent["input"] as? [[String: String]])
+        #expect(input == [["type": "text", "text": "追加 $review"], attachment.input,
+                          ["type": "skill", "name": "review", "path": "/skills/review"]])
+        #expect(store.turns.count == 1)
+        #expect(store.turns[0].id == original.id)
+        #expect(store.turns[0].input == [.text("first"), .text("追加 $review"), .attachment(type: "skill", name: "review")])
+        #expect(store.turns[0].images.map(\.id) == [attachment.id])
+        #expect(store.isBusy)
+        #expect(!store.isSteering)
+        #expect(store.draft.isEmpty && store.draftImages.isEmpty)
+        let book = CodexBookDocument()
+        book.update(store.turns)
+        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
+        #expect(book.storage.string.contains("first\n追加 $review\nreview"))
+
+        store.receive("item/completed", params: ["threadId": "thread-1", "turnId": "turn-1",
+            "item": ["id": "user-2", "type": "userMessage", "content": [["type": "text", "text": "追加 $review"]]]], requestID: nil)
+        #expect(store.turns[0].input.count == 3)
+        complete(store)
+        #expect(!store.isBusy)
+    }
+
+    @Test(arguments: ["rejected", "ended", "wrongTurn"])
+    func failedSteeringRetainsInputWithoutFailingTheTurn(_ scenario: String) async throws {
+        var store: CodexStore!
+        let (container, session) = try makeStore { _ in
+            if scenario == "ended" { self.complete(store) }
+            if scenario == "wrongTurn" { return ["turnId": "other-turn"] }
+            throw CodexError(message: "no active turn")
+        }
+        defer { withExtendedLifetime(container) {} }
+        store = session
+        store.draft = "first"
+        await store.send()
+        store.draft = "追加 $review"
+        store.addImages([try image()])
+        let imageIDs = store.draftImages.map(\.id)
+        let skill = CodexSkill(name: "review", description: "review", path: "/skills/review")
+        store.selectedSkills = [skill]
+        await store.send(skills: [skill])
+        #expect(store.draft == "追加 $review")
+        #expect(store.draftImages.map(\.id) == imageIDs)
+        #expect(store.selectedSkills.map(\.path) == [skill.path])
+        #expect(store.turns[0].input == [.text("first")])
+        #expect(store.turns[0].status == (scenario == "ended" ? "completed" : "inProgress"))
+        #expect(store.isBusy == (scenario != "ended"))
+        #expect(!store.isSteering)
+        #expect(store.errorMessage != nil)
+    }
+
+    @Test func inFlightSteeringBlocksDuplicatesAndPreservesNewEditsAfterCompletion() async throws {
+        var reply: CheckedContinuation<[String: Any], Never>?
+        var calls = 0
+        let (container, store) = try makeStore { _ in
+            calls += 1
+            return await withCheckedContinuation { reply = $0 }
+        }
+        defer { withExtendedLifetime(container) {} }
+        store.draft = "first"
+        await store.send()
+        store.draft = "追加"
+        store.addImages([try image()])
+        let sentImage = try #require(store.draftImages.first)
+        let sending = Task { await store.send() }
+        while reply == nil { await Task.yield() }
+        #expect(store.isSteering)
+        #expect(!store.canSend)
+        await store.send()
+        #expect(calls == 1)
+        store.draft = "次の下書き"
+        store.addImages([try image()])
+        let nextImage = try #require(store.draftImages.last)
+        complete(store)
+        #expect(!store.isBusy)
+        #expect(!store.canSend)
+        await store.send()
+        #expect(store.turns.count == 1)
+        reply?.resume(returning: ["turnId": "turn-1"])
+        await sending.value
+        #expect(store.turns[0].status == "completed")
+        #expect(store.turns[0].input == [.text("first"), .text("追加")])
+        #expect(store.turns[0].images.map(\.id) == [sentImage.id])
+        #expect(store.draft == "次の下書き")
+        #expect(store.draftImages.map(\.id) == [nextImage.id])
+        #expect(store.canSend)
+        await store.send()
+        #expect(store.turns.count == 2)
+        #expect(store.turns[1].input == [.text("次の下書き")])
+        #expect(store.turns[1].images.map(\.id) == [nextImage.id])
+        #expect(calls == 1)
+    }
+
+    @Test func startingAndStoppingTurnsDoNotAcceptSteering() async throws {
+        let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        var startReply: CheckedContinuation<[String: Any], Never>?
+        var methods: [String] = []
+        let store = CodexStore(context: container.mainContext) { method, _, _ in
+            methods.append(method)
+            if method == "thread/start" { return ["thread": ["id": "thread-1"]] }
+            if method == "turn/start" { return await withCheckedContinuation { startReply = $0 } }
+            return [:]
+        }
+        store.draft = "first"
+        let starting = Task { await store.send() }
+        while startReply == nil { await Task.yield() }
+        store.draft = "追加"
+        #expect(!store.canSend)
+        await store.send()
+        startReply?.resume(returning: ["turn": ["id": "turn-1"]])
+        await starting.value
+        #expect(store.canSend)
+        await store.interrupt()
+        #expect(store.isStopping)
+        #expect(!store.canSend)
+        await store.send()
+        #expect(methods == ["thread/start", "turn/start", "turn/interrupt"])
+        #expect(store.draft == "追加")
+    }
+
+    @Test func resumedHistoryIncludesEveryAdditionalUserMessage() throws {
+        let result: [String: Any] = ["cwd": "/project", "model": "model", "thread": [
+            "id": "thread-1", "turns": [["id": "turn-1", "status": "completed", "items": [
+                ["id": "u1", "type": "userMessage", "content": [["type": "text", "text": "first"]]],
+                ["id": "u2", "type": "userMessage", "content": [["type": "text", "text": "追加"], ["type": "skill", "name": "review"]]],
+                ["id": "u3", "type": "userMessage", "content": [["type": "image"]]]
+            ]]]]]
+        let history = try CodexThreadHistory(result, expectedID: "thread-1")
+        #expect(history.turns.count == 1)
+        #expect(history.turns[0].input == [.text("first"), .text("追加"), .attachment(type: "skill", name: "review"),
+                                          .attachment(type: "image", name: nil)])
+        #expect(history.turns[0].displayPrompt == "first\n追加\nreview\n［添付: image］")
+    }
+}
+
+@Suite @MainActor
 struct CodexResumeTests {
     @Test func resumeInputRequiresTheWholeCommand() {
         #expect(CodexInputView.isResumeInput("/resume"))
@@ -63,7 +248,7 @@ struct CodexResumeTests {
         let turn = try #require(store.turns.first)
         #expect(turn.remoteID == "turn-1")
         #expect(turn.displayPrompt == "質問")
-        #expect(turn.answers.map(\.text) == ["回答"])
+        #expect(turn.answers.map(\.displayText) == ["回答"])
         #expect(turn.history.map(\.id) == ["progress", "cmd"])
         #expect(!store.isBusy)
         store.reset()
@@ -102,12 +287,10 @@ struct CodexResumeTests {
         try store.restoreHistory(response([["id": "turn-1", "status": "interrupted", "items": items]]), expectedID: "thread-1")
         #expect(store.turns.first?.input == [.attachment(type: "image", name: nil)])
         #expect(store.turns.first?.displayPrompt == "［添付: image］")
-        let book = CodexBookPagination()
-        book.configure(viewport: CGSize(width: 800, height: 450))
+        let book = CodexBookDocument()
         book.update(store.turns)
-        #expect(book.pages.flatMap(\.fragments).contains {
-            $0.isUser && String($0.block.text.characters) == "［添付: image］"
-        })
+        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
+        #expect(book.storage.string.contains("［添付: image］"))
         let mixedInput: [[String: Any]] = [
             ["type": "text", "text": "質問"],
             ["type": "skill", "name": "review"],
@@ -128,39 +311,53 @@ struct CodexResumeTests {
         #expect(store.turns.count == 1)
     }
 
-    @Test func resumedTabKeepsOriginalDraftAndParticipatesInNotifications() throws {
+    @Test func resumedBookReplacesSourceInPlaceAndParticipatesInNotifications() throws {
         let container = try makeContainer()
         let tabs = CodexTabsStore(context: container.mainContext)
+        let before = tabs.selectedSession
+        tabs.add()
         let original = tabs.selectedSession
         original.draft = "編集中の入力"
+        original.onCompletionChange?(true)
+        tabs.add()
+        let after = tabs.selectedSession
         let resumed = CodexStore(context: container.mainContext)
         try resumed.restoreHistory(response([]), expectedID: "thread-1")
-        #expect(tabs.openResumedSession(resumed))
-        #expect(tabs.sessions.map(\.id) == [original.id, resumed.id])
+        #expect(tabs.openResumedSession(resumed, replacing: original.id))
+        #expect(tabs.sessions.map(\.id) == [before.id, resumed.id, after.id])
         #expect(tabs.selectedSessionID == resumed.id)
-        #expect(original.draft == "編集中の入力")
+        #expect(tabs.completedSessionIDs.isEmpty)
+        original.onCompletionChange?(true)
+        #expect(tabs.completedSessionIDs.isEmpty)
         resumed.onCompletionChange?(true)
         #expect(tabs.completedSessionIDs == [resumed.id])
         tabs.remove(resumed.id)
-        #expect(tabs.selectedSessionID == original.id)
+        #expect(tabs.selectedSessionID == after.id)
         #expect(tabs.completedSessionIDs.isEmpty)
     }
 
-    @Test func alreadyOpenThreadIsSelectedWithoutCreatingAnotherTab() async throws {
+    @Test(arguments: [true, false])
+    func alreadyOpenBookMovesToSourceWithoutDuplicateTabs(_ targetBeforeSource: Bool) async throws {
         let container = try makeContainer()
         let tabs = CodexTabsStore(context: container.mainContext)
-        let original = tabs.selectedSession
-        try original.restoreHistory(response([]), expectedID: "thread-1")
         tabs.add()
+        tabs.add()
+        let original = tabs.sessions[targetBeforeSource ? 0 : 2]
+        let source = tabs.sessions[1]
+        let other = tabs.sessions[targetBeforeSource ? 2 : 0]
+        try original.restoreHistory(response([]), expectedID: "thread-1")
+        original.draft = "既存Bookの下書き"
         original.onCompletionChange?(true)
+        source.onCompletionChange?(true)
         let thread = try CodexRecentThread(["id": "thread-1", "cwd": "/not-needed", "updatedAt": 1.0])
-        #expect(await tabs.resume(thread))
-        #expect(tabs.sessions.count == 2)
+        #expect(await tabs.resume(thread, replacing: source.id))
+        #expect(tabs.sessions.map(\.id) == (targetBeforeSource ? [original.id, other.id] : [other.id, original.id]))
         #expect(tabs.selectedSessionID == original.id)
         #expect(tabs.completedSessionIDs.isEmpty)
+        #expect(original.draft == "既存Bookの下書き")
         let duplicate = CodexStore(context: container.mainContext)
         try duplicate.restoreHistory(response([]), expectedID: "thread-1")
-        #expect(tabs.openResumedSession(duplicate))
+        #expect(tabs.openResumedSession(duplicate, replacing: original.id))
         #expect(tabs.sessions.count == 2)
         #expect(tabs.selectedSessionID == original.id)
     }
@@ -171,14 +368,94 @@ struct CodexResumeTests {
         let original = tabs.selectedSession
         original.draft = "入力を保持"
         let thread = try CodexRecentThread(["id": "missing", "cwd": "/nonexistent-" + UUID().uuidString, "updatedAt": 1.0])
-        #expect(await tabs.resume(thread) == false)
+        #expect(await tabs.resume(thread, replacing: original.id) == false)
         #expect(tabs.sessions.map(\.id) == [original.id])
         #expect(tabs.selectedSessionID == original.id)
         #expect(original.draft == "入力を保持")
         #expect(tabs.resumeError?.contains("作業フォルダが存在しません") == true)
         #expect(!tabs.isResuming)
-        #expect(!tabs.openResumedSession(CodexStore(context: container.mainContext)))
+        #expect(!tabs.openResumedSession(CodexStore(context: container.mainContext), replacing: original.id))
         #expect(tabs.sessions.count == 1)
+    }
+
+    @Test(arguments: ["select", "close", "start"])
+    func pendingResumeKeepsItsSourceAndDoesNotReplaceClosedOrBusyTabs(_ action: String) async throws {
+        let container = try makeContainer()
+        var reply: CheckedContinuation<[String: Any], Never>?
+        var methods: [String] = []
+        let tabs = CodexTabsStore(context: container.mainContext) { method, _, _ in
+            methods.append(method)
+            switch method {
+            case "thread/read": return ["thread": ["id": "thread-1"]]
+            case "thread/resume": return await withCheckedContinuation { reply = $0 }
+            case "thread/start": return ["thread": ["id": "source-thread"]]
+            case "turn/start": return ["turn": ["id": "source-turn"]]
+            default: throw CodexError(message: "Unexpected request: \(method)")
+            }
+        }
+        let source = tabs.selectedSession
+        source.draft = "/resume"
+        tabs.add()
+        let other = tabs.selectedSession
+        other.draft = "他タブの下書き"
+        let thread = try CodexRecentThread(["id": "thread-1", "cwd": NSHomeDirectory(), "updatedAt": 1.0])
+        let loading = Task { await tabs.resume(thread, replacing: source.id) }
+        while reply == nil { await Task.yield() }
+        #expect(tabs.isResuming)
+        #expect(!tabs.openResumedSession(CodexStore(context: container.mainContext), replacing: source.id))
+        if action == "close" {
+            tabs.remove(source.id)
+            #expect(!tabs.isResuming)
+        } else if action == "start" {
+            source.draft = "開始する依頼"
+            await source.send()
+        } else {
+            tabs.select(other.id)
+        }
+        reply?.resume(returning: response([]))
+        let succeeded = await loading.value
+        #expect(!tabs.isResuming)
+        #expect(other.draft == "他タブの下書き")
+        if action == "select" {
+            #expect(succeeded)
+            #expect(tabs.sessions.count == 2)
+            #expect(tabs.sessions[0].threadID == "thread-1")
+            #expect(tabs.sessions[1] === other)
+            #expect(!tabs.sessions.contains { $0.id == source.id })
+            #expect(tabs.selectedSessionID == tabs.sessions[0].id)
+        } else if action == "close" {
+            #expect(!succeeded)
+            #expect(tabs.sessions.map(\.id) == [other.id])
+            #expect(tabs.selectedSessionID == other.id)
+        } else {
+            #expect(!succeeded)
+            #expect(tabs.sessions.map(\.id) == [source.id, other.id])
+            #expect(source.isBusy)
+            #expect(source.threadID == "source-thread")
+            #expect(!methods.contains("turn/interrupt"))
+            #expect(tabs.resumeError != nil)
+        }
+    }
+
+    @Test func busySourceRejectsResumeBeforeReadingHistory() async throws {
+        let container = try makeContainer()
+        var methods: [String] = []
+        let tabs = CodexTabsStore(context: container.mainContext) { method, _, _ in
+            methods.append(method)
+            if method == "thread/start" { return ["thread": ["id": "source-thread"]] }
+            return ["turn": ["id": "source-turn"]]
+        }
+        let source = tabs.selectedSession
+        source.draft = "処理中の依頼"
+        await source.send()
+        source.draft = "/resume"
+        let thread = try CodexRecentThread(["id": "thread-1", "cwd": NSHomeDirectory(), "updatedAt": 1.0])
+        #expect(await tabs.resume(thread, replacing: source.id) == false)
+        #expect(methods == ["thread/start", "turn/start"])
+        #expect(source.isBusy)
+        #expect(source.draft == "/resume")
+        #expect(tabs.sessions.map(\.id) == [source.id])
+        #expect(tabs.resumeError != nil)
     }
 }
 
@@ -324,52 +601,44 @@ struct CodexImageTests {
         #expect(first.draftImages.isEmpty)
     }
 
-    @Test func notebookGroupsTextAndImagesInOneBox() throws {
+    @Test func notebookKeepsPromptAndImagesInOrder() throws {
         let images = try (0..<2).map { _ in try #require(CodexImageAttachment(image: image())) }
-        let book = CodexBookPagination()
-        book.configure(viewport: CGSize(width: 800, height: 450))
+        let book = CodexBookDocument()
         let turn = CodexTurn(prompt: "何が写ってる？", images: images)
         book.update([turn])
-        let fragments = book.pages.flatMap(\.fragments).filter(\.isUser)
-        #expect(fragments.count == 1)
-        let fragment = try #require(fragments.first)
-        #expect(String(fragment.block.text.characters) == turn.displayPrompt)
-        #expect(fragment.images.map(\.id) == images.map(\.id))
-        #expect(fragment.height <= book.contentHeight)
-
-        let earlier = CodexTurn(prompt: "前の投稿", images: images, status: "completed")
-        book.update([earlier, turn])
-        let moved = book.pages.flatMap(\.fragments).filter { $0.isUser && $0.turnID == turn.id }
-        #expect(moved.count == 1)
-        #expect(moved.first?.images.map(\.id) == images.map(\.id))
-        #expect(!book.pages[0].fragments.contains { $0.turnID == turn.id })
+        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
+        #expect(book.storage.string.hasPrefix(turn.displayPrompt))
+        var rendered: [NSImage] = []
+        book.storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: book.storage.length)) { value, _, _ in
+            if let image = (value as? NSTextAttachment)?.image { rendered.append(image) }
+        }
+        #expect(rendered.count == images.count)
+        for (actual, expected) in zip(rendered, images) { #expect(actual === expected.image) }
+        #expect(NSMaxRange(try #require(book.ranges.last)) == book.storage.length)
     }
 
     @Test func notebookKeepsImagesAcrossPagesAndResponseUpdates() throws {
         let images = try (0..<3).map { _ in try #require(CodexImageAttachment(image: image())) }
         for prompt in ["", String(repeating: "画像を確認してください。", count: 100)] {
-            let book = CodexBookPagination()
-            book.configure(viewport: CGSize(width: 600, height: 320))
+            let book = CodexBookDocument()
             var turn = CodexTurn(prompt: prompt, images: images)
-            book.update([turn])
-            let fragments = book.pages.flatMap(\.fragments)
-            #expect(fragments.flatMap { $0.images.map(\.id) } == images.map(\.id))
-            #expect(book.pages.count > 1)
-            if prompt.isEmpty {
-                #expect(fragments.filter { $0.isUser }.allSatisfy { !$0.images.isEmpty })
-            }
-            for page in book.pages {
-                #expect(page.usedHeight <= book.contentHeight + 1)
-                for pair in zip(page.fragments, page.fragments.dropFirst()) {
-                    #expect(pair.0.y + pair.0.height <= pair.1.y)
+            for completed in [false, true] {
+                if completed {
+                    turn.items = [CodexItem(id: "answer", type: "agentMessage", phase: "final_answer",
+                                           text: "確認しました", status: "completed")]
+                    turn.status = "completed"
                 }
+                book.update(completed ? [turn, CodexTurn(prompt: "次の質問")] : [turn])
+                book.prepare(viewport: CGSize(width: 600, height: 320), colorScheme: .dark)
+                var rendered: [NSImage] = []
+                book.storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: book.storage.length)) { value, _, _ in
+                    if let image = (value as? NSTextAttachment)?.image { rendered.append(image) }
+                }
+                #expect(rendered.count == images.count)
+                for (actual, expected) in zip(rendered, images) { #expect(actual === expected.image) }
+                #expect(book.ranges.count > 1)
+                #expect(NSMaxRange(try #require(book.ranges.last)) == book.storage.length)
             }
-            turn.items = [CodexItem(id: "answer", type: "agentMessage", phase: "final_answer",
-                                   title: "", text: "確認しました", status: "completed")]
-            turn.status = "completed"
-            book.update([turn])
-            book.update([turn, CodexTurn(prompt: "次の質問")])
-            #expect(book.pages.flatMap(\.fragments).flatMap { $0.images.map(\.id) } == images.map(\.id))
         }
     }
 
@@ -385,34 +654,83 @@ struct CodexImageTests {
 
 @Suite @MainActor
 struct CodexApprovalTests {
-    @Test func approvalArrivalAndResolutionKeepPagesAndReadingPosition() throws {
-        let book = CodexBookPagination()
-        book.configure(viewport: CGSize(width: 800, height: 650))
+    @Test func streamedItemsAndApprovalPreviewsKeepTheirProtocolData() async throws {
+        let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let store = CodexStore(context: container.mainContext) { method, _, _ in
+            if method == "thread/start" { return ["thread": ["id": "thread-1"]] }
+            return ["turn": ["id": "turn-1"]]
+        }
+        store.draft = "test"
+        await store.send()
+        func item(_ data: [String: Any], completed: Bool = false) {
+            store.receive(completed ? "item/completed" : "item/started",
+                          params: ["threadId": "thread-1", "item": data], requestID: nil)
+        }
+        item(["id": "answer", "type": "agentMessage"])
+        for delta in ["答", "え"] {
+            store.receive("item/agentMessage/delta", params: ["threadId": "thread-1", "itemId": "answer", "delta": delta], requestID: nil)
+        }
+        item(["id": "answer", "type": "agentMessage", "phase": "final_answer"], completed: true)
+        #expect(store.turns.last?.answers.first?.displayText == "答え")
+
+        item(["id": "command", "type": "commandExecution", "command": "pwd"])
+        store.receive("item/commandExecution/outputDelta", params: ["threadId": "thread-1", "itemId": "command", "delta": "/old"], requestID: nil)
+        item(["id": "command", "type": "commandExecution", "command": "pwd", "aggregatedOutput": "/project"], completed: true)
+        let command = try #require(store.turns.last?.items.first { $0.id == "command" })
+        #expect(command.displayTitle == "pwd")
+        #expect(command.displayText == "/project")
+
+        let changes = [["path": "file.swift", "diff": "+new"]]
+        item(["id": "file", "type": "fileChange", "changes": changes])
+        let file = try #require(store.turns.last?.items.first { $0.id == "file" })
+        #expect(file.text == nil)
+        #expect(file.displayTitle == "ファイル変更")
+        #expect(file.displayText == "file.swift\n+new")
+        store.receive("item/fileChange/requestApproval", params: ["itemId": "file"], requestID: 1)
+        #expect(store.requests.first?.params["changes"] as? [[String: String]] == changes)
+        #expect(store.requests.first?.params["changePreview"] == nil)
+        store.resolveRequest("1", outcome: .accepted)
+        store.receive("item/commandExecution/requestApproval", params: [:], requestID: 2)
+        store.receive("turn/completed", params: ["threadId": "thread-1", "turn": ["id": "turn-1", "status": "completed"]], requestID: nil)
+        let outcomes = try #require(store.turns.last).approvals.compactMap(\.outcome)
+        #expect(outcomes == [.accepted, .unanswered])
+        #expect(outcomes.map(\.displayText) == ["承認済み", "終了（未回答）"])
+    }
+
+    @Test func approvalArrivalAndResolutionKeepPagesAndReadingPosition() async throws {
+        let book = CodexBookDocument()
         var turn = CodexTurn(prompt: String(repeating: "本文を読み続ける。\n\n", count: 100))
         book.update([turn])
+        book.prepare(viewport: CGSize(width: 800, height: 650), colorScheme: .dark)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(NSMaxRange(try #require(book.ranges.last)) == book.storage.length)
+        #expect(book.storage.string.hasPrefix(turn.displayPrompt))
         #expect(book.spreadCount > 2)
-        book.move(1)
-        let pages = book.pages.map(\.usedHeight)
-        let blocks = book.pages.map { $0.fragments.map(\.block) }
+        book.move(-1)
+        let pages = book.ranges
+        let revision = book.revision
         let spread = book.spread
         for (index, method) in ["item/commandExecution/requestApproval", "item/fileChange/requestApproval",
                                 "item/permissions/requestApproval"].enumerated() {
             turn.approvals.append(CodexRequest(rpcID: index, method: method,
                 params: ["command": String(repeating: "echo long-command\n", count: 100)]))
             book.update([turn])
-            #expect(book.pages.map(\.usedHeight) == pages)
-            #expect(book.pages.map { $0.fragments.map(\.block) } == blocks)
+            #expect(book.ranges == pages)
+            #expect(book.revision == revision)
             #expect(book.spread == spread)
         }
         for index in turn.approvals.indices {
-            turn.approvals[index].outcome = index.isMultiple(of: 2) ? "承認済み" : "拒否済み"
+            turn.approvals[index].outcome = index.isMultiple(of: 2) ? .accepted : .declined
             book.update([turn])
-            #expect(book.pages.map(\.usedHeight) == pages)
+            #expect(book.ranges == pages)
             #expect(book.spread == spread)
         }
         turn.status = "completed"
         book.update([turn])
-        #expect(book.pages.map(\.usedHeight) == pages)
+        #expect(book.ranges == pages)
         #expect(book.spread == spread)
         #expect(turn.approvals.count == 3)
     }
@@ -449,14 +767,16 @@ struct CodexApprovalTests {
         #expect(CodexApprovalKeys.approvalDecision(keyCode: 123, isRepeat: false, hasMarkedText: false) == nil)
     }
 
-    @Test func approvalButtonsRespondToNativeKeyEquivalents() throws {
+    @Test(arguments: [true, false])
+    func approvalButtonsOnlyUseNativeKeyEquivalentsWhenEnabled(_ usesNativeKeyEquivalents: Bool) throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
                               styleMask: [.titled], backing: .buffered, defer: false)
         var decisions: [Bool] = []
         let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
                                    params: ["command": "pwd"])
         let view = NSHostingView(rootView:
-            CodexInteractionRequestView(request: request, approvalDecision: { decisions.append($0) }) { _ in }
+            CodexInteractionRequestView(request: request, approvalDecision: { decisions.append($0) },
+                                       usesNativeKeyEquivalents: usesNativeKeyEquivalents) { _ in }
                 .frame(width: 320, height: 240))
         window.contentView = view
         view.layoutSubtreeIfNeeded()
@@ -464,12 +784,12 @@ struct CodexApprovalTests {
             let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
                 timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters,
                 charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
-            #expect(window.performKeyEquivalent(with: event))
+            #expect(window.performKeyEquivalent(with: event) == usesNativeKeyEquivalents)
         }
-        #expect(decisions == [true, false])
+        #expect(decisions == (usesNativeKeyEquivalents ? [true, false] : []))
     }
 
-    @Test func approvalKeyViewActivatesItsPopoverWindow() throws {
+    @Test func approvalKeyViewDoesNotActivateItsWindow() throws {
         final class Window: NSWindow {
             var requestedKey = false
             override func makeKey() { requestedKey = true }
@@ -479,13 +799,92 @@ struct CodexApprovalTests {
         let content = try #require(window.contentView)
         let view = CodexApprovalKeys.EventView(frame: content.bounds)
         content.addSubview(view)
-        #expect(window.requestedKey)
+        #expect(!window.requestedKey)
         window.requestedKey = false
         view.removeFromSuperview()
         #expect(!window.requestedKey)
     }
 
-    @Test func popoverKeysOnlyDecideInTheirOwnWindow() throws {
+    @Test func inactiveBooksDoNotConsumeApprovalKeysOrResolveRequests() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let store = CodexStore(context: container.mainContext)
+        store.receive("item/commandExecution/requestApproval", params: ["command": "pwd"], requestID: 1)
+        let session = RetainedPageActivity()
+        let feature = RetainedPageActivity()
+        var decisions: [Bool] = []
+        let keys = CodexApprovalKeys(isActive: { session.isActive.value && feature.isActive.value }) {
+            decisions.append($0)
+        }
+        func event(_ code: UInt16) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "",
+                charactersIgnoringModifiers: "", isARepeat: false, keyCode: code))
+        }
+        for (sessionActive, featureActive) in [(true, false), (false, true), (false, false)] {
+            session.setActive(sessionActive)
+            feature.setActive(featureActive)
+            #expect(!keys.handle(try event(36), in: window))
+            #expect(!keys.handle(try event(53), in: window))
+        }
+        #expect(decisions.isEmpty)
+        #expect(store.requests.map(\.id) == ["1"])
+        #expect(store.requests[0].outcome == nil)
+        session.setActive(true)
+        feature.setActive(true)
+        #expect(keys.handle(try event(36), in: window))
+        #expect(keys.handle(try event(53), in: window))
+        #expect(decisions == [true, false])
+    }
+
+    @Test func approvalCardBelongsToItsRetainedBookAcrossTabAndFeatureSwitches() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let container = try #require(window.contentView)
+        let coordinator = RetainedPageContainer<Int, CodexApprovalEntryView>.Coordinator()
+        let feature = RetainedPageActivity()
+        feature.setActive(true)
+        let request = CodexRequest(rpcID: 1, method: "item/commandExecution/requestApproval",
+                                   params: ["command": "pwd"])
+        var decisions: [Bool] = []
+        let root: (Int, RetainedPageActivity) -> AnyView = { id, activity in
+            AnyView(CodexApprovalEntryView(request: id == 1 ? request : nil,
+                pageSize: CGSize(width: 400, height: 600), contentBottom: 100, scale: 1,
+                sessionActivity: activity, featureActivity: feature,
+                decide: { _, allow in decisions.append(allow) }))
+        }
+        func approvalKeyViews(in view: NSView) -> [CodexApprovalKeys.EventView] {
+            (view as? CodexApprovalKeys.EventView).map { [$0] } ?? view.subviews.flatMap { approvalKeyViews(in: $0) }
+        }
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
+        let first = try #require(coordinator.pages[1])
+        first.view.layoutSubtreeIfNeeded()
+        let keyView = try #require(approvalKeyViews(in: first.view).first)
+        #expect(keyView.window === window)
+        #expect(window.childWindows?.isEmpty != false)
+        coordinator.update(container, selection: 2, availablePages: [1, 2], isActive: true, rootView: root)
+        #expect(keyView.isHiddenOrHasHiddenAncestor)
+        #expect(!first.activity.isActive.value)
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
+        first.view.layoutSubtreeIfNeeded()
+        #expect(approvalKeyViews(in: first.view).first === keyView)
+        #expect(!keyView.isHiddenOrHasHiddenAncestor)
+        feature.setActive(false)
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: false, rootView: root)
+        #expect(!first.activity.isActive.value)
+        feature.setActive(true)
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
+        first.view.layoutSubtreeIfNeeded()
+        #expect(approvalKeyViews(in: first.view).first === keyView)
+        #expect(first.activity.isActive.value)
+        #expect(decisions.isEmpty)
+        #expect(request.outcome == nil)
+        #expect(window.childWindows?.isEmpty != false)
+    }
+
+    @Test func approvalKeysOnlyDecideInTheirOwnWindow() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -618,69 +1017,58 @@ struct CodexReadingTests {
     }
 
     @Test func textReplacementKeepsReadingFocusAndSelection() throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = try #require(window.contentView)
-        let selection = CodexBookSelection()
-        let focus = CodexBookFocus()
-        let surface = CodexBookSurfaceView(frame: content.bounds)
-        surface.selection = selection
-        selection.surface = surface
-        focus.readingView = surface
+        let book = CodexBookDocument()
+        var turn = CodexTurn(prompt: "first page")
+        book.update([turn])
+        let surface = CodexBookTextSurface(book: book)
+        surface.frame = content.bounds
         content.addSubview(surface)
-        let text = CodexSelectableTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
-        text.isEditable = false
-        text.isSelectable = true
-        text.string = "first page"
-        text.bookSelection = selection
-        selection.texts.add(text)
-        content.addSubview(text)
+        surface.needsLayout = true
+        surface.layoutSubtreeIfNeeded()
+        let focus = CodexBookFocus()
+        focus.readingView = surface
         focus.activateReading()
-        surface.selectAll(nil)
-        #expect(selection.selectedString == "first page")
+        let text = try #require(window.firstResponder as? NSTextView)
+        text.setSelectedRange(NSRange(location: 0, length: 5))
+        turn.items = [CodexItem(id: "answer", type: "agentMessage", phase: "final_answer",
+                               text: "appended answer", status: "completed")]
+        book.update([turn])
+        surface.needsLayout = true
+        surface.layoutSubtreeIfNeeded()
         #expect(focus.isReading(in: window))
-        text.removeFromSuperview()
-        selection.remove(text)
-        #expect(window.firstResponder === surface)
-        #expect(selection.selectedString.isEmpty)
-
-        let replacement = CodexSelectableTextView(frame: text.frame)
-        replacement.isEditable = false
-        replacement.isSelectable = true
-        replacement.string = "next page"
-        replacement.bookSelection = selection
-        selection.texts.add(replacement)
-        content.addSubview(replacement)
-        surface.selectAll(nil)
-        #expect(selection.selectedString == "next page")
-        // Native multi-click selection may temporarily focus an individual text view.
-        #expect(window.makeFirstResponder(replacement))
-        #expect(focus.isReading(in: window))
-        replacement.removeFromSuperview()
-        #expect(window.firstResponder === surface)
+        #expect(text.selectedRange() == NSRange(location: 0, length: 5))
+        #expect(book.storage.string.contains("appended answer"))
     }
 
-    @Test func removingTextDoesNotStealInputFocus() throws {
+    @Test func removingPagesDoesNotStealInputFocus() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = try #require(window.contentView)
-        let selection = CodexBookSelection()
         let focus = CodexBookFocus()
-        let surface = CodexBookSurfaceView(frame: content.bounds)
-        surface.selection = selection
-        selection.surface = surface
+        let book = CodexBookDocument()
+        book.update([CodexTurn(prompt: String(repeating: "長い本文。\n\n", count: 100))])
+        let surface = CodexBookTextSurface(book: book)
+        surface.frame = content.bounds
         focus.readingView = surface
         content.addSubview(surface)
-        let text = CodexSelectableTextView(frame: content.bounds)
-        text.bookSelection = selection
-        content.addSubview(text)
+        surface.needsLayout = true
+        surface.layoutSubtreeIfNeeded()
+        let originalPages = surface.subviews.compactMap { $0 as? NSTextView }
+        try #require(originalPages.count > 2)
         let input = CodexTextView(frame: content.bounds)
         input.string = "draft"
         content.addSubview(input)
         focus.inputView = input
         input.setSelectedRange(NSRange(location: 2, length: 0))
         focus.activateInput()
-        text.removeFromSuperview()
+        book.update([CodexTurn(prompt: "短い本文")])
+        surface.needsLayout = true
+        surface.layoutSubtreeIfNeeded()
+        #expect(surface.subviews.compactMap { $0 as? NSTextView }.count == 1)
+        #expect(originalPages.dropFirst().allSatisfy { $0.superview == nil })
         #expect(window.firstResponder === input)
         #expect(!focus.isReading(in: window))
         #expect(input.string == "draft")
@@ -694,11 +1082,9 @@ struct CodexReadingTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = try #require(window.contentView)
-        let selection = CodexBookSelection()
         let focus = CodexBookFocus()
-        let surface = CodexBookSurfaceView(frame: content.bounds)
-        surface.selection = selection
-        selection.surface = surface
+        let surface = CodexBookTextSurface(book: CodexBookDocument())
+        surface.frame = content.bounds
         focus.readingView = surface
         content.addSubview(surface)
         let input = CodexTextView(frame: content.bounds)
@@ -731,7 +1117,8 @@ struct CodexReadingTests {
         for (characters, code) in [("h", UInt16(4)), ("l", 37), ("/", 44), ("", 123), ("", 124)] {
             #expect(!keys.handle(try event(characters, code: code)))
         }
-        let other = CodexBookSurfaceView(frame: content.bounds)
+        let other = CodexBookTextSurface(book: CodexBookDocument())
+        other.frame = content.bounds
         content.addSubview(other)
         #expect(window.makeFirstResponder(other))
         #expect(!keys.handle(try event("l", code: 37)))

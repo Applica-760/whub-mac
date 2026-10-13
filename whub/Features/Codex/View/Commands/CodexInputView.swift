@@ -228,7 +228,7 @@ struct CodexInputView: View {
             if let thread = candidate.thread {
                 let source = store
                 Task {
-                    if await tabsStore.resume(thread), Self.isResumeInput(source.draft) {
+                    if await tabsStore.resume(thread, replacing: source.id), Self.isResumeInput(source.draft) {
                         source.draft = ""
                     }
                 }

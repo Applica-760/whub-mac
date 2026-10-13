@@ -100,43 +100,21 @@ struct CodexMathSource {
     }
 }
 
-struct CodexMathText: View {
-    let text: AttributedString
+struct CodexMathRenderer {
     var fontSize: CGFloat = 15
     var weight: NSFont.Weight = .light
     var alignment: NSTextAlignment = .left
     var lineSpacing: CGFloat = 4
     var monospaced = false
-    @Environment(\.codexSelectionOrder) private var selectionOrder
-    @Environment(\.colorScheme) private var colorScheme
+    var colorScheme: ColorScheme = .light
 
-    private enum Segment {
-        case text(AttributedString)
-        case display(CodexFormula)
-    }
-
-    private var segments: [Segment] {
-        var result: [Segment] = []
-        var inline = AttributedString()
-        for run in text.runs {
-            if let formula = run[CodexFormulaAttribute.self], formula.display, formula.latex != nil {
-                if !inline.characters.isEmpty { result.append(.text(inline)); inline = AttributedString() }
-                result.append(.display(formula))
-            } else {
-                inline.append(AttributedString(text[run.range]))
-            }
-        }
-        if !inline.characters.isEmpty || result.isEmpty { result.append(.text(inline)) }
-        return result
-    }
-
-    private func attributed(_ source: AttributedString, display: Bool = false) -> NSAttributedString {
+    func attributed(_ source: AttributedString, display: Bool = false) -> NSAttributedString {
         let result = NSMutableAttributedString(string: "")
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
         paragraph.lineSpacing = lineSpacing
         for run in source.runs {
-            if let formula = run[CodexFormulaAttribute.self], let rendered = render(formula, size: display ? 22 : fontSize) {
+            if let formula = run[CodexFormulaAttribute.self], let rendered = render(formula, size: display || formula.display ? 22 : fontSize) {
                 let attachment = NSTextAttachment()
                 attachment.image = rendered.image
                 attachment.bounds = CGRect(x: 0, y: -rendered.descent, width: rendered.image.size.width, height: rendered.image.size.height)
@@ -159,36 +137,6 @@ struct CodexMathText: View {
         }
         result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
         return result
-    }
-
-    var body: some View {
-        let parts = segments
-        if parts.count == 1, case .text(let source) = parts[0] {
-            CodexSelectableText(text: attributed(source), wraps: !monospaced)
-        } else {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(parts.indices, id: \.self) { index in
-                    switch parts[index] {
-                    case .text(let source):
-                        CodexSelectableText(text: attributed(source), wraps: !monospaced)
-                            .environment(\.codexSelectionOrder, selectionOrder + [index])
-                    case .display(let formula):
-                        ScrollView(.horizontal) {
-                            let source = formulaText(formula)
-                            CodexSelectableText(text: attributed(source, display: true), wraps: false)
-                                .environment(\.codexSelectionOrder, selectionOrder + [index])
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-        }
-    }
-
-    private func formulaText(_ formula: CodexFormula) -> AttributedString {
-        var source = AttributedString(formula.source)
-        source[CodexFormulaAttribute.self] = formula
-        return source
     }
 
     private final class Rendered: NSObject {
@@ -216,4 +164,8 @@ struct CodexMathText: View {
         Self.cache.setObject(rendered, forKey: key)
         return rendered
     }
+}
+
+extension NSAttributedString.Key {
+    static let codexFormulaSource = NSAttributedString.Key("whub.formulaSource")
 }

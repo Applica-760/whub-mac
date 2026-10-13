@@ -14,6 +14,7 @@ final class CodexStore: ObservableObject, Identifiable {
     @Published private(set) var requests: [CodexRequest] = []
     @Published private(set) var isBusy = false
     @Published private(set) var isStopping = false
+    @Published private(set) var isSteering = false
     @Published private(set) var isChangingModel = false
     private(set) var settings: [String: Any] = [:]
     private(set) var tokenUsage: [String: Any]?
@@ -55,7 +56,8 @@ final class CodexStore: ObservableObject, Identifiable {
     }
 
     var canSend: Bool {
-        !isBusy && !isResuming && !isChangingModel && !directory.isEmpty
+        !isSteering && !isResuming && !isChangingModel && !directory.isEmpty
+            && (!isBusy || (!stopRequested && !needsResume && activeTurnIndex.map { turns[$0].remoteID != nil } == true))
             && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftImages.isEmpty)
     }
 
@@ -139,9 +141,9 @@ final class CodexStore: ObservableObject, Identifiable {
         needsResume = false
     }
 
-    func appendCommandOutput(_ command: CodexCommand, _ output: String) {
+    func appendCommandOutput(_ command: CodexCommand, _ output: CodexCommandOutput) {
         let item = CodexItem(id: UUID().uuidString, type: "commandOutput", phase: nil,
-                             title: command.rawValue, text: CodexStatus.codeBlock(output), status: "completed")
+                             text: nil, status: "completed", data: ["command": command.rawValue], output: output)
         turns.append(CodexTurn(prompt: command.rawValue, items: [item], status: "completed"))
     }
 
@@ -194,7 +196,7 @@ final class CodexStore: ObservableObject, Identifiable {
         settings["model"] = choice.model
         settings["effort"] = effort
         model = choice.model
-        appendCommandOutput(.model, "Model changed to \(choice.displayName) (\(effort)) for this session only")
+        appendCommandOutput(.model, .modelChanged(name: choice.displayName, effort: effort))
     }
 
     func send(skills selectedSkills: [CodexSkill] = []) async {
@@ -211,6 +213,13 @@ final class CodexStore: ObservableObject, Identifiable {
         }
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = draftImages
+        var input: [[String: Any]] = prompt.isEmpty ? [] : [["type": "text", "text": prompt]]
+        input += images.map(\.input)
+        input += selectedSkills.map { ["type": "skill", "name": $0.name, "path": $0.path] }
+        if isBusy {
+            await steer(input: input, prompt: prompt, images: images, skills: selectedSkills)
+            return
+        }
         pendingInput = (prompt, images)
         onCompletionChange?(false)
         draft = ""
@@ -223,9 +232,6 @@ final class CodexStore: ObservableObject, Identifiable {
             try await prepareThread()
             guard !stopRequested else { finish("interrupted"); return }
             guard let threadID else { return }
-            var input: [[String: Any]] = prompt.isEmpty ? [] : [["type": "text", "text": prompt]]
-            input += images.map(\.input)
-            input += selectedSkills.map { ["type": "skill", "name": $0.name, "path": $0.path] }
             let result = try await commands.request("turn/start", ["threadId": threadID, "input": input], directory)
             if let turn = result["turn"] as? [String: Any], let id = turn["id"] as? String, isBusy, let index = activeTurnIndex {
                 turns[index].remoteID = id
@@ -233,6 +239,33 @@ final class CodexStore: ObservableObject, Identifiable {
             }
         } catch {
             fail(error.localizedDescription)
+        }
+    }
+
+    private func steer(input: [[String: Any]], prompt: String, images: [CodexImageAttachment], skills: [CodexSkill]) async {
+        guard let threadID, let index = activeTurnIndex, let turnID = turns[index].remoteID else { return }
+        let generation = historyGeneration
+        let localID = turns[index].id
+        let submittedDraft = draft
+        isSteering = true
+        errorMessage = nil
+        defer { isSteering = false }
+        do {
+            let result = try await commands.request("turn/steer", ["threadId": threadID, "input": input,
+                                                                  "expectedTurnId": turnID], directory)
+            guard generation == historyGeneration else { return }
+            guard result["turnId"] as? String == turnID else {
+                throw CodexError(message: "追加送信の対象ターンを確認できませんでした。")
+            }
+            guard let target = turns.firstIndex(where: { $0.id == localID }) else { return }
+            if !prompt.isEmpty { turns[target].input.append(.text(prompt)) }
+            turns[target].input += skills.map { .attachment(type: "skill", name: $0.name) }
+            turns[target].images += images
+            if draft == submittedDraft { draft = "" }
+            let sentImages = Set(images.map(\.id))
+            draftImages.removeAll { sentImages.contains($0.id) }
+        } catch {
+            if generation == historyGeneration { errorMessage = error.localizedDescription }
         }
     }
 
@@ -277,7 +310,7 @@ final class CodexStore: ObservableObject, Identifiable {
         model = "Codexの既存設定"
         settings = [:]
         tokenUsage = nil
-        appendCommandOutput(.new, "新しい会話を開始しました。")
+        appendCommandOutput(.new, .newConversation)
     }
 
     func disconnect() {
@@ -292,10 +325,10 @@ final class CodexStore: ObservableObject, Identifiable {
         let result: [String: Any] = request.method == "item/permissions/requestApproval"
             ? ["permissions": allow ? (request.params["permissions"] as? [String: Any] ?? [:]) : [:], "scope": "turn"]
             : ["decision": allow ? "accept" : "decline"]
-        answer(request, result: result, outcome: allow ? "承認済み" : "拒否済み")
+        answer(request, result: result, outcome: allow ? .accepted : .declined)
     }
 
-    func resolveRequest(_ id: String, outcome: String) {
+    func resolveRequest(_ id: String, outcome: CodexRequestOutcome) {
         requests.removeAll { $0.id == id }
         for turn in turns.indices {
             if let index = turns[turn].approvals.firstIndex(where: { $0.id == id && $0.outcome == nil }) {
@@ -304,11 +337,11 @@ final class CodexStore: ObservableObject, Identifiable {
         }
     }
 
-    func answer(_ request: CodexRequest, result: [String: Any], outcome: String? = nil) {
+    func answer(_ request: CodexRequest, result: [String: Any], outcome: CodexRequestOutcome? = nil) {
         guard requests.contains(where: { $0.id == request.id }) else { return }
         do {
             try client.respond(id: request.rpcID, result: result)
-            resolveRequest(request.id, outcome: outcome ?? "回答済み")
+            resolveRequest(request.id, outcome: outcome ?? .answered)
         } catch { fail(error.localizedDescription) }
     }
 
@@ -319,7 +352,7 @@ final class CodexStore: ObservableObject, Identifiable {
                 if method == "item/fileChange/requestApproval",
                    let index = activeTurnIndex,
                    let item = turns[index].items.first(where: { $0.id == params["itemId"] as? String }) {
-                    details["changePreview"] = item.text
+                    details["changes"] = item.data["changes"] as? [[String: Any]] ?? []
                 }
                 let request = CodexRequest(rpcID: requestID, method: method, params: details)
                 guard !requests.contains(where: { $0.id == request.id }) else { return }
@@ -338,7 +371,7 @@ final class CodexStore: ObservableObject, Identifiable {
             return
         }
         if method == "serverRequest/resolved", let id = params["requestId"] {
-            resolveRequest(Self.pretty(id), outcome: "解決済み")
+            resolveRequest(CodexJSON.pretty(id), outcome: .resolved)
             return
         }
         guard params["threadId"] as? String == threadID else { return }
@@ -363,7 +396,7 @@ final class CodexStore: ObservableObject, Identifiable {
         case "item/agentMessage/delta", "item/commandExecution/outputDelta", "item/plan/delta":
             guard let id = params["itemId"] as? String, let delta = params["delta"] as? String,
                   let itemIndex = turns[index].items.firstIndex(where: { $0.id == id }) else { return }
-            turns[index].items[itemIndex].text += delta
+            turns[index].items[itemIndex].delta += delta
         case "turn/completed":
             guard let turn = params["turn"] as? [String: Any],
                   turn["id"] as? String == turns[index].remoteID else { return }
@@ -389,7 +422,7 @@ final class CodexStore: ObservableObject, Identifiable {
     }
 
     private func finish(_ status: String) {
-        for request in requests { resolveRequest(request.id, outcome: "終了（未回答）") }
+        for request in requests { resolveRequest(request.id, outcome: .unanswered) }
         if let index = activeTurnIndex { turns[index].status = status }
         if status != "completed", let pendingInput {
             if draft.isEmpty { draft = pendingInput.text }
@@ -399,11 +432,5 @@ final class CodexStore: ObservableObject, Identifiable {
         isBusy = false
         isStopping = false
         requests = []
-    }
-
-    nonisolated static func pretty(_ value: Any) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed]),
-              let string = String(data: data, encoding: .utf8) else { return String(describing: value) }
-        return string
     }
 }

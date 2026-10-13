@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct CodexInteractionRequestsView: View {
@@ -22,6 +23,8 @@ struct CodexInteractionRequestView: View {
     var detailsExpanded = false
     var toggleDetails: () -> Void = {}
     var approvalDecision: ((Bool) -> Void)? = nil
+    var isActive = true
+    var usesNativeKeyEquivalents = true
     let respond: ([String: Any]) -> Void
     @State private var answers: [String: String] = [:]
     @FocusState private var approvalFocused: Bool
@@ -74,16 +77,17 @@ struct CodexInteractionRequestView: View {
                     ScrollView { approvalDetails() }
                 }
                 if let outcome = request.outcome {
-                    Text(outcome).font(.callout).foregroundStyle(.secondary)
+                    Text(outcome.displayText).font(.callout).foregroundStyle(.secondary)
                 } else {
                     HStack {
                         Button("拒否", role: .destructive) { decide(allow: false) }
-                            .keyboardShortcut(.cancelAction)
+                            .keyboardShortcut(usesNativeKeyEquivalents ? .cancelAction : nil)
                         Button("承認") { decide(allow: true) }
                             .buttonStyle(.borderedProminent)
                             .focused($approvalFocused)
-                            .keyboardShortcut(.defaultAction)
+                            .keyboardShortcut(usesNativeKeyEquivalents ? .defaultAction : nil)
                     }
+                    .disabled(!isActive)
                 }
             }
         }
@@ -91,8 +95,16 @@ struct CodexInteractionRequestView: View {
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .task(id: request.id) {
-            approvalFocused = request.isApproval && request.outcome == nil
+            approvalFocused = isActive && request.isApproval && request.outcome == nil
         }
+        .onChange(of: isActive) { _, active in
+            approvalFocused = active && request.isApproval && request.outcome == nil
+        }
+    }
+
+    private var changePreview: String? {
+        if let changes = request.params["changes"] as? [[String: Any]] { return CodexItem.changePreview(changes) }
+        return request.params["changePreview"] as? String
     }
 
     private func approvalDetails() -> some View {
@@ -102,16 +114,16 @@ struct CodexInteractionRequestView: View {
                 Text(command).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
             }
             if let cwd = request.params["cwd"] as? String { Text(cwd).font(.caption).foregroundStyle(.secondary) }
-            if let preview = request.params["changePreview"] as? String {
+            if let preview = changePreview {
                 ScrollView {
                     Text(preview).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                 }.frame(maxHeight: 120)
             }
             if let permissions = request.params["permissions"] as? [String: Any] {
-                Text(CodexStore.pretty(permissions)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                Text(CodexJSON.pretty(permissions)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
             }
             DisclosureGroup("要求の詳細", isExpanded: Binding(get: { detailsExpanded }, set: { _ in toggleDetails() })) {
-                Text(CodexStore.pretty(request.params)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                Text(CodexJSON.pretty(request.params)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -124,28 +136,43 @@ struct CodexApprovalEntryView: View {
     let pageSize: CGSize
     let contentBottom: CGFloat
     let scale: CGFloat
+    var isActive = true
+    var sessionActivity: RetainedPageActivity? = nil
+    var featureActivity: RetainedPageActivity? = nil
     let decide: (CodexRequest, Bool) -> Void
     @State private var showsDetails = false
+
+    private var canRespond: Bool {
+        isActive && sessionActivity?.isActive.value != false && featureActivity?.isActive.value != false
+    }
+
+    private func respond(_ request: CodexRequest, allow: Bool) {
+        guard canRespond else { return }
+        decide(request, allow)
+    }
 
     var body: some View {
         let anchorY = min(contentBottom, pageSize.height - 16)
         let above = anchorY > pageSize.height / 2
         let availableHeight = (above ? anchorY : pageSize.height - anchorY) * scale - 24
-        Color.clear
-            .frame(width: 1, height: 1)
-            .popover(isPresented: Binding(get: { request != nil }, set: { _ in }),
-                     arrowEdge: above ? .bottom : .top) {
-                if let request {
-                    CodexInteractionRequestView(request: request, detailsExpanded: showsDetails,
-                        toggleDetails: { showsDetails.toggle() },
-                        approvalDecision: { decide(request, $0) }) { _ in }
-                        .frame(width: min(820 + 32, (pageSize.width - 32) * scale))
-                        .frame(maxHeight: max(1, availableHeight))
-                        .background(CodexApprovalKeys { decide(request, $0) })
-                        .interactiveDismissDisabled()
-                }
+        Group {
+            if let request {
+                CodexInteractionRequestView(request: request, detailsExpanded: showsDetails,
+                    toggleDetails: { showsDetails.toggle() },
+                    approvalDecision: { respond(request, allow: $0) },
+                    isActive: canRespond, usesNativeKeyEquivalents: false) { _ in }
+                    .frame(width: max(1, min(820 + 32, (pageSize.width - 32) * scale)))
+                    .frame(maxHeight: max(1, availableHeight))
+                    .background(CodexApprovalKeys(isActive: { canRespond }) { respond(request, allow: $0) })
+                    .shadow(radius: 8, y: 3)
+                    .padding(.top, above ? 0 : anchorY + 12)
+                    .padding(.bottom, above ? pageSize.height - anchorY + 12 : 0)
             }
-            .offset(x: pageSize.width / 2, y: anchorY)
-            .onChange(of: request?.id) { _, _ in showsDetails = false }
+        }
+        .frame(width: pageSize.width, height: pageSize.height, alignment: above ? .bottom : .top)
+        .opacity(isActive ? 1 : 0)
+        .allowsHitTesting(isActive)
+        .accessibilityHidden(!isActive)
+        .onChange(of: request?.id) { _, _ in showsDetails = false }
     }
 }
