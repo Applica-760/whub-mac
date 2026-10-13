@@ -68,8 +68,8 @@ final class CodexBookPagination: ObservableObject {
         usedMeasurements.removeAll(keepingCapacity: true)
         var output = committedPages
         for turn in turns.dropFirst(committedIDs.count) {
-            if !turn.prompt.isEmpty {
-                append([Block(id: 0, kind: .paragraph, text: AttributedString(turn.prompt))],
+            if !turn.displayPrompt.isEmpty {
+                append([Block(id: 0, kind: .paragraph, text: AttributedString(turn.displayPrompt))],
                        turnID: turn.id, isUser: true, to: &output)
             }
             for image in turn.images {

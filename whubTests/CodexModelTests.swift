@@ -235,6 +235,6 @@ struct CodexModelTests {
         await commands.loadSkills(directory: "/project")
         await commands.loadRecentThreads(directory: "/project")
         #expect(commands.skills.map(\.name) == ["visible"])
-        #expect(commands.recentThreads.map(\.title) == ["hello"])
+        #expect(commands.recentThreads.map(\.displayTitle) == ["hello"])
     }
 }

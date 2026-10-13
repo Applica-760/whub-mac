@@ -36,10 +36,12 @@ struct CodexResumeTests {
     @Test func recentThreadUsesTitleThenPreviewAndRejectsMissingDirectory() throws {
         var data: [String: Any] = ["id": "thread-1", "cwd": "/project", "updatedAt": 123.0,
                                    "name": "  タイトル  ", "preview": "冒頭文"]
-        #expect(try CodexRecentThread(data).title == "タイトル")
+        #expect(try CodexRecentThread(data).displayTitle == "タイトル")
         data["name"] = NSNull()
-        #expect(try CodexRecentThread(data).title == "冒頭文")
+        #expect(try CodexRecentThread(data).displayTitle == "冒頭文")
         #expect(try CodexRecentThread(data).updatedAt == Date(timeIntervalSince1970: 123))
+        data["preview"] = "  "
+        #expect(try CodexRecentThread(data).displayTitle == "thread-1")
         data.removeValue(forKey: "cwd")
         #expect(throws: CodexError.self) { try CodexRecentThread(data) }
     }
@@ -60,7 +62,7 @@ struct CodexResumeTests {
         #expect(store.model == "saved-model")
         let turn = try #require(store.turns.first)
         #expect(turn.remoteID == "turn-1")
-        #expect(turn.prompt == "質問")
+        #expect(turn.displayPrompt == "質問")
         #expect(turn.answers.map(\.text) == ["回答"])
         #expect(turn.history.map(\.id) == ["progress", "cmd"])
         #expect(!store.isBusy)
@@ -98,7 +100,28 @@ struct CodexResumeTests {
             ["id": "p", "type": "agentMessage", "phase": "commentary", "text": "途中"]
         ]
         try store.restoreHistory(response([["id": "turn-1", "status": "interrupted", "items": items]]), expectedID: "thread-1")
-        #expect(store.turns.first?.prompt == "［添付: image］")
+        #expect(store.turns.first?.input == [.attachment(type: "image", name: nil)])
+        #expect(store.turns.first?.displayPrompt == "［添付: image］")
+        let book = CodexBookPagination()
+        book.configure(viewport: CGSize(width: 800, height: 450))
+        book.update(store.turns)
+        #expect(book.pages.flatMap(\.fragments).contains {
+            $0.isUser && String($0.block.text.characters) == "［添付: image］"
+        })
+        let mixedInput: [[String: Any]] = [
+            ["type": "text", "text": "質問"],
+            ["type": "skill", "name": "review"],
+            ["type": "mention"],
+            ["type": "image", "name": "ignored"],
+            [:]
+        ]
+        let mixed = try CodexThreadHistory(response([["id": "mixed", "status": "completed", "items": [
+            ["id": "u", "type": "userMessage", "content": mixedInput]
+        ]]]), expectedID: "thread-1")
+        #expect(mixed.turns.first?.input == [.text("質問"), .attachment(type: "skill", name: "review"),
+            .attachment(type: "mention", name: nil), .attachment(type: "image", name: "ignored"),
+            .attachment(type: nil, name: nil)])
+        #expect(mixed.turns.first?.displayPrompt == "質問\nreview\n添付参照\n［添付: image］\n［添付: 不明］")
         #expect(store.turns.first?.answers.isEmpty == true)
         #expect(store.turns.first?.status == "interrupted")
         #expect(throws: CodexError.self) { try store.restoreHistory(response([]), expectedID: "thread-1") }
@@ -310,7 +333,7 @@ struct CodexImageTests {
         let fragments = book.pages.flatMap(\.fragments).filter(\.isUser)
         #expect(fragments.count == 1)
         let fragment = try #require(fragments.first)
-        #expect(String(fragment.block.text.characters) == turn.prompt)
+        #expect(String(fragment.block.text.characters) == turn.displayPrompt)
         #expect(fragment.images.map(\.id) == images.map(\.id))
         #expect(fragment.height <= book.contentHeight)
 
