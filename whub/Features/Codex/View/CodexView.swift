@@ -85,14 +85,17 @@ private struct CodexSessionView<Tabs: View>: View {
                             .padding(.leading, 56)
                             .padding(.bottom, 16)
                     }
+                    .overlay(alignment: .topTrailing) {
+                        if let error = store.errorMessage {
+                            CodexErrorView(message: error)
+                                .padding(12)
+                        }
+                    }
             }
             if store.requests.contains(where: { !$0.isApproval }) {
                 CodexInteractionRequestsView(requests: store.requests.filter { !$0.isApproval }) { request, result in
                     store.answer(request, result: result)
                 }
-            }
-            if let error = store.errorMessage {
-                CodexErrorView(message: error)
             }
         }
         .onChange(of: store.id) { _, _ in
