@@ -6,13 +6,4 @@
 - UIは基本LiquidGlassを利用する
 - 配色は役割に応じたApple標準の動的な色・Material・Glassを優先し、文字と背景をライト／ダーク両方に対応させる。独自色や固定の白・黒、Glassのtintは明確な意図がある場合に限り、両モードと起動中の切り替えで視認性を確認する。
 
-## 開発の完了とIssueの連携
-
-- Issue単位の作業は `issue/<Issue番号>` ブランチで行う。コミットだけの依頼ではコミットまでとし、ユーザが作業完了・取り込み・Issueのcloseを指示したら、以下を一連の完了手順として実施する。
-  1. 実装・検証結果、ユーザの確認結果、未確認事項をIssueに記録する。未確認事項を確認済みとして扱わない。
-  2. 作業ブランチを `origin` にpushし、`main` 向けのPRを作成する。既存PRがある場合は更新する。
-  3. PR本文に `Closes #<Issue番号>` を記載し、GitHub上で対象Issueがclose対象として紐づいていることを確認する。ブランチ名やコミット内のIssue番号だけで連携済みと判断しない。
-  4. 差分・必要な検証・PRのチェック結果とマージ可否を確認し、`gh pr merge <PR番号> --merge` で履歴を保持して取り込む。
-  5. PRがMerged、IssueがClosedとなり、IssueのタイムラインにマージしたPRが表示されることを確認する。手動closeで代用しない。
-  6. ローカルの `main` がクリーンなら、fetch後に `--ff-only` で同期する。Issueブランチとworktreeは削除指示がない限り保持する。
-- 未完了の作業を先に取り込む場合は `Refs #<Issue番号>` とし、Issueをopenに保つ。
+- worktreeの作成・push・PRとIssueの連携・merge・片付けは、[共通の開発運用](../../docs/operations/worktree.md)を正本とする。
