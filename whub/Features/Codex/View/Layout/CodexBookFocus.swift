@@ -37,7 +37,7 @@ struct CodexPageKeys: NSViewRepresentable {
         case (124, _), (_, "l"):
             focus.activateReading()
             move(1)
-        case (_, "/"):
+        case (49, _):
             focus.activateInput()
         default:
             return false

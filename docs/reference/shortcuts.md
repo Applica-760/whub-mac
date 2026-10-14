@@ -54,9 +54,9 @@ File・Terminal・Browserのタブは同じ列内でドラッグして並べ替�
 | --- | --- |
 | H / ← | 前の見開きへ移動する |
 | L / → | 次の見開きへ移動する |
-| / | 入力欄へ戻る。下書きとカーソル位置を保持し、このキーの文字は入力しない |
+| Space | 入力欄へ戻る。下書きとカーソル位置を保持し、空白は入力しない |
 
-H・L・/は修飾キーなしで使用する。先頭・末尾では循環しない。入力欄では通常の文字入力・カーソル移動として扱い、入力欄内の/は既存のコマンド補完に使う。日本語変換中・ダイアログ表示中は本文操作を行わない。Enter/Escによる既存の承認操作は変更しない。
+H・L・Spaceは修飾キーなしで使用する。先頭・末尾では循環しない。入力欄では通常の文字入力・カーソル移動として扱い、入力欄内の/は既存のコマンド補完に使う。日本語変換中・ダイアログ表示中は本文操作を行わない。Enter/Escによる既存の承認操作は変更しない。
 
 実装：[CodexBookFocus.swift](../../whub/Features/Codex/View/Layout/CodexBookFocus.swift)、[CodexBookTextView.swift](../../whub/Features/Codex/View/Layout/CodexBookTextView.swift)
 
