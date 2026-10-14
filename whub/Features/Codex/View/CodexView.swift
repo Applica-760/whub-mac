@@ -60,24 +60,19 @@ private struct CodexSessionView<Tabs: View>: View {
     @StateObject private var book = CodexBookDocument()
     @ViewBuilder let tabs: () -> Tabs
     @State private var confirmsReset = false
-    @State private var composerClearance: CGFloat = 64
     @State private var bookFocus = CodexBookFocus()
 
     var body: some View {
         VStack(spacing: 0) {
             WidgetFrame {
                 ZStack {
-                    CodexBookView(book: book, bookFocus: bookFocus, featureActivity: featureActivity,
-                                  composerClearance: composerClearance)
+                    CodexBookView(book: book, bookFocus: bookFocus, featureActivity: featureActivity)
                 }
                     .overlay(alignment: .bottom) {
                         CodexInputView(commands: store.commands, focus: bookFocus) {
                             if store.turns.isEmpty { store.reset() } else { confirmsReset = true }
                         }
                         .padding(.horizontal, 212)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
-                            composerClearance = $0 + 4
-                        }
                     }
                     .overlay(alignment: .bottomLeading) {
                         tabs()

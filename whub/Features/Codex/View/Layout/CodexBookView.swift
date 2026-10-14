@@ -9,7 +9,6 @@ struct CodexBookView: View {
     @ObservedObject var book: CodexBookDocument
     let bookFocus: CodexBookFocus
     let featureActivity: RetainedPageActivity?
-    var composerClearance: CGFloat = 64
     @State private var sessionActive = true
     @State private var featureActive = true
 
@@ -67,7 +66,8 @@ struct CodexBookView: View {
             if let error = book.layoutError { Text(error).font(.caption).foregroundStyle(.secondary) }
         }
         .background(CodexPageKeys(focus: bookFocus, move: book.move))
-        .padding(.bottom, composerClearance)
+        // Reserve one line of input without resizing the book as the overlay grows.
+        .padding(.bottom, 64)
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(true).eraseToAnyPublisher()) { sessionActive = $0 }
         .onReceive(featureActivity?.isActive.eraseToAnyPublisher() ?? Just(true).eraseToAnyPublisher()) { featureActive = $0 }
     }
