@@ -255,6 +255,7 @@ final class CodexBookDocument: ObservableObject {
                     let attachment = NSTextAttachment()
                     attachment.bounds = CGRect(x: 0, y: 0, width: code.size.width,
                                                height: CGFloat(end - start) * lineHeight + 2 * CodexBookLayout.codeInset)
+                    attachment.attachmentCell = CodexBookCodeCell()
                     let part = NSMutableAttributedString(attachment: attachment)
                     part.addAttributes([.codexBookCodeSource: chunk,
                                         .codexNativeCodeID: "\(turn.id)/\(answerIndex)/\(codeIndex)/\(start)"],
@@ -281,6 +282,13 @@ final class CodexBookDocument: ObservableObject {
         }
         return output
     }
+}
+
+private final class CodexBookCodeCell: NSTextAttachmentCell {
+    nonisolated override func cellSize() -> NSSize { attachment?.bounds.size ?? .zero }
+
+    // The code view draws the content; the cell reserves its space in TextKit 1.
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {}
 }
 
 private final class CodexBookPromptBlock: NSTextTableBlock {
