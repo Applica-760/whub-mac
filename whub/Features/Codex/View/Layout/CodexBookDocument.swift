@@ -17,7 +17,7 @@ final class CodexBookDocument: ObservableObject {
     @Published private(set) var pageCount = 1
     @Published private(set) var layoutError: String?
     let storage = NSTextStorage()
-    let manager = NSLayoutManager()
+    let manager: NSLayoutManager = CodexBookLayoutManager()
     private(set) var ranges: [NSRange] = []
     private(set) var pageSize = CGSize.zero
     private(set) var codes: [Code] = []
@@ -215,7 +215,7 @@ final class CodexBookDocument: ObservableObject {
             table.numberOfColumns = 1
             table.layoutAlgorithm = .fixedLayoutAlgorithm
             table.setValue(content.width, type: .absoluteValueType, for: .width)
-            let bubble = NSTextTableBlock(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
+            let bubble = CodexBookPromptBlock(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
             bubble.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.1)
             bubble.setWidth(12, type: .absoluteValueType, for: .padding)
             let style = paragraph.mutableCopy() as! NSMutableParagraphStyle
@@ -280,6 +280,31 @@ final class CodexBookDocument: ObservableObject {
             output.append(text)
         }
         return output
+    }
+}
+
+private final class CodexBookPromptBlock: NSTextTableBlock {
+    override func drawBackground(withFrame frameRect: NSRect, in controlView: NSView?,
+                                 characterRange charRange: NSRange, layoutManager: NSLayoutManager) {
+        backgroundColor?.setFill()
+        NSBezierPath(roundedRect: frameRect, xRadius: 8, yRadius: 8).fill()
+    }
+}
+
+private final class CodexBookLayoutManager: NSLayoutManager {
+    override func fillBackgroundRectArray(_ rectArray: UnsafePointer<NSRect>, count rectCount: Int,
+                                          forCharacterRange charRange: NSRange, color: NSColor) {
+        guard let storage = textStorage, charRange.location < storage.length,
+              let background = storage.attribute(.codexInlineCodeBackground, at: charRange.location,
+                                                 effectiveRange: nil) as? NSColor,
+              background == color else {
+            super.fillBackgroundRectArray(rectArray, count: rectCount, forCharacterRange: charRange, color: color)
+            return
+        }
+        // Selection and other backgrounds retain AppKit's standard drawing.
+        for index in 0..<rectCount {
+            NSBezierPath(roundedRect: rectArray[index], xRadius: 4, yRadius: 4).fill()
+        }
     }
 }
 

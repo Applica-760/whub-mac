@@ -39,6 +39,8 @@ struct CodexPageKeys: NSViewRepresentable {
             move(1)
         case (49, _):
             focus.activateInput()
+        case (53, _):
+            return true
         default:
             return false
         }
