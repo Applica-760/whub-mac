@@ -30,7 +30,7 @@ struct whubApp: App {
     var body: some Scene {
         WindowGroup {
             AppView(section: $section)
-                .containerBackground(.thinMaterial, for: .window)
+                .containerBackground(Color(nsColor: .windowBackgroundColor), for: .window)
                 .environmentObject(files)
                 .environmentObject(files.activeEditor)
                 .environmentObject(files.git)

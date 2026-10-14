@@ -21,6 +21,7 @@ struct RetainedPageContainer<Page: Hashable, Content: View>: NSViewRepresentable
     var availablePages: [Page]? = nil
     @ViewBuilder let content: (Page) -> Content
     @Environment(\.self) private var environment
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -39,7 +40,8 @@ struct RetainedPageContainer<Page: Hashable, Content: View>: NSViewRepresentable
         AnyView(content(page)
             .environment(\.retainedPageActivity, activity)
             .environment(\.isRetainedPageActive, environment.isRetainedPageActive && page == selection)
-            .environment(\.self, environment))
+            .environment(\.self, environment)
+            .environment(\.colorScheme, colorScheme))
     }
 
     struct HostedPage {
