@@ -3,9 +3,9 @@ import SwiftUI
 struct AppView: View {
     enum Section: CaseIterable, Hashable {
         case file
-        case terminal
         case codex
         case browser
+        case terminal
         case overview
         case motion
 

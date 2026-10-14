@@ -11,7 +11,7 @@
 | ⇧⌘L | 一つ後のページに移動する（先頭へ循環） |
 | ⌘Q | 確認アラートを表示し、「終了」を選んだ場合にアプリを終了する |
 
-ページの順序は File → Terminal → AgentBook → Browser → Overview → Motion。
+ページの順序は File → AgentBook → Browser → Terminal → Overview → Motion。
 
 終了確認では Enter の既定動作はキャンセル。アプリメニューや Dock からの通常終了でも同じ確認を表示する。
 
