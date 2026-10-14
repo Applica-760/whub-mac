@@ -4,3 +4,4 @@
 - ビルド・起動・Archiveは [運用文書](docs/operations/build.md) に従う。
 - 要件が固まり切らない段階で勝手にTestを作らない
 - UIは基本LiquidGlassを利用する
+- 配色は役割に応じたApple標準の動的な色・Material・Glassを優先し、文字と背景をライト／ダーク両方に対応させる。独自色や固定の白・黒、Glassのtintは明確な意図がある場合に限り、両モードと起動中の切り替えで視認性を確認する。

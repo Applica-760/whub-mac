@@ -97,7 +97,7 @@ struct DiffView: View {
             Divider()
             pane(title: "作業ツリー · 保存済み", file: afterFile, lines: layout?.after, before: false)
         }
-        .background(Color(white: 0.07).opacity(0.75))
+        .background(Color(nsColor: .textBackgroundColor))
         .task(id: Source(before: before, after: after)) {
             let before = before
             let after = after

@@ -17,7 +17,6 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
     @ViewBuilder let tab: (ID, Bool, TabBarActions) -> Tab
 
     @Namespace private var namespace
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var position = ScrollPosition(x: 0)
     @State private var frames: [ID: CGRect] = [:]
@@ -58,7 +57,7 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
                             if id == selection {
                                 Capsule()
                                     .fill(.clear)
-                                    .glassEffect(.regular.tint(.white.opacity(0.15)), in: .capsule)
+                                    .glassEffect(.regular, in: .capsule)
                                     .glassEffectID(id, in: namespace)
                                     .matchedGeometryEffect(id: "selection", in: namespace)
                                     .allowsHitTesting(false)
@@ -90,15 +89,12 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
                 scrollOffset = metrics.offset
                 maximumOffset = metrics.maximum
             }
-            .glassEffect(
-                .regular.tint(.black.opacity(colorScheme == .dark ? 0.28 : 0.08)),
-                in: .capsule
-            )
+            .glassEffect(.regular, in: .capsule)
             .overlay(alignment: .topLeading) {
                 if let dragging {
                     tab(dragging, dragging == selection, TabBarActions(select: {}, close: {}))
                         .frame(width: floatingSize.width, height: floatingSize.height)
-                        .glassEffect(.regular.tint(.white.opacity(0.15)), in: .capsule)
+                        .glassEffect(.regular, in: .capsule)
                         .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
                         .offset(x: floatingOrigin.x, y: floatingOrigin.y)
                         .allowsHitTesting(false)
