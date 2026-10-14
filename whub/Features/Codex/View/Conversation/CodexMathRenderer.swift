@@ -155,8 +155,12 @@ struct CodexMathRenderer {
         guard let latex = formula.latex, !latex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let key = "\(size):\(colorScheme):\(formula.display):\(latex)" as NSString
         if let cached = Self.cache.object(forKey: key) { return cached }
+        var textColor = NSColor.labelColor
+        NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+            textColor = NSColor.labelColor.usingColorSpace(.sRGB) ?? .labelColor
+        }
         var math = MathImage(latex: latex, fontSize: size,
-                             textColor: colorScheme == .dark ? .white : .black,
+                             textColor: textColor,
                              labelMode: formula.display ? .display : .text, textAlignment: .left)
         let (error, image, layout) = math.asImage()
         guard error == nil, let image, let layout, image.size.width > 0, image.size.height > 0 else { return nil }

@@ -7,6 +7,7 @@ import WhubCore
 
 struct CodeEditorView: NSViewRepresentable {
     @Environment(\.isRetainedPageActive) private var isActive
+    @Environment(\.colorScheme) private var colorScheme
     let state: FileStore
     let editorID: String
     let onEdit: () -> Void
@@ -107,7 +108,7 @@ struct CodeEditorView: NSViewRepresentable {
         (scrollView.verticalRulerView as? LineNumberRulerView)?.update(source: textView.string, hunks: hunks, diffLines: diffLines)
         guard state.textStorage.string == source,
               !state.editorViews.hasMarkedText else { return }
-        let dark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let dark = colorScheme == .dark
         let key = HighlightKey(source: source, language: language, dark: dark, diffLines: diffLines)
         guard context.coordinator.highlighted != key else { return }
         codeHighlighter?.setTheme(
@@ -244,7 +245,7 @@ struct LocalCodeEditorView: View {
                 hunks: diffStore.hunks(for: fileURL, source: source)
             )
         }
-        .background(Color(white: 0.07).opacity(0.75))
+        .background(Color(nsColor: .textBackgroundColor))
         .task(id: CodeLoadID(fileURL: fileURL, refreshID: refreshID, diskRevision: state.diskRevision)) {
             await diffStore.load(fileURL: fileURL, gitStore: gitStore)
         }
@@ -286,7 +287,7 @@ struct RemoteViewerView: View {
             if let file = store.file(for: location), case let .text(source) = file.content {
                 CodeEditorView(state: file, editorID: editorID, onEdit: {}, source: source,
                                 language: codeLanguages[(location.name as NSString).pathExtension.lowercased()], hunks: [])
-                    .background(Color(white: 0.07).opacity(0.75))
+                    .background(Color(nsColor: .textBackgroundColor))
             } else {
                 Spacer()
             }

@@ -29,7 +29,6 @@ struct MotionView: View {
                     Text(selectedCameraName)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.gray)
                 .frame(maxWidth: 240)
                 .padding()
             }

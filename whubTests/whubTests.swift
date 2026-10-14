@@ -1106,15 +1106,16 @@ struct CodexReadingTests {
         }
         #expect(moves == [-1, 1, -1, 1])
         #expect(!keys.handle(try event("x", code: 7)))
+        #expect(!keys.handle(try event("/", code: 44)))
         for modifiers in [NSEvent.ModifierFlags.command, .control, .option, .shift] {
             #expect(!keys.handle(try event("l", code: 37, modifiers: modifiers)))
-            #expect(!keys.handle(try event("/", code: 44, modifiers: modifiers)))
+            #expect(!keys.handle(try event(" ", code: 49, modifiers: modifiers)))
         }
-        #expect(keys.handle(try event("/", code: 44)))
+        #expect(keys.handle(try event(" ", code: 49)))
         #expect(window.firstResponder === input)
         #expect(input.string == "draft")
         #expect(input.selectedRange() == NSRange(location: 2, length: 0))
-        for (characters, code) in [("h", UInt16(4)), ("l", 37), ("/", 44), ("", 123), ("", 124)] {
+        for (characters, code) in [("h", UInt16(4)), ("l", 37), (" ", 49), ("/", 44), ("", 123), ("", 124)] {
             #expect(!keys.handle(try event(characters, code: code)))
         }
         let other = CodexBookTextSurface(book: CodexBookDocument())
@@ -1122,13 +1123,13 @@ struct CodexReadingTests {
         content.addSubview(other)
         #expect(window.makeFirstResponder(other))
         #expect(!keys.handle(try event("l", code: 37)))
-        #expect(!keys.handle(try event("/", code: 44)))
+        #expect(!keys.handle(try event(" ", code: 49)))
 
         let composing = ComposingInputText(frame: content.bounds)
         content.addSubview(composing)
         #expect(window.makeFirstResponder(composing))
         #expect(!keys.handle(try event("l", code: 37)))
-        #expect(!keys.handle(try event("/", code: 44)))
+        #expect(!keys.handle(try event(" ", code: 49)))
         #expect(window.firstResponder === composing)
         #expect(moves == [-1, 1, -1, 1])
     }

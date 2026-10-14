@@ -80,7 +80,6 @@ struct ExplorerMenuView: View {
             if isPresented {
                 Rectangle()
                     .fill(.regularMaterial)
-                    .overlay { Color.gray.opacity(0.3) }
                     .mask {
                         LinearGradient(
                             stops: [

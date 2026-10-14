@@ -14,7 +14,7 @@ struct TerminalView: View {
                 .id(store.selectedSession.id)
                 .frame(maxWidth: .infinity, minHeight: 240)
                 .padding(6)
-                .background(Color(white: 0.07).opacity(0.75))
+                .background(Color(nsColor: .textBackgroundColor))
         } header: {
             TabBarContainer(
                 ids: store.sessions.map(\.id),

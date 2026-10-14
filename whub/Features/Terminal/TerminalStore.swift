@@ -7,6 +7,33 @@ import SwiftTerm
 import WhubCore
 
 private final class FixedCursorTerminalView: LocalProcessTerminalView {
+    private var appearanceObservation: NSKeyValueObservation?
+
+    func followSystemAppearance() {
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.initial, .new]) { [weak self] app, _ in
+            MainActor.assumeIsolated {
+                self?.applyAppearance(app.effectiveAppearance)
+            }
+        }
+    }
+
+    private func applyAppearance(_ appearance: NSAppearance) {
+        self.appearance = appearance
+        appearance.performAsCurrentDrawingAppearance {
+            configureNativeColors()
+            nativeForegroundColor = nativeForegroundColor.usingColorSpace(.sRGB) ?? nativeForegroundColor
+            nativeBackgroundColor = nativeBackgroundColor.usingColorSpace(.sRGB) ?? nativeBackgroundColor
+            caretColor = nativeForegroundColor
+            selectedTextBackgroundColor = NSColor.selectedTextBackgroundColor.usingColorSpace(.sRGB) ?? .selectedTextBackgroundColor
+            selectedTextForegroundColor = NSColor.selectedTextColor.usingColorSpace(.sRGB) ?? .selectedTextColor
+            layer?.backgroundColor = nativeBackgroundColor.cgColor
+            colorChanged(source: terminal, idx: nil)
+        }
+        for renderer in subviews.compactMap({ $0 as? MTKView }) {
+            renderer.setNeedsDisplay(renderer.bounds)
+        }
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
         return hit is MTKView ? self : hit
@@ -50,10 +77,7 @@ final class TerminalSession: Identifiable {
         }
         terminal.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         terminal.lineSpacing = 1.1
-        terminal.nativeBackgroundColor = .clear
-        terminal.nativeForegroundColor = NSColor(calibratedWhite: 0.9, alpha: 1)
-        terminal.wantsLayer = true
-        terminal.layer?.backgroundColor = terminal.nativeBackgroundColor.cgColor
+        terminal.followSystemAppearance()
         terminal.terminal.setCursorStyle(.steadyBar)
         terminal.startProcess(
             executable: "/bin/zsh",
