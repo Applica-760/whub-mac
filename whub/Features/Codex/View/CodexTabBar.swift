@@ -9,8 +9,8 @@ struct CodexTabBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static func visibleRange(count: Int, selectedIndex: Int) -> Range<Int> {
-        let start = min(max(0, selectedIndex - 1), max(0, count - 3))
-        return start..<min(count, start + 3)
+        let start = min(max(0, selectedIndex - 2), max(0, count - 5))
+        return start..<min(count, start + 5)
     }
 
     var body: some View {

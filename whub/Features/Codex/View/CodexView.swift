@@ -76,8 +76,8 @@ private struct CodexSessionView<Tabs: View>: View {
                     }
                     .overlay(alignment: .bottomLeading) {
                         tabs()
-                            .frame(width: 156, height: 36)
-                            .padding(.leading, 56)
+                            .frame(width: 232, height: 36)
+                            .padding(.leading, 16)
                             .padding(.bottom, 16)
                     }
                     .overlay(alignment: .topTrailing) {

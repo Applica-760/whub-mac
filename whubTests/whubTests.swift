@@ -493,19 +493,19 @@ struct CodexCompletionTests {
     @Test func completionSurvivesReorderingAndHiddenTabs() throws {
         let container = try makeContainer()
         let store = CodexTabsStore(context: container.mainContext)
-        for _ in 0..<3 { store.add() }
+        for _ in 0..<5 { store.add() }
         let first = store.sessions[0]
-        let fourth = store.sessions[3]
+        let sixth = store.sessions[5]
         store.select(first.id)
-        fourth.onCompletionChange?(true)
+        sixth.onCompletionChange?(true)
         let visible = CodexTabBar.visibleRange(count: store.sessions.count, selectedIndex: 0)
-        #expect(!visible.contains(3))
-        #expect(store.completedSessionIDs == [fourth.id])
+        #expect(visible == 0..<5)
+        #expect(store.completedSessionIDs == [sixth.id])
 
-        store.move(fourth.id, before: first.id)
-        #expect(store.sessions[0].id == fourth.id)
-        #expect(store.completedSessionIDs == [fourth.id])
-        store.select(fourth.id)
+        store.move(sixth.id, before: first.id)
+        #expect(store.sessions[0].id == sixth.id)
+        #expect(store.completedSessionIDs == [sixth.id])
+        store.select(sixth.id)
         #expect(store.completedSessionIDs.isEmpty)
     }
 

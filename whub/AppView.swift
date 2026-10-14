@@ -75,7 +75,7 @@ struct AppView: View {
                     codex.select(id)
                     section = .codex
                 }
-                .frame(width: 156, height: 36)
+                .frame(width: 232, height: 36)
                 .padding(.horizontal, 6)
                 .glassEffect(.regular, in: .capsule)
             }
