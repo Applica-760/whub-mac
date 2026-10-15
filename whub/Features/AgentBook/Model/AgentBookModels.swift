@@ -30,7 +30,7 @@ enum AgentBookInput: Equatable {
     case text(String)
     case skill(name: String)
     case image(AgentBookImageAttachment)
-    case command(AgentBookCommand)
+    case slashCommand(AgentBookSlashCommand)
 }
 
 struct AgentBookImageAttachment: Identifiable, Equatable {
@@ -43,7 +43,7 @@ struct AgentBookImageAttachment: Identifiable, Equatable {
     }
 }
 
-enum AgentBookCommand: String, CaseIterable {
+enum AgentBookSlashCommand: String, CaseIterable {
     case new = "/new"
     case stop = "/stop"
     case skills = "/skills"
