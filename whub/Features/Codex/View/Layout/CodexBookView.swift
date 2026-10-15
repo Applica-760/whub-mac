@@ -58,23 +58,8 @@ struct CodexBookView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-            HStack {
-                Button { move(-1) } label: {
-                    Image(systemName: "chevron.left").frame(width: 28, height: 28)
-                }
-                .disabled(book.spread == 0)
-                .accessibilityLabel("前の見開き")
-                Text("\(book.spread * 2 + 1)")
-                Spacer()
-                if book.spread * 2 + 1 < book.pageCount { Text("\(book.spread * 2 + 2)") }
-                Button { move(1) } label: {
-                    Image(systemName: "chevron.right").frame(width: 28, height: 28)
-                }
-                .disabled(book.spread == book.spreadCount - 1)
-                .accessibilityLabel("次の見開き")
-            }
-            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            .buttonStyle(.plain).padding(.horizontal, 12)
+            BookNavigationView(spread: book.spread, pageCount: book.pageCount,
+                               isGenerating: store.isBusy, isActive: canInteract, move: move)
             if let error = book.layoutError { Text(error).font(.caption).foregroundStyle(.secondary) }
         }
         .background(CodexPageKeys(focus: bookFocus, move: book.move))
