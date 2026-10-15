@@ -28,7 +28,7 @@ protocol AgentSession: AnyObject {
 final class AgentStore: ObservableObject, Identifiable {
     let id = UUID()
     @Published var draft = ""
-    @Published private(set) var outputs: [AgentOutput] = []
+    @Published private(set) var exchanges: [AgentExchange] = []
     @Published private(set) var isConnecting = false
     @Published private(set) var isConnected = false
     @Published private(set) var isBusy = false
@@ -44,6 +44,10 @@ final class AgentStore: ObservableObject, Identifiable {
     private let session: any AgentSession
     private var eventTask: Task<Void, Never>?
     private var pendingInput: String?
+
+    private var activeExchangeIndex: Int? {
+        exchanges.lastIndex { $0.status == .running }
+    }
 
     init(session: any AgentSession) {
         self.session = session
@@ -84,14 +88,15 @@ final class AgentStore: ObservableObject, Identifiable {
     func send() async {
         guard canSend else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let input: [AgentInput] = [.text(text)]
         pendingInput = text
         draft = ""
-        outputs = []
+        exchanges.append(AgentExchange(input: input))
         errorMessage = nil
         isBusy = true
 
         do {
-            try await session.send([.text(text)])
+            try await session.send(input)
         } catch {
             fail(error.localizedDescription)
         }
@@ -108,15 +113,16 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     private func handle(_ event: AgentEvent) {
-        guard isBusy else { return }
+        guard isBusy, let exchangeIndex = activeExchangeIndex else { return }
         switch event {
         case .output(let output):
-            if let index = outputs.firstIndex(where: { $0.id == output.id }) {
-                outputs[index] = output
+            if let index = exchanges[exchangeIndex].outputs.firstIndex(where: { $0.id == output.id }) {
+                exchanges[exchangeIndex].outputs[index] = output
             } else {
-                outputs.append(output)
+                exchanges[exchangeIndex].outputs.append(output)
             }
         case .completed:
+            exchanges[exchangeIndex].status = .completed
             pendingInput = nil
             isBusy = false
         case .failed(let message):
@@ -133,6 +139,7 @@ final class AgentStore: ObservableObject, Identifiable {
 
     private func fail(_ message: String) {
         errorMessage = message
+        if let index = activeExchangeIndex { exchanges[index].status = .failed }
         if draft.isEmpty, let pendingInput { draft = pendingInput }
         pendingInput = nil
         isBusy = false
