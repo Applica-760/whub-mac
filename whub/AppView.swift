@@ -35,8 +35,8 @@ struct AppView: View {
         func content() -> some View {
             switch self {
             case .overview: OverviewView()
-            case .file: EditorView().navigationTitle("File")
-            case .terminal: TerminalView().navigationTitle("Terminal")
+            case .file: EditorView()
+            case .terminal: TerminalView()
             case .browser: BrowserView()
             case .codex: CodexView()
             case .motion: MotionView()
@@ -64,8 +64,8 @@ struct AppView: View {
                 page.content()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle(section.label)
         }
+        .navigationTitle(section.label)
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 1000, minHeight: 550)
         .toolbar {

@@ -1,6 +1,31 @@
 import Foundation
 
 extension CodexCommandsStore {
+    func loadModelControls(directory: String) async {
+        let generation = generationID
+        await loadModels(directory: directory)
+        guard generation == generationID, modelError == nil else { return }
+        do {
+            let result = try await request("config/read", ["includeLayers": false, "cwd": directory], directory)
+            guard generation == generationID else { return }
+            guard let config = result["config"] as? [String: Any],
+                  let model = config["model"] as? String ?? models.first(where: \.isDefault)?.model else {
+                throw CodexError(message: "起動時のモデル設定を取得できませんでした。")
+            }
+            configuredEffort = config["model_reasoning_effort"] as? String
+                ?? models.first(where: { $0.model == model })?.defaultEffort
+            configuredModel = model
+        } catch {
+            if generation == generationID { modelError = error.localizedDescription }
+        }
+    }
+
+    func selectModel(_ model: CodexModel, session: CodexStore) async -> Bool {
+        let currentEffort = session.settings["effort"] as? String ?? configuredEffort
+        let effort = model.efforts.first { $0.reasoningEffort == currentEffort }?.reasoningEffort ?? model.defaultEffort
+        return await applyModel(model, effort: effort, session: session)
+    }
+
     func loadModels(directory: String) async {
         guard !isLoadingModels else { return }
         let generation = generationID

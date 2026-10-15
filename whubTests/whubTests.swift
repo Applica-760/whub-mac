@@ -702,13 +702,15 @@ struct CodexApprovalTests {
         let book = CodexBookDocument()
         var turn = CodexTurn(prompt: String(repeating: "本文を読み続ける。\n\n", count: 100))
         book.update([turn])
+        book.togglePrompt(turn.id)
         book.prepare(viewport: CGSize(width: 800, height: 650), colorScheme: .dark)
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
         #expect(NSMaxRange(try #require(book.ranges.last)) == book.storage.length)
-        #expect(book.storage.string.hasPrefix(turn.displayPrompt))
-        #expect(book.spreadCount > 2)
+        #expect(book.storage.string.contains(turn.displayPrompt))
+        #expect(book.spreadCount > 1)
+        book.move(1)
         book.move(-1)
         let pages = book.ranges
         let revision = book.revision
@@ -961,6 +963,46 @@ private struct RetainedInputProbe: NSViewRepresentable {
 
 @Suite @MainActor
 struct CodexReadingTests {
+    @Test func promptCollapseThresholdsCountCharactersAndExplicitLines() {
+        #expect(CodexBookDocument.collapsedPrompt(String(repeating: "あ", count: 500)) == nil)
+        #expect(CodexBookDocument.collapsedPrompt(String(repeating: "👩‍💻", count: 501)) == String(repeating: "👩‍💻", count: 500) + "…")
+        #expect(CodexBookDocument.collapsedPrompt(Array(repeating: "line", count: 6).joined(separator: "\r\n")) == nil)
+        #expect(CodexBookDocument.collapsedPrompt((1...7).map(String.init).joined(separator: "\n")) == "1\n2\n3\n4\n5\n6…")
+        #expect(CodexBookDocument.collapsedPrompt("short") == nil)
+    }
+
+    @Test func longPromptCanExpandCollapseAndStayExpandedDuringAnswerUpdates() async throws {
+        let book = CodexBookDocument()
+        let prompt = (1...80).map { "error line \($0)" }.joined(separator: "\n")
+        var turn = CodexTurn(prompt: prompt)
+        book.update([turn])
+        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .light)
+        #expect(book.storage.string.contains("error line 6…"))
+        #expect(!book.storage.string.contains("error line 80"))
+        #expect(book.promptControls.map(\.id) == [turn.id])
+        #expect(book.promptControls.allSatisfy { $0.frame.height == 20 && book.ranges.indices.contains($0.page) })
+        let collapsedPages = book.ranges.count
+        book.togglePrompt(turn.id)
+        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .light)
+        #expect(book.storage.string.contains(prompt))
+        #expect(book.ranges.count > collapsedPages)
+        turn.items = [CodexItem(id: "answer", type: "agentMessage", phase: "final_answer", text: "answer", status: "completed")]
+        book.update([turn])
+        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
+        #expect(book.isPromptExpanded(turn.id))
+        #expect(book.storage.string.contains(prompt))
+        #expect(book.storage.string.contains("answer"))
+        book.togglePrompt(turn.id)
+        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        #expect(!book.storage.string.contains("error line 80"))
+        #expect(book.spread == (try #require(book.promptControls.first)).page / 2)
+        #expect(NSMaxRange(try #require(book.ranges.last)) == book.storage.length)
+        #expect(turn.displayPrompt == prompt)
+        book.update([])
+        #expect(!book.isPromptExpanded(turn.id))
+    }
+
     @Test func sessionViewsSurviveSwitchesAndClosedTabsAreRemoved() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -1049,7 +1091,9 @@ struct CodexReadingTests {
         let content = try #require(window.contentView)
         let focus = CodexBookFocus()
         let book = CodexBookDocument()
-        book.update([CodexTurn(prompt: String(repeating: "長い本文。\n\n", count: 100))])
+        let turn = CodexTurn(prompt: String(repeating: "長い本文。\n\n", count: 100))
+        book.update([turn])
+        book.togglePrompt(turn.id)
         let surface = CodexBookTextSurface(book: book)
         surface.frame = content.bounds
         focus.readingView = surface
