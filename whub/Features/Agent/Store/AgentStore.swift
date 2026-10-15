@@ -7,7 +7,8 @@ enum AgentKind {
 }
 
 enum AgentEvent {
-    case textDelta(String)
+    // 同じIDのOutputは、差分ではなく最新の内容全体を渡す。
+    case output(AgentOutput)
     case completed
     case failed(String)
 }
@@ -19,7 +20,7 @@ protocol AgentSession: AnyObject {
     var events: AsyncStream<AgentEvent> { get }
 
     func connect(directory: String) async throws
-    func send(_ text: String) async throws
+    func send(_ input: [AgentInput]) async throws
     func disconnect()
 }
 
@@ -27,7 +28,7 @@ protocol AgentSession: AnyObject {
 final class AgentStore: ObservableObject, Identifiable {
     let id = UUID()
     @Published var draft = ""
-    @Published private(set) var answer = ""
+    @Published private(set) var outputs: [AgentOutput] = []
     @Published private(set) var isConnecting = false
     @Published private(set) var isConnected = false
     @Published private(set) var isBusy = false
@@ -85,12 +86,12 @@ final class AgentStore: ObservableObject, Identifiable {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         pendingInput = text
         draft = ""
-        answer = ""
+        outputs = []
         errorMessage = nil
         isBusy = true
 
         do {
-            try await session.send(text)
+            try await session.send([.text(text)])
         } catch {
             fail(error.localizedDescription)
         }
@@ -109,8 +110,12 @@ final class AgentStore: ObservableObject, Identifiable {
     private func handle(_ event: AgentEvent) {
         guard isBusy else { return }
         switch event {
-        case .textDelta(let text):
-            answer += text
+        case .output(let output):
+            if let index = outputs.firstIndex(where: { $0.id == output.id }) {
+                outputs[index] = output
+            } else {
+                outputs.append(output)
+            }
         case .completed:
             pendingInput = nil
             isBusy = false
