@@ -327,12 +327,13 @@ public struct ServerReleases: Sendable {
         guard process.terminationStatus == 0 else { throw ReleaseError("launch_failed", "systemd-run failed: \(process.terminationStatus)") }
     }
 
-    public func history() throws -> [ServerUpdate] {
+    public func history(environment: ServerEnvironment? = nil) throws -> [ServerUpdate] {
         let updates = root.appendingPathComponent("updates")
         guard FileManager.default.fileExists(atPath: updates.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(at: updates, includingPropertiesForKeys: nil)
             .filter { FileManager.default.fileExists(atPath: $0.appendingPathComponent("state.json").path) }
             .map { try readUpdate(id: $0.lastPathComponent) }
+            .filter { environment == nil || $0.environment == environment }
             .sorted { $0.startedAt < $1.startedAt }
     }
 

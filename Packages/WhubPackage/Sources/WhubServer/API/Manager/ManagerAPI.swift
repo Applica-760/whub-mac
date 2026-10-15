@@ -39,7 +39,7 @@ struct ManagerAPI: Sendable {
             case .history:
                 guard request.uri.query == nil else { throw ManagerAPIError.invalidRequest }
                 let updates = try await Task.detached {
-                    try releases.history().filter { $0.environment == configuration.environment }
+                    try releases.history(environment: configuration.environment)
                 }.value
                 return try json(updates)
             case .update(let id):

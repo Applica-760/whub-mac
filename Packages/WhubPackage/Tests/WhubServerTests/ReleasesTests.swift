@@ -30,6 +30,8 @@ private func build(_ fixture: BuildFixture) -> ServerBuild {
     let history = try releases.history()
     #expect(history.count == 2)
     #expect(history.allSatisfy { $0.status == "succeeded" && $0.finishedAt != nil })
+    #expect(try releases.history(environment: .dev).map(\.id) == [dev.id])
+    #expect(try releases.history(environment: .prod).map(\.id) == [prod.id])
 }
 
 @Test func releaseBuildFailureKeepsCurrentAndRecordsError() async throws {
