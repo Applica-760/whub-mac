@@ -2,12 +2,13 @@ import Foundation
 import Hummingbird
 
 enum ConfigurationError: Error, CustomStringConvertible {
-    case invalidAddress, invalidPort
+    case invalidAddress, invalidPort, missingRoot
 
     var description: String {
         switch self {
         case .invalidAddress: "WHUB_SERVER_HOST must not be empty."
         case .invalidPort: "WHUB_SERVER_PORT must be an integer between 1 and 65535."
+        case .missingRoot: "WHUB_SERVER_ROOT must specify an accessible absolute directory without symlinks."
         }
     }
 }
@@ -19,8 +20,9 @@ guard let port = Int(environment["WHUB_SERVER_PORT"] ?? "8080"), (1...65535).con
     throw ConfigurationError.invalidPort
 }
 
-let router = Router()
-router.get("ping") { _, _ -> String in "pong" }
+guard let root = environment["WHUB_SERVER_ROOT"] else { throw ConfigurationError.missingRoot }
+let files = try FilesService(root: root)
+let router = makeRouter(files: FilesAPI(service: files))
 
 let app = Application(
     router: router,
