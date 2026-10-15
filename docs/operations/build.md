@@ -35,7 +35,7 @@ open -n "$PWD/DerivedData/Build/Products/Debug/whub.app"
 GUIとCLIは同じ `workspace.store` を開く。WhubCoreの保存モデルを変更した場合は、GUIとCLIを両方再ビルドし、利用する成果物を揃える。
 古いCLIで新しい保存モデルのDBを開くと、GUIのHost取得時などにSwiftDataが停止する場合がある。
 
-`projects/whub-mac/Packages/WhubCore` に移動して実行する。
+`projects/whub-mac/Packages/WhubPackage` に移動して実行する。
 
 ```sh
 xcodebuild build \

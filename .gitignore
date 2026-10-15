@@ -11,5 +11,5 @@ xcuserdata/
 .build/
 DerivedData/
 build/
-Packages/WhubCore/build/
+Packages/WhubPackage/build/
 whub.xcodeproj/-Xcc/
