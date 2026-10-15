@@ -35,6 +35,8 @@ public final class RemoteHost: Host {
     public internal(set) var user: String
     public internal(set) var port: Int
     public internal(set) var identityFile: String
+    public internal(set) var devServerURL: String? = nil
+    public internal(set) var prodServerURL: String? = nil
 
     init(
         name: String,
@@ -42,12 +44,16 @@ public final class RemoteHost: Host {
         hostname: String,
         user: String,
         port: Int = 22,
-        identityFile: String
+        identityFile: String,
+        devServerURL: String? = nil,
+        prodServerURL: String? = nil
     ) {
         self.hostname = hostname
         self.user = user
         self.port = port
         self.identityFile = identityFile
+        self.devServerURL = devServerURL
+        self.prodServerURL = prodServerURL
         super.init(name: name, basePath: basePath)
     }
 }

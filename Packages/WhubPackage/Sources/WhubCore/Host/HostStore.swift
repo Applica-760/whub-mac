@@ -6,6 +6,7 @@ public enum HostStoreError: LocalizedError {
     case duplicateName(String)
     case localHostExists
     case invalidBasePath
+    case invalidServerURL
     case hasProjects(String)
 
     public var errorDescription: String? {
@@ -18,6 +19,8 @@ public enum HostStoreError: LocalizedError {
             "A local host already exists."
         case .invalidBasePath:
             "Base path must be absolute."
+        case .invalidServerURL:
+            "Server URL must use HTTP or HTTPS with a host, without credentials, a query or a fragment."
         case let .hasProjects(name):
             "Host \(name) has projects."
         }
@@ -56,17 +59,23 @@ public struct HostStore {
         hostname: String,
         user: String,
         port: Int = 22,
-        identityFile: String
+        identityFile: String,
+        devServerURL: String? = nil,
+        prodServerURL: String? = nil
     ) throws -> RemoteHost {
         let name = try validate(name: name, basePath: basePath)
         try SSH.validate(hostname: hostname, user: user, port: port)
+        let devServerURL = try validateServerURL(devServerURL)
+        let prodServerURL = try validateServerURL(prodServerURL)
         let host = RemoteHost(
             name: name,
             basePath: basePath,
             hostname: hostname,
             user: user,
             port: port,
-            identityFile: identityFile
+            identityFile: identityFile,
+            devServerURL: devServerURL,
+            prodServerURL: prodServerURL
         )
         context.insert(host)
         try context.save()
@@ -87,12 +96,18 @@ public struct HostStore {
         hostname: String,
         user: String,
         port: Int,
-        identityFile: String
+        identityFile: String,
+        devServerURL: String? = nil,
+        prodServerURL: String? = nil
     ) throws {
         let name = try validate(name: name, basePath: basePath, excluding: host)
         try SSH.validate(hostname: hostname, user: user, port: port)
+        // Omitted values preserve URLs for callers that only edit SSH settings; an empty string clears them.
+        let devServerURL = try validateServerURL(devServerURL ?? host.devServerURL)
+        let prodServerURL = try validateServerURL(prodServerURL ?? host.prodServerURL)
         if host.hostname != hostname || host.user != user || host.port != port
-            || host.identityFile != identityFile || host.basePath != basePath {
+            || host.identityFile != identityFile || host.basePath != basePath
+            || host.devServerURL != devServerURL || host.prodServerURL != prodServerURL {
             NotificationCenter.default.post(name: Self.connectionInvalidated, object: host.persistentModelID)
         }
         host.name = name
@@ -101,7 +116,24 @@ public struct HostStore {
         host.user = user
         host.port = port
         host.identityFile = identityFile
+        host.devServerURL = devServerURL
+        host.prodServerURL = prodServerURL
         try context.save()
+    }
+
+    private func validateServerURL(_ rawValue: String?) throws -> String? {
+        guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        guard let url = URL(string: value, encodingInvalidCharacters: false),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme, ["http", "https"].contains(scheme.lowercased()),
+              let host = components.host, !host.isEmpty,
+              components.user == nil, components.password == nil,
+              components.query == nil, components.fragment == nil else {
+            throw HostStoreError.invalidServerURL
+        }
+        return value
     }
 
     @discardableResult
