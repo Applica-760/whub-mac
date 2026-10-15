@@ -28,6 +28,18 @@ struct CodexBookView: View {
                 }
                 .overlay(alignment: .topLeading) {
                     ZStack(alignment: .topLeading) {
+                        ForEach(book.promptControls.filter { visiblePages.contains($0.page) }) { control in
+                            Button(book.isPromptExpanded(control.id) ? "折りたたむ" : "全文を表示",
+                                   systemImage: book.isPromptExpanded(control.id) ? "chevron.up" : "chevron.down") {
+                                bookFocus.activateReading()
+                                book.togglePrompt(control.id)
+                            }
+                            .font(.caption)
+                            .buttonStyle(.plain)
+                            .disabled(!canInteract)
+                            .frame(width: control.frame.width, height: control.frame.height, alignment: .leading)
+                            .offset(x: pageX(control.page) + control.frame.minX, y: control.frame.minY)
+                        }
                         ForEach(book.headers.filter { visiblePages.contains($0.page) }) { header in
                             if let turn = store.turns.first(where: { $0.id == header.id }) {
                                 CodexBookHeader(turn: turn, isActive: canInteract)

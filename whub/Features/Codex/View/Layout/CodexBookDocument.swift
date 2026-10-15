@@ -22,6 +22,7 @@ final class CodexBookDocument: ObservableObject {
     private(set) var pageSize = CGSize.zero
     private(set) var codes: [Code] = []
     private(set) var headers: [Header] = []
+    private(set) var promptControls: [Header] = []
     private(set) var contentBottoms: [CGFloat] = []
     private(set) var navigationRevision = 0
 
@@ -48,8 +49,11 @@ final class CodexBookDocument: ObservableObject {
         let prompt: String
         let images: [UUID]
         let answers: [String]
+        var isPromptExpanded: Bool
     }
 
+    private var expandedPrompts = Set<UUID>()
+    private var pendingPromptID: UUID?
     private var turns: [CodexTurn] = []
     private var inputs: [Input] = []
     private struct RenderedTurn {
@@ -67,13 +71,31 @@ final class CodexBookDocument: ObservableObject {
     init() { storage.addLayoutManager(manager) }
 
     func update(_ turns: [CodexTurn]) {
+        expandedPrompts.formIntersection(turns.map(\.id))
         let next = turns.map {
             Input(id: $0.id, prompt: $0.displayPrompt, images: $0.images.map(\.id),
-                  answers: $0.answers.map(\.displayMarkdown))
+                  answers: $0.answers.map(\.displayMarkdown), isPromptExpanded: expandedPrompts.contains($0.id))
         }
         guard inputs != next else { return }
         self.turns = turns
         inputs = next
+        revision += 1
+    }
+
+    static func collapsedPrompt(_ prompt: String) -> String? {
+        let lines = prompt.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
+        guard lines.count > 6 || prompt.count > 500 else { return nil }
+        return String(lines.prefix(6).joined(separator: "\n").prefix(500)) + "…"
+    }
+
+    func isPromptExpanded(_ id: UUID) -> Bool { expandedPrompts.contains(id) }
+
+    func togglePrompt(_ id: UUID) {
+        guard let index = inputs.firstIndex(where: { $0.id == id }), Self.collapsedPrompt(inputs[index].prompt) != nil else { return }
+        if !expandedPrompts.insert(id).inserted { expandedPrompts.remove(id) }
+        inputs[index].isPromptExpanded = expandedPrompts.contains(id)
+        pendingPromptID = id
         revision += 1
     }
 
@@ -114,6 +136,10 @@ final class CodexBookDocument: ObservableObject {
         if initial { nextSpread = max(0, (ranges.count - 1) / 2) }
         else if let reading, let position = location(of: reading),
                 let page = ranges.firstIndex(where: { NSLocationInRange(position, $0) }) { nextSpread = page / 2 }
+        if let pendingPromptID, let control = promptControls.first(where: { $0.id == pendingPromptID }) {
+            nextSpread = control.page / 2
+        }
+        pendingPromptID = nil
         publish(pageCount: ranges.count, spread: nextSpread, error: failure)
         return true
     }
@@ -181,15 +207,21 @@ final class CodexBookDocument: ObservableObject {
         contentBottoms = manager.textContainers.map {
             min(pageSize.height - 16, CodexBookLayout.pageInset + manager.usedRect(for: $0).maxY)
         }
-        headers = []
-        storage.enumerateAttribute(.codexNativeHeaderTurnID, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+        headers = controlFrames(for: .codexNativeHeaderTurnID, content: content)
+        promptControls = controlFrames(for: .codexNativePromptTurnID, content: content)
+    }
+
+    private func controlFrames(for key: NSAttributedString.Key, content: CGSize) -> [Header] {
+        var controls: [Header] = []
+        storage.enumerateAttribute(key, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
             guard let id = value as? UUID,
                   let page = ranges.firstIndex(where: { NSLocationInRange(range.location, $0) }) else { return }
             let glyph = manager.glyphIndexForCharacter(at: range.location)
             let line = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            headers.append(Header(id: id, page: page,
+            controls.append(Header(id: id, page: page,
                                   frame: CGRect(x: CodexBookLayout.pageInset, y: CodexBookLayout.pageInset + line.minY, width: content.width, height: 20)))
         }
+        return controls
     }
 
     private func publish(pageCount: Int, spread: Int, error: String?) {
@@ -210,6 +242,17 @@ final class CodexBookDocument: ObservableObject {
         paragraph.lineSpacing = 4
         paragraph.paragraphSpacing = 14
         if !input.prompt.isEmpty {
+            let collapsed = Self.collapsedPrompt(input.prompt)
+            if collapsed != nil {
+                let controlStyle = paragraph.mutableCopy() as! NSMutableParagraphStyle
+                controlStyle.minimumLineHeight = 20
+                controlStyle.maximumLineHeight = 20
+                controlStyle.paragraphSpacing = 8
+                output.append(NSAttributedString(string: "\u{200B}\n", attributes: [
+                    .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.clear,
+                    .paragraphStyle: controlStyle, .codexNativePromptTurnID: turn.id
+                ]))
+            }
             // A table cell can continue across text containers; a plain text block cannot.
             let table = NSTextTable()
             table.numberOfColumns = 1
@@ -220,7 +263,8 @@ final class CodexBookDocument: ObservableObject {
             bubble.setWidth(12, type: .absoluteValueType, for: .padding)
             let style = paragraph.mutableCopy() as! NSMutableParagraphStyle
             style.textBlocks = [bubble]
-            output.append(NSAttributedString(string: input.prompt + "\n", attributes: [
+            let prompt = input.isPromptExpanded ? input.prompt : collapsed ?? input.prompt
+            output.append(NSAttributedString(string: prompt + "\n", attributes: [
                 .font: NSFont.systemFont(ofSize: 15), .foregroundColor: NSColor.labelColor, .paragraphStyle: style
             ]))
         }
@@ -319,4 +363,5 @@ private final class CodexBookLayoutManager: NSLayoutManager {
 private extension NSAttributedString.Key {
     static let codexNativeHeaderTurnID = NSAttributedString.Key("whub.book.headerTurnID")
     static let codexNativeCodeID = NSAttributedString.Key("whub.book.codeID")
+    static let codexNativePromptTurnID = NSAttributedString.Key("whub.book.promptTurnID")
 }
