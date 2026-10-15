@@ -32,7 +32,16 @@ public struct ServerBuild: Sendable {
             throw BuildError("invalid_source", "Source must be the repository root.")
         }
         try requireClean()
-        try run("/usr/bin/git", ["fetch", "origin"], directory: source, log: log, code: "fetch_failed")
+        let prefix = "refs/remotes/origin/"
+        if ref.hasPrefix(prefix) {
+            try run("/usr/bin/git", ["check-ref-format", ref], directory: source, code: "invalid_ref")
+            let branch = String(ref.dropFirst(prefix.count))
+            // Fetch the requested branch even when origin's configured fetch refspec excludes it.
+            try run("/usr/bin/git", ["fetch", "origin", "+refs/heads/\(branch):\(ref)"],
+                    directory: source, log: log, code: "fetch_failed")
+        } else {
+            try run("/usr/bin/git", ["fetch", "origin"], directory: source, log: log, code: "fetch_failed")
+        }
         let commit = try run("/usr/bin/git", ["rev-parse", "--verify", "--end-of-options", "\(ref)^{commit}"],
                                     directory: source, code: "ref_resolution_failed")
         try run("/usr/bin/git", ["checkout", "--detach", commit], directory: source, log: log, code: "checkout_failed")

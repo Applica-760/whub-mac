@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import WhubServerManager
 
-private final class BuildFixture {
+final class BuildFixture {
     let directory: URL
     let source: URL
     let swift: URL
@@ -124,6 +124,28 @@ private final class BuildFixture {
         #expect(try fixture.git(["symbolic-ref", "HEAD"]) == head)
         #expect(!fixture.fm.fileExists(atPath: fixture.output.path))
     }
+}
+
+@Test func remoteRefFetchIgnoresRestrictedDefaultRefspecAndRejectsDeletedBranch() throws {
+    let fixture = try BuildFixture()
+    let original = try fixture.git(["rev-parse", "HEAD"])
+    try "new main".write(to: fixture.source.appendingPathComponent("Packages/WhubPackage/marker"), atomically: true, encoding: .utf8)
+    try fixture.git(["add", "."])
+    try fixture.git(["commit", "-m", "new main"])
+    let expected = try fixture.git(["rev-parse", "HEAD"])
+    try fixture.git(["push", "origin", "main"])
+    try fixture.git(["update-ref", "refs/remotes/origin/main", original])
+    try fixture.git(["config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/elsewhere"])
+    let artifact = try fixture.build(ref: "refs/remotes/origin/main")
+    #expect(artifact.commit == expected)
+
+    let deleted = try BuildFixture()
+    try deleted.git(["--git-dir", deleted.directory.appendingPathComponent("origin").path,
+                     "symbolic-ref", "HEAD", "refs/heads/absent"])
+    try deleted.git(["push", "origin", ":main"])
+    do { _ = try deleted.build(ref: "refs/remotes/origin/main"); Issue.record("Expected fetch failure") }
+    catch let error as BuildError { #expect(error.code == "fetch_failed") }
+    #expect(!deleted.fm.fileExists(atPath: deleted.output.path))
 }
 
 @Test func buildFailureKeepsLogAndDoesNotPublishArtifact() throws {
