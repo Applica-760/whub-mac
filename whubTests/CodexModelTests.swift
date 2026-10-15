@@ -67,6 +67,53 @@ struct CodexModelTests {
         #expect(!commands.isLoadingModels)
     }
 
+    @Test func modelControlsReadConfiguredSelectionWithoutCreatingThread() async {
+        var calls: [String] = []
+        let commands = CodexCommandsStore { method, params, directory in
+            calls.append(method)
+            #expect(directory == "/project")
+            if method == "model/list" { return ["data": [model()]] }
+            #expect(method == "config/read")
+            #expect(params["cwd"] as? String == "/project")
+            return ["config": ["model": "new-model", "model_reasoning_effort": "high"]]
+        }
+        await commands.loadModelControls(directory: "/project")
+        #expect(calls == ["model/list", "config/read"])
+        #expect(commands.configuredModel == "new-model")
+        #expect(commands.configuredEffort == "high")
+        #expect(commands.modelError == nil)
+    }
+
+    @Test func modelControlsUseServerDefaultsWhenConfigOmitsSelection() async {
+        let commands = CodexCommandsStore { method, _, _ in
+            if method == "config/read" { return ["config": [:]] }
+            var entry = model()
+            entry["isDefault"] = true
+            return ["data": [model("other"), entry]]
+        }
+        await commands.loadModelControls(directory: "/project")
+        #expect(commands.configuredModel == "new-model")
+        #expect(commands.configuredEffort == "medium")
+        commands.invalidate()
+        #expect(commands.configuredModel == nil)
+        #expect(commands.configuredEffort == nil)
+    }
+
+    @Test func invalidatedConfigReadCannotRestoreOldSelection() async {
+        var continuation: CheckedContinuation<[String: Any], Never>?
+        let commands = CodexCommandsStore { method, _, _ in
+            if method == "model/list" { return ["data": [model()]] }
+            return await withCheckedContinuation { continuation = $0 }
+        }
+        let task = Task { await commands.loadModelControls(directory: "/project") }
+        while continuation == nil { await Task.yield() }
+        commands.invalidate()
+        continuation?.resume(returning: ["config": ["model": "new-model"]])
+        await task.value
+        #expect(commands.configuredModel == nil)
+        #expect(commands.configuredEffort == nil)
+    }
+
     @Test func invalidatedLoadCannotRestoreStaleChoices() async {
         var continuation: CheckedContinuation<[String: Any], Never>?
         let commands = CodexCommandsStore { _, _, _ in
@@ -110,6 +157,27 @@ struct CodexModelTests {
         #expect(session.commands.modelError == "unsupported")
         #expect(session.draft == "/model")
         #expect(session.turns.isEmpty)
+    }
+
+    @Test func modelControlPreservesSupportedEffortAndFallsBackToModelDefault() async throws {
+        let context = try container()
+        var appliedEfforts: [String] = []
+        let session = CodexStore(context: context.mainContext) { method, params, _ in
+            #expect(method == "thread/settings/update")
+            appliedEfforts.append(params["effort"] as? String ?? "")
+            return [:]
+        }
+        try session.restoreHistory(thread(), expectedID: "thread-1")
+        session.draft = "unfinished prompt"
+        #expect(await session.commands.selectModel(try CodexModel(model()), session: session))
+        #expect(session.settings["effort"] as? String == "medium")
+        var entry = model("another-model")
+        entry["defaultReasoningEffort"] = "high"
+        entry["supportedReasoningEfforts"] = [["reasoningEffort": "high"]]
+        #expect(await session.commands.selectModel(try CodexModel(entry), session: session))
+        #expect(appliedEfforts == ["medium", "high"])
+        #expect(session.model == "another-model")
+        #expect(session.draft == "unfinished prompt")
     }
 
     @Test func reconnectRestoresSelectionAndNewConversationClearsIt() async throws {

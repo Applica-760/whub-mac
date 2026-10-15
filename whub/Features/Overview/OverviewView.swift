@@ -8,6 +8,5 @@ struct OverviewView: View {
                 TimerView()
             }
         }
-        .navigationTitle("Overview")
     }
 }

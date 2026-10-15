@@ -81,7 +81,6 @@ struct BrowserView: View {
             }
         }
         .background(TabPaneFocusView(focus: tabFocus))
-        .navigationTitle("Browser")
         .onAppear {
             if isActive { DispatchQueue.main.async { tabFocus.activate() } }
         }

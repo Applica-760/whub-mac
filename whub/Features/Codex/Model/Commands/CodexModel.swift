@@ -14,6 +14,7 @@ struct CodexModel: Identifiable {
     let defaultEffort: String
     let efforts: [Effort]
     let supportsImages: Bool
+    let isDefault: Bool
 
     init(_ data: [String: Any]) throws {
         guard let id = data["id"] as? String, !id.isEmpty,
@@ -24,6 +25,7 @@ struct CodexModel: Identifiable {
             throw CodexError(message: "モデル一覧の形式が不正です。")
         }
         self.id = id
+        isDefault = data["isDefault"] as? Bool ?? false
         self.model = model
         self.displayName = displayName
         description = data["description"] as? String ?? ""

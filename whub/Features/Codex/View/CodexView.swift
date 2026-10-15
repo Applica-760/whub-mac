@@ -29,7 +29,6 @@ struct CodexView: View {
             isShortcutTarget: { _ in pendingCloseID == nil },
             handlesNumberKeys: false
         ))
-        .navigationTitle("AgentBook")
         .alert("このタブを閉じますか？", isPresented: Binding(
             get: { pendingCloseID != nil },
             set: { if !$0 { pendingCloseID = nil } }
@@ -72,12 +71,17 @@ private struct CodexSessionView<Tabs: View>: View {
                         CodexInputView(commands: store.commands, focus: bookFocus) {
                             if store.turns.isEmpty { store.reset() } else { confirmsReset = true }
                         }
-                        .padding(.horizontal, 212)
+                        .padding(.horizontal, 232)
                     }
                     .overlay(alignment: .bottomLeading) {
                         tabs()
                             .frame(width: 232, height: 36)
                             .padding(.leading, 16)
+                            .padding(.bottom, 16)
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        ModelControlView(commands: store.commands, session: store)
+                            .padding(.trailing, 16)
                             .padding(.bottom, 16)
                     }
                     .overlay(alignment: .topTrailing) {

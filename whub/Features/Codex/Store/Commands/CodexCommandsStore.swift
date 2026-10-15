@@ -18,6 +18,8 @@ final class CodexCommandsStore: ObservableObject {
     @Published var models: [CodexModel] = []
     @Published var isLoadingModels = false
     @Published var modelError: String?
+    @Published var configuredModel: String?
+    @Published var configuredEffort: String?
     @Published private(set) var isLoadingStatus = false
 
     init(request: @escaping (String, [String: Any], String) async throws -> [String: Any]) {
@@ -31,6 +33,8 @@ final class CodexCommandsStore: ObservableObject {
         isLoadingModels = false
         isLoadingStatus = false
         modelError = nil
+        configuredModel = nil
+        configuredEffort = nil
     }
 
     func loadRecentThreads(directory: String, more: Bool = false) async {
