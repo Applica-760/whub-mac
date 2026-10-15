@@ -167,7 +167,7 @@
 			packageReferences = (
 				A49000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftMath" */,
 				C8244DC330553E480038A6AF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
-				C8244E5A3056B24F0038A6AF /* XCLocalSwiftPackageReference "Packages/WhubCore" */,
+				C8244E5A3056B24F0038A6AF /* XCLocalSwiftPackageReference "Packages/WhubPackage" */,
 				03AEE2700291130EC651D647 /* XCRemoteSwiftPackageReference "HighlighterSwift" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -497,9 +497,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		C8244E5A3056B24F0038A6AF /* XCLocalSwiftPackageReference "Packages/WhubCore" */ = {
+		C8244E5A3056B24F0038A6AF /* XCLocalSwiftPackageReference "Packages/WhubPackage" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/WhubCore;
+			relativePath = Packages/WhubPackage;
 		};
 /* End XCLocalSwiftPackageReference section */
 
