@@ -24,7 +24,7 @@ protocol AgentSession: AnyObject {
 }
 
 @MainActor
-final class AgentBookStore: ObservableObject, Identifiable {
+final class AgentStore: ObservableObject, Identifiable {
     let id = UUID()
     @Published var draft = ""
     @Published private(set) var answer = ""

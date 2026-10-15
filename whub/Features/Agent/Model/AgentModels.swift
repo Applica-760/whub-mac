@@ -3,22 +3,22 @@ import Foundation
 
 // MARK: - Exchange
 
-struct AgentBookExchange: Identifiable {
+struct AgentExchange: Identifiable {
     let id: UUID
-    var input: [AgentBookInput]
-    var outputs: [AgentBookOutput] = []
-    var status: AgentBookExecutionStatus = .running
+    var input: [AgentInput]
+    var outputs: [AgentOutput] = []
+    var status: AgentExecutionStatus = .running
 
-    var answers: [AgentBookOutput] { outputs.filter(\.isAnswer) }
-    var history: [AgentBookOutput] { outputs.filter { !$0.isAnswer } }
-    var pendingRequests: [AgentBookRequest] {
+    var answers: [AgentOutput] { outputs.filter(\.isAnswer) }
+    var history: [AgentOutput] { outputs.filter { !$0.isAnswer } }
+    var pendingRequests: [AgentRequest] {
         outputs.compactMap { output in
             guard case .request(let request) = output, request.outcome == nil else { return nil }
             return request
         }
     }
 
-    init(id: UUID = UUID(), input: [AgentBookInput]) {
+    init(id: UUID = UUID(), input: [AgentInput]) {
         self.id = id
         self.input = input
     }
@@ -26,14 +26,21 @@ struct AgentBookExchange: Identifiable {
 
 // MARK: - Input
 
-enum AgentBookInput: Equatable {
+enum AgentInput: Equatable {
     case text(String)
-    case skill(name: String)
-    case image(AgentBookImageAttachment)
-    case slashCommand(AgentBookSlashCommand)
+    case skill(AgentSkill)
+    case image(AgentImageAttachment)
+    case slashCommand(AgentSlashCommand)
 }
 
-struct AgentBookImageAttachment: Identifiable, Equatable {
+struct AgentSkill: Identifiable, Equatable {
+    // 接続側が識別子を割り当て、実際の呼び出し先との対応を管理する。
+    let id: String
+    let name: String
+    let description: String
+}
+
+struct AgentImageAttachment: Identifiable, Equatable {
     let id: UUID
     let image: NSImage
 
@@ -43,7 +50,7 @@ struct AgentBookImageAttachment: Identifiable, Equatable {
     }
 }
 
-enum AgentBookSlashCommand: String, CaseIterable {
+enum AgentSlashCommand: String, CaseIterable {
     case new = "/new"
     case stop = "/stop"
     case skills = "/skills"
@@ -54,32 +61,37 @@ enum AgentBookSlashCommand: String, CaseIterable {
 
 // MARK: - Output
 
-enum AgentBookOutput: Identifiable {
-    case message(AgentBookMessage)
-    case toolUse(AgentBookToolUse)
-    case request(AgentBookRequest)
+enum AgentOutput: Identifiable {
+    case message(AgentMessage)
+    case toolUse(AgentToolUse)
+    case request(AgentRequest)
+    case slashCommandResult(AgentSlashCommandResult)
 
     var id: String {
         switch self {
         case .message(let message): message.id
         case .toolUse(let toolUse): toolUse.id
         case .request(let request): request.id
+        case .slashCommandResult(let result): result.id
         }
     }
 
     var isAnswer: Bool {
-        if case .message(let message) = self { return message.role == .answer }
-        return false
+        switch self {
+        case .message(let message): message.role == .answer
+        case .slashCommandResult: true
+        case .toolUse, .request: false
+        }
     }
 }
 
-struct AgentBookMessage: Identifiable {
+struct AgentMessage: Identifiable {
     // 接続側が安定したIDを割り当てる。Viewはプロトコル上の意味を解釈しない。
     let id: String
     var role: Role
     var title: String
-    var content: AgentBookContent
-    var status: AgentBookExecutionStatus
+    var content: AgentContent
+    var status: AgentExecutionStatus
 
     enum Role {
         case answer
@@ -87,15 +99,15 @@ struct AgentBookMessage: Identifiable {
     }
 }
 
-struct AgentBookToolUse: Identifiable {
+struct AgentToolUse: Identifiable {
     let id: String
-    let tool: AgentBookTool
-    var arguments: AgentBookContent?
-    var result: [AgentBookContent]?
-    var status: AgentBookExecutionStatus
+    let tool: AgentTool
+    var arguments: AgentContent?
+    var result: [AgentContent]?
+    var status: AgentExecutionStatus
 }
 
-struct AgentBookTool {
+struct AgentTool {
     let name: String
     let source: String?
 
@@ -105,20 +117,27 @@ struct AgentBookTool {
     }
 }
 
-enum AgentBookContent: Equatable {
+struct AgentSlashCommandResult: Identifiable {
+    let id: String
+    let command: AgentSlashCommand
+    var content: [AgentContent]
+    var status: AgentExecutionStatus
+}
+
+enum AgentContent: Equatable {
     case text(String)
     case markdown(String)
     case code(String)
-    case image(AgentBookImageAttachment)
+    case image(AgentImageAttachment)
 }
 
 // MARK: - Request / Response
 
-struct AgentBookRequest: Identifiable {
+struct AgentRequest: Identifiable {
     // RPC IDとの対応と回答の送信形式は、接続側で保持する。
     let id: String
     let kind: Kind
-    var outcome: AgentBookRequestOutcome?
+    var outcome: AgentRequestOutcome?
 
     var isApproval: Bool {
         if case .approval = kind { return true }
@@ -126,12 +145,12 @@ struct AgentBookRequest: Identifiable {
     }
 
     enum Kind {
-        case approval(AgentBookApprovalRequest)
-        case questions([AgentBookQuestion])
+        case approval(AgentApprovalRequest)
+        case questions([AgentQuestion])
     }
 }
 
-struct AgentBookApprovalRequest {
+struct AgentApprovalRequest {
     let reason: String?
     let command: String?
     let directory: String?
@@ -141,7 +160,7 @@ struct AgentBookApprovalRequest {
     let details: String?
 }
 
-struct AgentBookQuestion: Identifiable {
+struct AgentQuestion: Identifiable {
     let id: String
     let prompt: String
     let options: [Option]
@@ -153,12 +172,12 @@ struct AgentBookQuestion: Identifiable {
     }
 }
 
-enum AgentBookResponse {
+enum AgentResponse {
     case approval(allow: Bool)
     case answers([String: String])
 }
 
-enum AgentBookRequestOutcome {
+enum AgentRequestOutcome {
     case accepted
     case declined
     case answered
@@ -168,7 +187,7 @@ enum AgentBookRequestOutcome {
 
 // MARK: - Status
 
-enum AgentBookExecutionStatus {
+enum AgentExecutionStatus {
     case running
     case completed
     case failed
