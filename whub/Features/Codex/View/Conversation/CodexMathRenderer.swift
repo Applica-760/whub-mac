@@ -131,7 +131,11 @@ struct CodexMathRenderer {
             if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
             var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
             if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            if intent.contains(.code) { attributes[.backgroundColor] = NSColor.secondaryLabelColor.withAlphaComponent(0.16) }
+            if intent.contains(.code) {
+                let background = NSColor.secondaryLabelColor.withAlphaComponent(0.16)
+                attributes[.backgroundColor] = background
+                attributes[.codexInlineCodeBackground] = background
+            }
             if let link = run.link { attributes[.link] = link }
             result.append(NSAttributedString(string: String(source[run.range].characters), attributes: attributes))
         }
@@ -172,4 +176,5 @@ struct CodexMathRenderer {
 
 extension NSAttributedString.Key {
     static let codexFormulaSource = NSAttributedString.Key("whub.formulaSource")
+    static let codexInlineCodeBackground = NSAttributedString.Key("whub.inlineCodeBackground")
 }
