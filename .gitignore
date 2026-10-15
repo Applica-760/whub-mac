@@ -13,3 +13,6 @@ DerivedData/
 build/
 Packages/WhubPackage/build/
 whub.xcodeproj/-Xcc/
+
+# Server source directory is not build output
+!Packages/WhubPackage/Sources/WhubServer/Services/Manager/Build/

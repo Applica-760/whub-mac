@@ -9,7 +9,6 @@ let package = Package(
         .library(name: "WhubCore", targets: ["WhubCore"]),
         .executable(name: "whub-mac", targets: ["WhubCLI"]),
         .executable(name: "whub-server", targets: ["WhubServer"]),
-        .library(name: "WhubServerManager", targets: ["WhubServerManager"]),
     ],
     dependencies: [
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
@@ -21,8 +20,7 @@ let package = Package(
             name: "WhubServer",
             dependencies: [.product(name: "Hummingbird", package: "hummingbird")]
         ),
-        .target(name: "WhubServerManager"),
         .testTarget(name: "WhubCoreTests", dependencies: ["WhubCore"]),
-        .testTarget(name: "WhubServerManagerTests", dependencies: ["WhubServerManager"]),
+        .testTarget(name: "WhubServerTests", dependencies: ["WhubServer"]),
     ]
 )

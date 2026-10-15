@@ -1,6 +1,6 @@
 # WhubServerのリリース
 
-`WhubServerManager.ServerReleases`が、ビルドからdev／prodの切り替え、失敗時の旧版復元までを実行する。今回はSwiftから呼ぶ共通処理までを実装し、CLI・更新API・systemdの初回登録は後段で扱う。
+`WhubServer`内の`Services/Manager/Releases/ServerReleases`が、ビルドからdev／prodの切り替え、失敗時の旧版復元までを実行する。今回はServer内のリリース処理までを実装し、CLI・更新API・systemdの初回登録は後段で扱う。
 
 初めて接続するときは「呼び出す前の準備」と「Swiftから更新する」を読む。中断や失敗が起きた場合は「履歴を確認する」「中断後は手動で復旧する」を参照する。
 
@@ -16,11 +16,10 @@ Linux上でSwift・Git・systemd userサービスを使えることが前提。�
 
 ## Swiftから更新する
 
-次は`WhubServerManager`を依存に持つSwiftプログラム内での呼び出し例。単体で実行できるスクリプトではない。パスとサービス名は実環境に合わせて明示する。
+次は`WhubServer` target内での呼び出し例。単体で実行できるスクリプトではない。パスとサービス名は実環境に合わせて明示する。
 
 ```swift
 import Foundation
-import WhubServerManager
 
 let releases = ServerReleases(
     root: URL(fileURLWithPath: "/home/user/Developer/.whub/server")

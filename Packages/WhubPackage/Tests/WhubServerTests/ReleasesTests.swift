@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import WhubServerManager
+@testable import WhubServer
 
 private let health = URL(string: "http://127.0.0.1:8080/ping")!
 

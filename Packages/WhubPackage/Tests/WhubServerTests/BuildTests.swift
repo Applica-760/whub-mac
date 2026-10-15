@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import WhubServerManager
+@testable import WhubServer
 
 final class BuildFixture {
     let directory: URL
