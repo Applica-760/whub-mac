@@ -7,6 +7,7 @@ enum AgentKind {
 }
 
 enum AgentEvent {
+    case modelOptionChanged(AgentModelOption)
     // 同じIDのOutputは、差分ではなく最新の内容全体を渡す。
     case output(AgentOutput)
     case completed
@@ -29,6 +30,7 @@ final class AgentStore: ObservableObject, Identifiable {
     let id = UUID()
     @Published var draft = ""
     @Published private(set) var exchanges: [AgentExchange] = []
+    @Published private(set) var selectedModelOption: AgentModelOption?
     @Published private(set) var isConnecting = false
     @Published private(set) var isConnected = false
     @Published private(set) var isBusy = false
@@ -113,8 +115,14 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     private func handle(_ event: AgentEvent) {
+        if case .modelOptionChanged(let option) = event {
+            selectedModelOption = option
+            return
+        }
         guard isBusy, let exchangeIndex = activeExchangeIndex else { return }
         switch event {
+        case .modelOptionChanged:
+            break
         case .output(let output):
             if let index = exchanges[exchangeIndex].outputs.firstIndex(where: { $0.id == output.id }) {
                 exchanges[exchangeIndex].outputs[index] = output
