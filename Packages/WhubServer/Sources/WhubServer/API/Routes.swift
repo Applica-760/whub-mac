@@ -6,5 +6,8 @@ func makeRouter(files: FilesAPI) -> Router<BasicRequestContext> {
     router.get("files") { request, _ -> Response in
         await files.list(query: request.uri.query)
     }
+    router.get("files/text") { request, _ -> Response in
+        await files.readText(query: request.uri.query)
+    }
     return router
 }

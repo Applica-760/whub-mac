@@ -35,6 +35,23 @@ struct FilesAPI: Sendable {
         }
     }
 
+    func readText(query: String?) async -> Response {
+        do {
+            let path = try Self.path(from: query)
+            guard !path.isEmpty else { throw FilesAPIError.invalidPath }
+            let text = try await Task.detached { try service.readText(path: path) }.value
+            let data = try JSONEncoder().encode(["text": text])
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: .init(bytes: data)))
+        } catch let error as FilesAPIError {
+            return error.response
+        } catch let error as FilesError {
+            return FilesAPIError(error).response
+        } catch {
+            return FilesAPIError.readFailed.response
+        }
+    }
+
     private static func path(from query: String?) throws -> String {
         guard let query, !query.isEmpty else { return "" }
         let fields = query.split(separator: "&", omittingEmptySubsequences: false)
