@@ -21,6 +21,6 @@ let package = Package(
             dependencies: [.product(name: "Hummingbird", package: "hummingbird")]
         ),
         .testTarget(name: "WhubCoreTests", dependencies: ["WhubCore"]),
-        .testTarget(name: "WhubServerTests", dependencies: ["WhubServer"]),
+        .testTarget(name: "WhubServerTests", dependencies: ["WhubServer", .product(name: "HummingbirdTesting", package: "hummingbird")]),
     ]
 )

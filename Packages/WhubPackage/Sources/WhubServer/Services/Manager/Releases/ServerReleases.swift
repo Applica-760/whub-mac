@@ -23,6 +23,7 @@ public struct ServerUpdate: Codable, Sendable {
     public var activeBuild: String?
     public var status: String
     public var error: String?
+    public var errorCode: String?
 }
 
 public struct ReleaseError: Error, CustomStringConvertible, Sendable {
@@ -32,12 +33,40 @@ public struct ReleaseError: Error, CustomStringConvertible, Sendable {
     public init(_ code: String, _ message: String) { self.code = code; self.message = message }
 }
 
-/// Run outside the managed server process. All callers sharing a checkout must use the same root.
+struct ManagerConfiguration: Codable, Sendable {
+    let environment: ServerEnvironment
+    let source: URL
+    let swift: String
+    let service: String
+    let healthURL: URL
+}
+
+private struct UpdateRequest: Codable {
+    let configuration: ManagerConfiguration
+    let ref: String
+}
+
+struct ManagerStatus: Codable, Sendable {
+    let environment: ServerEnvironment
+    let running: BuildArtifact?
+    let current: String?
+    let previous: String?
+    let update: ServerUpdate?
+    let locked: Bool
+}
+
+struct UpdateLog: Codable, Sendable {
+    let text: String
+    let nextOffset: UInt64
+}
+
+/// All callers sharing a checkout must use the same root. Only the worker runs perform().
 public struct ServerReleases: Sendable {
     public let root: URL
     private let restart: @Sendable (String, URL) throws -> Void
     private let stop: @Sendable (String, URL) throws -> Void
     private let verify: @Sendable (String, URL, URL) async throws -> Void
+    private let launch: @Sendable (URL, String, URL) throws -> Void
 
     public init(root: URL) {
         self.init(root: root, restart: Self.restartService, stop: Self.stopService, verify: Self.verifyService)
@@ -45,58 +74,123 @@ public struct ServerReleases: Sendable {
 
     init(root: URL, restart: @escaping @Sendable (String, URL) throws -> Void,
          stop: @escaping @Sendable (String, URL) throws -> Void = Self.stopService,
-         verify: @escaping @Sendable (String, URL, URL) async throws -> Void) {
+         verify: @escaping @Sendable (String, URL, URL) async throws -> Void,
+         launch: @escaping @Sendable (URL, String, URL) throws -> Void = Self.launchUpdate) {
         self.root = root.standardizedFileURL
         self.restart = restart
         self.stop = stop
         self.verify = verify
+        self.launch = launch
     }
 
     /// prod always builds the fetched origin/main; dev requires an explicit ref.
     public func release(environment: ServerEnvironment, ref: String? = nil, build: ServerBuild,
                         service: String, healthURL: URL) async throws -> ServerUpdate {
+        let configuration = ManagerConfiguration(environment: environment, source: build.source, swift: build.swift,
+                                                 service: service, healthURL: healthURL)
+        let update = try prepare(configuration: configuration, ref: ref)
+        return try await perform(id: update.id)
+    }
+
+    func start(configuration: ManagerConfiguration, ref: String?, executable: URL) throws -> ServerUpdate {
+        let update = try prepare(configuration: configuration, ref: ref)
+        let directory = try updateDirectory(update.id)
+        let runner = directory.appendingPathComponent("runner")
+        var launchAttempted = false
+        do {
+            try FileManager.default.copyItem(at: executable.resolvingSymlinksInPath(), to: runner)
+            launchAttempted = true
+            try launch(root, update.id, runner)
+        } catch {
+            // A systemd transport failure may happen after execution starts. Keep its reservation.
+            if !FileManager.default.fileExists(atPath: root.appendingPathComponent("update.lock/worker").path) {
+                var failed = update
+                failed.status = "launch_failed"
+                failed.errorCode = "launch_failed"
+                failed.error = String(describing: error)
+                failed.finishedAt = Date()
+                try save(failed)
+            }
+            if !launchAttempted { try releaseLock(id: update.id) }
+            throw ReleaseError("launch_failed", "Could not start update \(update.id); inspect its state and log.")
+        }
+        return update
+    }
+
+    private func prepare(configuration: ManagerConfiguration, ref: String?) throws -> ServerUpdate {
+        let service = configuration.service
         guard !service.isEmpty, !service.hasPrefix("-"),
               service.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.@".contains($0)) }) else {
             throw ReleaseError("invalid_service", "Specify a systemd user service name.")
         }
         let selectedRef: String
-        if environment == .prod {
+        if configuration.environment == .prod {
             guard ref == nil || ref == "refs/remotes/origin/main" else {
                 throw ReleaseError("invalid_ref", "prod only accepts refs/remotes/origin/main.")
             }
             selectedRef = "refs/remotes/origin/main"
         } else {
-            guard let ref, !ref.isEmpty else { throw ReleaseError("invalid_ref", "dev requires a ref.") }
+            guard let ref, !ref.isEmpty, !ref.hasPrefix("-"), !ref.contains("\0"), ref.count <= 256 else {
+                throw ReleaseError("invalid_ref", "dev requires a valid ref.")
+            }
             selectedRef = ref
         }
-        guard ["http", "https"].contains(healthURL.scheme), healthURL.host != nil else {
+        guard ["http", "https"].contains(configuration.healthURL.scheme), configuration.healthURL.host != nil else {
             throw ReleaseError("invalid_health_url", "Specify an HTTP health endpoint.")
         }
         let fm = FileManager.default
-        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let lock = root.appendingPathComponent("update.lock")
-        // Atomic mkdir also rejects other processes. A crash leaves the lock for manual recovery.
         guard mkdir(lock.path, 0o700) == 0 else {
-            throw ReleaseError("update_locked", "Cannot acquire \(lock.path); another update or interrupted update may exist.")
+            throw ReleaseError("update_locked", "Another update or interrupted update may exist.")
         }
-        defer { try? fm.removeItem(at: lock) }
-        let directory = root.appendingPathComponent("updates/\(UUID().uuidString)")
-        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        do {
+            let update = ServerUpdate(id: UUID().uuidString, environment: configuration.environment,
+                                      ref: selectedRef, startedAt: Date(), status: "queued")
+            let directory = try updateDirectory(update.id)
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try JSONEncoder().encode(UpdateRequest(configuration: configuration, ref: selectedRef))
+                .write(to: directory.appendingPathComponent("request.json"), options: .atomic)
+            guard fm.createFile(atPath: directory.appendingPathComponent("build.log").path, contents: nil,
+                                attributes: [.posixPermissions: 0o600]) else {
+                throw ReleaseError("storage_failed", "Could not create update log.")
+            }
+            try save(update)
+            try Data(update.id.utf8).write(to: lock.appendingPathComponent("id"), options: .atomic)
+            return update
+        } catch {
+            try? fm.removeItem(at: lock)
+            throw error
+        }
+    }
+
+    func perform(id: String) async throws -> ServerUpdate {
+        let fm = FileManager.default
+        let directory = try updateDirectory(id)
+        var update = try readUpdate(id: id)
+        let lock = root.appendingPathComponent("update.lock")
+        guard (try? String(contentsOf: lock.appendingPathComponent("id"), encoding: .utf8)) == update.id,
+              update.status == "queued", mkdir(lock.appendingPathComponent("worker").path, 0o700) == 0 else {
+            throw ReleaseError("update_locked", "Update has no matching reservation or already started.")
+        }
+        let request = try JSONDecoder().decode(UpdateRequest.self, from: Data(contentsOf: directory.appendingPathComponent("request.json")))
+        guard request.configuration.environment == update.environment, request.ref == update.ref else {
+            throw ReleaseError("invalid_request", "Saved request and update state do not match.")
+        }
+        let configuration = request.configuration
+        let build = ServerBuild(source: configuration.source, swift: configuration.swift)
+        let service = configuration.service
+        let healthURL = configuration.healthURL
+        let selectedRef = request.ref
         let log = directory.appendingPathComponent("build.log")
-        let env = root.appendingPathComponent("environments/\(environment.rawValue)")
+        let env = root.appendingPathComponent("environments/\(configuration.environment.rawValue)")
         let current = env.appendingPathComponent("current")
         let previous = env.appendingPathComponent("previous")
-        var update = ServerUpdate(id: directory.lastPathComponent, environment: environment, ref: selectedRef,
-                                  startedAt: Date(), status: "building")
-        func save() throws {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            encoder.dateEncodingStrategy = .millisecondsSince1970
-            try encoder.encode(update).write(to: directory.appendingPathComponent("state.json"), options: .atomic)
-        }
+        func save() throws { try self.save(update) }
         var old: URL?
         var switched = false
         do {
+            update.status = "building"
             old = try linkedRelease(current)
             update.previousBuild = old?.lastPathComponent
             update.activeBuild = update.previousBuild
@@ -121,6 +215,7 @@ public struct ServerReleases: Sendable {
             update.status = "succeeded"
         } catch {
             update.error = String(describing: error)
+            update.errorCode = (error as? BuildError)?.code ?? (error as? ReleaseError)?.code ?? "update_failed"
             update.status = "failed"
             if switched {
                 update.status = "rolling_back"
@@ -145,22 +240,99 @@ public struct ServerReleases: Sendable {
                 } catch {
                     update.activeBuild = nil
                     update.status = "recovery_failed"
+                    update.errorCode = "recovery_failed"
                     update.error = "\(update.error ?? ""); recovery: \(error)"
                 }
             }
         }
         update.finishedAt = Date()
         try save()
+        try releaseLock(id: update.id)
+        try? fm.removeItem(at: directory.appendingPathComponent("runner"))
         return update
+    }
+
+    private func save(_ update: ServerUpdate) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        try encoder.encode(update).write(to: try updateDirectory(update.id).appendingPathComponent("state.json"), options: .atomic)
+    }
+
+    private func releaseLock(id: String) throws {
+        let lock = root.appendingPathComponent("update.lock")
+        guard try String(contentsOf: lock.appendingPathComponent("id"), encoding: .utf8) == id else {
+            throw ReleaseError("update_locked", "Reservation ownership changed.")
+        }
+        try FileManager.default.removeItem(at: lock)
+    }
+
+    private func updateDirectory(_ id: String) throws -> URL {
+        guard let uuid = UUID(uuidString: id) else { throw ReleaseError("invalid_id", "Invalid update ID.") }
+        return root.appendingPathComponent("updates/\(uuid.uuidString)")
+    }
+
+    func readUpdate(id: String, environment: ServerEnvironment? = nil) throws -> ServerUpdate {
+        let file = try updateDirectory(id).appendingPathComponent("state.json")
+        guard FileManager.default.fileExists(atPath: file.path) else { throw ReleaseError("not_found", "Update not found.") }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .millisecondsSince1970
+        let update = try decoder.decode(ServerUpdate.self, from: Data(contentsOf: file))
+        guard environment == nil || update.environment == environment else { throw ReleaseError("not_found", "Update not found.") }
+        return update
+    }
+
+    func log(id: String, environment: ServerEnvironment, offset: UInt64) throws -> UpdateLog {
+        _ = try readUpdate(id: id, environment: environment)
+        let handle = try FileHandle(forReadingFrom: updateDirectory(id).appendingPathComponent("build.log"))
+        defer { try? handle.close() }
+        let size = try handle.seekToEnd()
+        guard offset <= size else { throw ReleaseError("invalid_offset", "Offset exceeds log size.") }
+        try handle.seek(toOffset: offset)
+        let data = try handle.read(upToCount: 1_048_576) ?? Data()
+        return UpdateLog(text: String(decoding: data, as: UTF8.self), nextOffset: offset + UInt64(data.count))
+    }
+
+    func status(environment: ServerEnvironment, running: BuildArtifact?) throws -> ManagerStatus {
+        let env = root.appendingPathComponent("environments/\(environment.rawValue)")
+        let current = try linkedRelease(env.appendingPathComponent("current"))?.lastPathComponent
+        let previous = try linkedRelease(env.appendingPathComponent("previous"))?.lastPathComponent
+        let lock = root.appendingPathComponent("update.lock")
+        var update: ServerUpdate?
+        if let id = try? String(contentsOf: lock.appendingPathComponent("id"), encoding: .utf8) {
+            let active = try readUpdate(id: id)
+            if active.environment == environment { update = active }
+        }
+        return ManagerStatus(environment: environment, running: running, current: current, previous: previous,
+                             update: update, locked: FileManager.default.fileExists(atPath: lock.path))
+    }
+
+    private static func launchUpdate(root: URL, id: String, runner: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/systemd-run")
+        var arguments = ["--user", "--collect", "--service-type=exec", "--expand-environment=no",
+                         "--unit=whub-update-\(id)"]
+        for key in ["SSH_AUTH_SOCK", "SWIFTLY_HOME_DIR", "SWIFTLY_BIN_DIR", "LD_LIBRARY_PATH"] {
+            if let value = ProcessInfo.processInfo.environment[key] { arguments.append("--setenv=\(key)=\(value)") }
+        }
+        process.arguments = arguments + ["--", runner.path, "update", root.path, id]
+        let descriptor = open(root.appendingPathComponent("updates/\(id)/build.log").path, O_WRONLY | O_APPEND)
+        guard descriptor >= 0 else { throw ReleaseError("log_failed", "Could not open update log.") }
+        let handle = FileHandle(fileDescriptor: descriptor)
+        defer { try? handle.close() }
+        process.standardOutput = handle
+        process.standardError = handle
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw ReleaseError("launch_failed", "systemd-run failed: \(process.terminationStatus)") }
     }
 
     public func history() throws -> [ServerUpdate] {
         let updates = root.appendingPathComponent("updates")
         guard FileManager.default.fileExists(atPath: updates.path) else { return [] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .millisecondsSince1970
         return try FileManager.default.contentsOfDirectory(at: updates, includingPropertiesForKeys: nil)
-            .map { try decoder.decode(ServerUpdate.self, from: Data(contentsOf: $0.appendingPathComponent("state.json"))) }
+            .filter { FileManager.default.fileExists(atPath: $0.appendingPathComponent("state.json").path) }
+            .map { try readUpdate(id: $0.lastPathComponent) }
             .sorted { $0.startedAt < $1.startedAt }
     }
 
@@ -206,11 +378,9 @@ public struct ServerReleases: Sendable {
         let pipe = Pipe()
         var handle: FileHandle?
         if let log {
-            if !FileManager.default.fileExists(atPath: log.path) {
-                FileManager.default.createFile(atPath: log.path, contents: nil, attributes: [.posixPermissions: 0o600])
-            }
-            handle = try FileHandle(forWritingTo: log)
-            try handle?.seekToEnd()
+            let descriptor = open(log.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
+            guard descriptor >= 0 else { throw ReleaseError("log_failed", "Could not open service log.") }
+            handle = FileHandle(fileDescriptor: descriptor)
             process.standardOutput = handle
             process.standardError = handle
         } else {

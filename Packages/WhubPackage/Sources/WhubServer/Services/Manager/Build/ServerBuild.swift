@@ -1,4 +1,9 @@
 import Foundation
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
 
 public struct ServerBuild: Sendable {
     public let source: URL
@@ -97,11 +102,9 @@ public struct ServerBuild: Sendable {
         var handle: FileHandle?
         let pipe = Pipe()
         if let log {
-            if !FileManager.default.fileExists(atPath: log.path) {
-                FileManager.default.createFile(atPath: log.path, contents: nil, attributes: [.posixPermissions: 0o600])
-            }
-            handle = try FileHandle(forWritingTo: log)
-            try handle?.seekToEnd()
+            let descriptor = open(log.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
+            guard descriptor >= 0 else { throw BuildError("log_failed", "Could not open build log.") }
+            handle = FileHandle(fileDescriptor: descriptor)
             try handle?.write(contentsOf: Data(("\n\(executable) \(arguments.joined(separator: " "))\n").utf8))
             process.standardOutput = handle; process.standardError = handle
         } else {
