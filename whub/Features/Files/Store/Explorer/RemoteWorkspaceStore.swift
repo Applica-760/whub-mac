@@ -13,12 +13,17 @@ final class RemoteWorkspaceStore: ObservableObject {
         let worktreesPath: String
         let sessionID: ObjectIdentifier
         var serverURL: String? = nil
+        var projectNames: [String] = []
+
+        var baseLocation: FileLocation {
+            .remote(hostID: hostID, path: (projectsPath as NSString).deletingLastPathComponent)
+        }
 
         // Display-name changes do not invalidate directory listings.
         static func == (lhs: Self, rhs: Self) -> Bool {
             lhs.hostID == rhs.hostID && lhs.projectsPath == rhs.projectsPath
                 && lhs.worktreesPath == rhs.worktreesPath && lhs.sessionID == rhs.sessionID
-                && lhs.serverURL == rhs.serverURL
+                && lhs.serverURL == rhs.serverURL && lhs.projectNames == rhs.projectNames
         }
     }
 
@@ -33,19 +38,20 @@ final class RemoteWorkspaceStore: ObservableObject {
     private var generations: [PersistentIdentifier: UUID] = [:]
     private var refreshID: Int?
 
-    static func connectedSources(hosts: [RemoteHost], connections: RemoteConnectionStore) -> [Source] {
+    static func connectedSources(hosts: [RemoteHost], projects: [Project], connections: RemoteConnectionStore) -> [Source] {
         hosts.compactMap { host in
             guard let connection = connections.connection(for: host) else { return nil }
             return .init(hostID: host.persistentModelID, hostName: host.name,
                          projectsPath: host.projectsPath, worktreesPath: host.worktreesPath,
                          sessionID: ObjectIdentifier(connection),
-                         serverURL: RemoteServerStore.currentEnvironment == .dev ? host.devServerURL : host.prodServerURL)
+                         serverURL: RemoteServerStore.currentEnvironment == .dev ? host.devServerURL : host.prodServerURL,
+                         projectNames: projects.filter { $0.host.persistentModelID == host.persistentModelID }.map(\.name))
         }
     }
 
-    func update(hosts: [RemoteHost], connections: RemoteConnectionStore, servers: RemoteServerStore, refreshID: Int) {
+    func update(hosts: [RemoteHost], connections: RemoteConnectionStore, servers: RemoteServerStore, refreshID: Int, context: ModelContext, projects: [Project]) {
         let hostsByID = Dictionary(uniqueKeysWithValues: hosts.map { ($0.persistentModelID, $0) })
-        update(sources: Self.connectedSources(hosts: hosts, connections: connections), refreshID: refreshID) { source, root in
+        update(sources: Self.connectedSources(hosts: hosts, projects: projects, connections: connections), refreshID: refreshID, context: context) { source, root in
             guard let host = hostsByID[source.hostID],
                   let connection = connections.connection(for: host), ObjectIdentifier(connection) == source.sessionID else {
                 throw SSHError.disconnected
@@ -60,12 +66,12 @@ final class RemoteWorkspaceStore: ObservableObject {
 
     func entries(for current: [Source]) -> [FileLocation] {
         current.flatMap { source in
-            sources[source.hostID] == source ? entries[source.hostID, default: []] : []
+            sources[source.hostID] == source ? [source.baseLocation] + entries[source.hostID, default: []] : []
         }
     }
 
     func update(
-        sources current: [Source], refreshID: Int,
+        sources current: [Source], refreshID: Int, context: ModelContext,
         list: @escaping @MainActor (Source, String) async throws -> [FilesAPI.FileEntry]
     ) {
         let ids = Set(current.map(\.hostID))
@@ -88,39 +94,34 @@ final class RemoteWorkspaceStore: ObservableObject {
             generations[id] = generation
             states[id] = .loading
             jobs[id] = Task { [weak self] in
-                var projects: [String] = []
-                var worktrees: [String] = []
                 var errors: [String] = []
-                do { projects = Self.directoryNames(try await list(source, source.projectsPath)) }
-                catch { errors.append("Projects: \(error.localizedDescription)") }
-                guard !Task.isCancelled else { return }
-                do { worktrees = Self.directoryNames(try await list(source, source.worktreesPath)) }
-                catch { errors.append("Worktrees: \(error.localizedDescription)") }
-                guard !Task.isCancelled, let self, self.generations[id] == generation else { return }
-                let projectEntries = projects.map {
-                    FileLocation.remote(hostID: id, path: (source.projectsPath as NSString).appendingPathComponent($0))
-                }
-                let worktreeEntries = worktrees.filter { name in
-                    projects.contains { project in
-                        let prefix = project + "-"
-                        guard name.hasPrefix(prefix), let number = Int(name.dropFirst(prefix.count)), number > 0 else { return false }
-                        return name == "\(project)-\(number)"
+                do {
+                    guard let host = context.model(for: id) as? RemoteHost else { throw SSHError.disconnected }
+                    let workspace = try await ProjectStore(context: context).resolveWorkspace(for: host) { path in
+                        try Task.checkCancellation()
+                        do { return Self.directoryNames(try await list(source, path)) }
+                        catch {
+                            errors.append("\(path): \(error.localizedDescription)")
+                            return []
+                        }
                     }
-                }.map {
-                    FileLocation.remote(hostID: id, path: (source.worktreesPath as NSString).appendingPathComponent($0))
+                    guard !Task.isCancelled, let self, self.generations[id] == generation else { return }
+                    self.entries[id] = workspace.projects.map { .remote(hostID: id, path: $0.path) }
+                        + workspace.worktrees.map { .remote(hostID: id, path: $0.path) }
+                    self.states[id] = errors.isEmpty ? .loaded : .failed(errors.joined(separator: "\n"))
+                } catch {
+                    guard !Task.isCancelled, let self, self.generations[id] == generation else { return }
+                    self.entries[id] = []
+                    self.states[id] = .failed(error.localizedDescription)
                 }
-                self.entries[id] = projectEntries + worktreeEntries
-                self.states[id] = errors.isEmpty ? .loaded : .failed(errors.joined(separator: "\n"))
+                guard let self, self.generations[id] == generation else { return }
                 self.jobs.removeValue(forKey: id)
             }
         }
     }
 
     private static func directoryNames(_ entries: [FilesAPI.FileEntry]) -> [String] {
-        entries.filter {
-            $0.kind == .directory && !$0.name.isEmpty && $0.name != "." && $0.name != ".."
-                && !$0.name.contains("/") && !$0.name.contains("\0")
-        }.map(\.name).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        entries.filter { $0.kind == .directory }.map(\.name)
     }
 
     func stop() {

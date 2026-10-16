@@ -1,5 +1,5 @@
 // 検証する内容:
-// - ディレクトリのみをProjectとして並べ、対応する正のIssue番号のWorktreeだけを末尾へ置く。
+// - 登録済みで実在するディレクトリのみをProjectとして並べ、対応する正のIssue番号のWorktreeだけを末尾へ置く。
 // - 同じパスのローカル・別ホストを区別し、選択とショートカットの順序を保つ。
 // - 切断・再接続後に遅れて返る成功・失敗が新しい一覧を上書きしない。
 // - 再取得時に一覧を更新し、一部の取得失敗を空の正常結果として隠さない。
@@ -32,20 +32,21 @@ struct RemoteWorkspaceStoreTests {
         let fixture = try Fixture()
         let sources = [fixture.source(fixture.first), fixture.source(fixture.second)]
         let store = RemoteWorkspaceStore()
-        store.update(sources: sources, refreshID: 0) { source, path in
+        store.update(sources: sources, refreshID: 0, context: fixture.container.mainContext) { source, path in
             if path == source.projectsPath {
-                return try entries(["z", "a"]) + entries(["file"], kind: "file") + entries(["link"], kind: "symlink")
+                return try entries(source.hostID == fixture.first.persistentModelID ? ["z", "a", "unregistered"] : ["d", "c"]) + entries(["file"], kind: "file") + entries(["missing"], kind: "symlink")
             }
-            return try entries(["a-10", "a-2", "a-0", "a--1", "a-01", "unknown-1", "a-draft"])
+            return try entries(source.hostID == fixture.first.persistentModelID
+                ? ["a-10", "a-2", "a-0", "a--1", "a-01", "unknown-1", "a-draft"] : ["c-2", "c-10"])
         }
         try await eventually { sources.allSatisfy { store.states[$0.hostID] == .loaded } }
         let rows = store.entries(for: sources)
-        #expect(rows.map(\.name) == ["a", "z", "a-2", "a-10", "a", "z", "a-2", "a-10"])
-        #expect(rows[0] != rows[4])
-        #expect(rows[0] != .local(URL(fileURLWithPath: "/same/projects/a")))
+        #expect(rows.map(\.name) == ["same", "a", "z", "a-2", "a-10", "same", "c", "d", "c-2", "c-10"])
+        #expect(rows[0] != rows[5])
+        #expect(rows[0] != .local(URL(fileURLWithPath: "/same")))
         let explorer = ExplorerStore()
         let localHost = try HostStore(context: fixture.container.mainContext).addLocal(name: "local", basePath: "/same")
-        let project = try ProjectStore(context: fixture.container.mainContext).add(name: "a", gitURL: nil, host: localHost)
+        let project = try ProjectStore(context: fixture.container.mainContext).add(name: "local-app", gitURL: nil, host: localHost)
         let locations = explorer.availableLocations(projects: [project], remote: rows, basePath: localHost.basePath)
         #expect(locations == [.local(URL(fileURLWithPath: localHost.basePath)), .local(URL(fileURLWithPath: project.path))] + rows)
         explorer.selectedLocation = locations[1]
@@ -86,7 +87,7 @@ struct RemoteWorkspaceStoreTests {
         let source = fixture.source(fixture.first)
         let store = RemoteWorkspaceStore()
         var requests = 0
-        store.update(sources: [source], refreshID: 0) { source, path in
+        store.update(sources: [source], refreshID: 0, context: fixture.container.mainContext) { source, path in
             requests += 1
             return try entries(path == source.projectsPath ? ["a"] : ["a-1"])
         }
@@ -105,7 +106,7 @@ struct RemoteWorkspaceStoreTests {
         #expect(renamed.hostName == "renamed")
         #expect(renamed == source)
         #expect(store.entries(for: [renamed]) == locations)
-        store.update(sources: [renamed], refreshID: 0) { _, _ in
+        store.update(sources: [renamed], refreshID: 0, context: fixture.container.mainContext) { _, _ in
             requests += 1
             Issue.record("表示名だけの変更で一覧を再取得しました。")
             return []
@@ -126,23 +127,23 @@ struct RemoteWorkspaceStoreTests {
         let gate = Gate()
         let store = RemoteWorkspaceStore()
         var oldReturned = false
-        store.update(sources: [old], refreshID: 0) { _, _ in
+        store.update(sources: [old], refreshID: 0, context: fixture.container.mainContext) { _, _ in
             await gate.wait()
             oldReturned = true
             if !succeeds { throw SSHError.timedOut }
             return try entries(["old"])
         }
         try await eventually { gate.waiting }
-        store.update(sources: [], refreshID: 0) { _, _ in [] }
+        store.update(sources: [], refreshID: 0, context: fixture.container.mainContext) { _, _ in [] }
         #expect(store.entries(for: [old]).isEmpty)
         #expect(store.states.isEmpty)
-        store.update(sources: [current], refreshID: 0) { source, path in
+        store.update(sources: [current], refreshID: 0, context: fixture.container.mainContext) { source, path in
             try entries(path == source.projectsPath ? ["new"] : ["new-1"])
         }
         try await eventually { store.states[current.hostID] == .loaded }
         gate.release()
         try await eventually { oldReturned }
-        #expect(store.entries(for: [current]).map(\.name) == ["new", "new-1"])
+        #expect(store.entries(for: [current]).map(\.name) == ["same", "new", "new-1"])
         #expect(store.entries(for: [old]).isEmpty)
         #expect(store.states[current.hostID] == .loaded)
         store.stop()
@@ -157,19 +158,19 @@ struct RemoteWorkspaceStoreTests {
         let gate = Gate()
         let store = RemoteWorkspaceStore()
         var returned = false
-        store.update(sources: [old], refreshID: 0) { _, _ in
+        store.update(sources: [old], refreshID: 0, context: fixture.container.mainContext) { _, _ in
             await gate.wait()
             returned = true
             return try entries(["old"])
         }
         try await eventually { gate.waiting }
-        store.update(sources: [current], refreshID: 0) { source, path in
+        store.update(sources: [current], refreshID: 0, context: fixture.container.mainContext) { source, path in
             try entries(path == source.projectsPath ? ["current"] : [])
         }
         try await eventually { store.states[current.hostID] == .loaded }
         gate.release()
         try await eventually { returned }
-        #expect(store.entries(for: [current]).map(\.name) == ["current"])
+        #expect(store.entries(for: [current]).map(\.name) == ["same", "current"])
         #expect(store.entries(for: [old]).isEmpty)
         store.stop()
     }
@@ -178,7 +179,7 @@ struct RemoteWorkspaceStoreTests {
         let fixture = try Fixture()
         let source = fixture.source(fixture.first)
         let store = RemoteWorkspaceStore()
-        store.update(sources: [source], refreshID: 0) { source, path in
+        store.update(sources: [source], refreshID: 0, context: fixture.container.mainContext) { source, path in
             if path == source.worktreesPath { throw SSHError.operationFailed("permission denied") }
             return try entries(["a"])
         }
@@ -186,23 +187,36 @@ struct RemoteWorkspaceStoreTests {
             if case .failed = store.states[source.hostID] { return true }
             return false
         }
-        #expect(store.entries(for: [source]).map(\.name) == ["a"])
+        #expect(store.entries(for: [source]).map(\.name) == ["same", "a"])
         let gate = Gate()
-        store.update(sources: [source], refreshID: 1) { source, path in
+        store.update(sources: [source], refreshID: 1, context: fixture.container.mainContext) { source, path in
             if path == source.projectsPath { await gate.wait(); return try entries(["b"]) }
             return try entries(["b-3"])
         }
         try await eventually { gate.waiting }
-        #expect(store.entries(for: [source]).map(\.name) == ["a"])
+        #expect(store.entries(for: [source]).map(\.name) == ["same", "a"])
         #expect(store.states[source.hostID] == .loading)
         gate.release()
         try await eventually { store.states[source.hostID] == .loaded }
-        #expect(store.entries(for: [source]).map(\.name) == ["b", "b-3"])
-        store.update(sources: [source], refreshID: 1) { _, _ in
+        #expect(store.entries(for: [source]).map(\.name) == ["same", "b", "b-3"])
+        store.update(sources: [source], refreshID: 1, context: fixture.container.mainContext) { _, _ in
             Issue.record("同じ更新番号で一覧を再取得しました。")
             return []
         }
         #expect(store.states[source.hostID] == .loaded)
+        let projects = ProjectStore(context: fixture.container.mainContext)
+        for project in try projects.fetchProjects() where project.host === fixture.first {
+            try projects.delete(project)
+        }
+        var emptySource = source
+        emptySource.projectNames = []
+        store.update(sources: [emptySource], refreshID: 1, context: fixture.container.mainContext) { _, _ in
+            Issue.record("Project未登録のHostでProject一覧を取得しました。")
+            return []
+        }
+        #expect(store.entries(for: [emptySource]) == [source.baseLocation])
+        try await eventually { store.states[source.hostID] == .loaded }
+        #expect(store.entries(for: [emptySource]) == [source.baseLocation])
         store.stop()
     }
 }
@@ -221,12 +235,18 @@ private struct Fixture {
         let hosts = HostStore(context: container.mainContext)
         first = try hosts.addRemote(name: "one", basePath: "/same", hostname: "unused", user: "test", identityFile: "")
         second = try hosts.addRemote(name: "two", basePath: "/same", hostname: "unused", user: "test", identityFile: "")
+        let projects = ProjectStore(context: container.mainContext)
+        for name in ["a", "z", "b", "new", "current", "missing"] {
+            try projects.add(name: name, gitURL: nil, host: first)
+        }
+        for name in ["c", "d"] { try projects.add(name: name, gitURL: nil, host: second) }
     }
 
     func source(_ host: RemoteHost, session: NSObject? = nil) -> RemoteWorkspaceStore.Source {
         .init(hostID: host.persistentModelID, hostName: host.name,
               projectsPath: host.projectsPath, worktreesPath: host.worktreesPath,
-              sessionID: ObjectIdentifier(session ?? self.session))
+              sessionID: ObjectIdentifier(session ?? self.session),
+              projectNames: host === first ? ["a", "b", "current", "missing", "new", "z"] : ["c", "d"])
     }
 }
 

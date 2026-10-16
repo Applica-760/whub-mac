@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import WhubCore
 
 final class ExplorerItemView: NSTableCellView {
@@ -47,12 +48,15 @@ final class ExplorerItemView: NSTableCellView {
         }
         if unavailable { textField?.textColor = .disabledControlTextColor }
         imageView?.alphaValue = unavailable ? 0.4 : 1
+        imageView?.contentTintColor = nil
         if editingOperation == .newFolder {
             imageView?.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Folder")
+        } else if !item.isDirectory {
+            imageView?.image = NSWorkspace.shared.icon(for: .data)
         } else if let url = item.location.localURL {
             imageView?.image = NSWorkspace.shared.icon(forFile: url.path)
         } else {
-            imageView?.image = NSImage(systemSymbolName: item.isDirectory ? "folder.fill" : "doc", accessibilityDescription: nil)
+            imageView?.image = NSWorkspace.shared.icon(for: .folder)
         }
         let editing = editingName != nil
         textField?.isEditable = editing
