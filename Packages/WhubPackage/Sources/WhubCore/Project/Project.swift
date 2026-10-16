@@ -3,7 +3,9 @@ import SwiftData
 
 @Model
 public final class Project {
-    @Attribute(.unique) public internal(set) var name: String
+    #Unique<Project>([\.host, \.name])
+
+    public internal(set) var name: String
     public internal(set) var gitURL: String?
     public internal(set) var host: Host
 
