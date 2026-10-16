@@ -169,11 +169,12 @@ final class AgentStore: ObservableObject, Identifiable {
         }
     }
 
-    func sendAdditionalInput(_ input: [AgentInput]) async {
+    @discardableResult
+    func sendAdditionalInput(_ input: [AgentInput]) async -> Bool {
         guard isConnected, isBusy, !isStopping, !isSendingAdditionalInput,
-              let index = activeExchangeIndex else { return }
+              let index = activeExchangeIndex else { return false }
         let submittedInput = normalizedInput(input)
-        guard !submittedInput.isEmpty else { return }
+        guard !submittedInput.isEmpty else { return false }
         let exchangeID = exchanges[index].id
         isSendingAdditionalInput = true
         errorMessage = nil
@@ -181,15 +182,25 @@ final class AgentStore: ObservableObject, Identifiable {
 
         do {
             try await session.sendAdditionalInput(submittedInput)
-            guard let index = exchanges.firstIndex(where: { $0.id == exchangeID }) else { return }
+            guard !isClosed, let index = exchanges.firstIndex(where: { $0.id == exchangeID }) else { return false }
             exchanges[index].input.append(contentsOf: submittedInput)
+            return true
         } catch {
-            guard isActiveExchange(exchangeID) else { return }
+            guard isActiveExchange(exchangeID) else { return false }
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
-    func interrupt() async {
+    func interrupt(recordResult: Bool = false) async {
+        if recordResult, !isBusy {
+            recordCommandResult(.stop, content: [.text("実行中の作業はありません。")])
+            return
+        }
+        if recordResult, isStopping {
+            recordCommandResult(.stop, content: [.text("停止を要求しました。")])
+            return
+        }
         guard isConnected, isBusy, !isStopping,
               let index = activeExchangeIndex else { return }
         let exchangeID = exchanges[index].id
@@ -198,10 +209,15 @@ final class AgentStore: ObservableObject, Identifiable {
 
         do {
             try await session.interrupt()
+            guard !isClosed else { return }
+            if recordResult {
+                recordCommandResult(.stop, content: [.text(isStopping ? "停止を要求しました。" : "作業を停止しました。")])
+            }
         } catch {
             guard isActiveExchange(exchangeID) else { return }
             isStopping = false
             errorMessage = error.localizedDescription
+            if recordResult { recordCommandResult(.stop, content: [.text(error.localizedDescription)], failed: true) }
         }
     }
 
@@ -221,7 +237,7 @@ final class AgentStore: ObservableObject, Identifiable {
         }
     }
 
-    func loadStatus() async {
+    func loadStatus(recordResult: Bool = false) async {
         guard isConnected, !isResuming, !isLoadingStatus else { return }
         isLoadingStatus = true
         errorMessage = nil
@@ -231,10 +247,22 @@ final class AgentStore: ObservableObject, Identifiable {
             let content = try await session.loadStatus()
             guard !isClosed else { return }
             statusContent = content
+            if recordResult { recordCommandResult(.status, content: content) }
         } catch {
             guard !isClosed else { return }
             errorMessage = error.localizedDescription
+            if recordResult { recordCommandResult(.status, content: [.text(error.localizedDescription)], failed: true) }
         }
+    }
+
+    private func recordCommandResult(_ command: AgentSlashCommand, content: [AgentContent], failed: Bool = false) {
+        guard !isClosed else { return }
+        let status: AgentExecutionStatus = failed ? .failed : .completed
+        let result = AgentSlashCommandResult(id: UUID().uuidString, command: command, content: content, status: status)
+        var exchange = AgentExchange(input: [.slashCommand(command)])
+        exchange.outputs = [.slashCommandResult(result)]
+        exchange.status = status
+        exchanges.append(exchange)
     }
 
     func changeModel(_ option: AgentModelOption) async {

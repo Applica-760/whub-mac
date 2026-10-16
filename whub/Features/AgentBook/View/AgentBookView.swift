@@ -2,29 +2,41 @@ import AppKit
 import Combine
 import SwiftUI
 
-struct AgentBookView<Book: View, Tabs: View, ModelControls: View, Candidates: View>: View {
+struct AgentBookView<Tabs: View, ModelControls: View>: View {
     @ObservedObject var store: AgentStore
+    let agentName: String
     let featureActivity: RetainedPageActivity?
-    let submit: () -> Void
-    let handleCandidateKey: (NSEvent, Binding<NSRange>) -> Bool
-    @ViewBuilder let book: ([AgentExchange]) -> Book
+    let skillStore: AgentSkillStore
+    let historyStore: AgentHistoryStore
+    let newConversation: () -> Void
+    let resume: (AgentHistoryEntry) async -> Bool
+    var isResuming = false
+    var resumeError: String? = nil
     @ViewBuilder let tabs: () -> Tabs
     @ViewBuilder let modelControls: () -> ModelControls
-    @ViewBuilder let candidates: (Binding<NSRange>) -> Candidates
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
-    let bookFocus: CodexBookFocus
+    @State private var bookFocus = AgentBookFocus()
+    @State private var confirmsReset = false
+    @State private var spread = 0
 
     var body: some View {
         VStack(spacing: 0) {
             WidgetFrame {
-                book(store.exchanges)
+                AgentBookExchangeView(
+                    store: store, agentName: agentName, spread: $spread,
+                    pageCountChanged: { _ in }, focus: bookFocus,
+                    featureActivity: featureActivity
+                )
                 .overlay(alignment: .bottom) {
                     AgentBookInputView(
-                        input: $store.draft, focus: bookFocus,
-                        isBusy: store.isBusy, isStopping: store.isStopping,
-                        send: submit, interrupt: { Task { await store.interrupt() } },
-                        handleCandidateKey: handleCandidateKey, candidates: candidates
+                        store: store, skillStore: skillStore, historyStore: historyStore,
+                        focus: bookFocus, agentName: agentName,
+                        newConversation: {
+                            if store.exchanges.isEmpty { newConversation() }
+                            else { confirmsReset = true }
+                        },
+                        resume: resume, isResuming: isResuming, resumeError: resumeError
                     )
                     .padding(.horizontal, 232)
                 }
@@ -50,6 +62,13 @@ struct AgentBookView<Book: View, Tabs: View, ModelControls: View, Candidates: Vi
                 AgentBookResponsesView(requests: pendingQuestions, respondingRequestIDs: store.respondingRequestIDs,
                                        isActive: store.isConnected && isActive, respond: respond)
             }
+        }
+        .onChange(of: store.id) { _, _ in confirmsReset = false }
+        .alert("新しい会話を始めますか？", isPresented: $confirmsReset) {
+            Button("キャンセル", role: .cancel) {}
+            Button("新しい会話", action: newConversation)
+        } message: {
+            Text("このタブの会話をクリアします。")
         }
     }
 
