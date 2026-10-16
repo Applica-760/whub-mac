@@ -82,7 +82,7 @@ struct RemoteWorkspaceMenuItems: View {
                 Divider()
                 Section {
                     ForEach(entries, id: \.self) { entry in
-                        Text(entry.name).tag(Optional(entry))
+                        Text(entry == source.baseLocation ? "BasePath" : entry.name).tag(Optional(entry))
                     }
                 } header: {
                     Text(source.hostName)

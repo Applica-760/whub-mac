@@ -41,6 +41,7 @@ private struct DiffFileList: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let table = DiffTableControl()
+        table.backgroundColor = .clear
         let column = NSTableColumn(identifier: .init("path"))
         table.addTableColumn(column)
         table.headerView = nil
@@ -56,6 +57,8 @@ private struct DiffFileList: NSViewRepresentable {
         }
         table.setAccessibilityLabel("未コミットの変更ファイル")
         let scroll = NSScrollView()
+        scroll.drawsBackground = false
+        scroll.contentView.drawsBackground = false
         scroll.documentView = table
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true

@@ -58,6 +58,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let outlineView = FileOutlineControl()
+        outlineView.backgroundColor = .clear
         outlineView.store = store
         outlineView.onShowDiff = onShowDiff
         outlineView.onAction = onAction
@@ -81,6 +82,8 @@ struct ExplorerOutlineView: NSViewRepresentable {
         context.coordinator.update(basePath: basePath, gitChanges: gitChanges)
 
         let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true

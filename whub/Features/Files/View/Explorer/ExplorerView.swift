@@ -10,6 +10,7 @@ struct ExplorerView: View {
     @Query(sort: \WhubCore.Host.name) private var hosts: [WhubCore.Host]
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var connections: RemoteConnectionStore
+    @EnvironmentObject private var servers: RemoteServerStore
     @EnvironmentObject private var files: FilesStore
     @EnvironmentObject private var gitStore: GitStore
     @ObservedObject var store: ExplorerStore
@@ -26,11 +27,11 @@ struct ExplorerView: View {
                     store: store,
                     gitStore: gitStore,
                     onFilePreview: { location in
-                        files.preview(location, hosts: hosts, connections: connections)
+                        files.preview(location, hosts: hosts, connections: connections, servers: servers)
                         onFileSelect()
                     },
                     onFileOpen: { location in
-                        files.open(location, hosts: hosts, connections: connections)
+                        files.open(location, hosts: hosts, connections: connections, servers: servers)
                         onFileSelect()
                     },
                     onShowDiff: { openDiff($0, preview: false) },
@@ -51,7 +52,7 @@ struct ExplorerView: View {
         .onDisappear { store.stopWatching() }
         .task(id: store.updateID(projects: projects, hosts: hosts, connections: connections,
                                  refreshID: files.refreshID)) {
-            await store.update(projects: projects, hosts: hosts, connections: connections,
+            await store.update(projects: projects, hosts: hosts, connections: connections, servers: servers,
                                refreshID: files.refreshID, context: context)
         }
     }

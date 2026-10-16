@@ -71,7 +71,7 @@ final class ExplorerStore: ObservableObject {
                   refreshID: Int) -> UpdateID {
         let local = projects.filter { $0.host is LocalHost }
         let sources = RemoteWorkspaceStore.connectedSources(
-            hosts: hosts.compactMap { $0 as? RemoteHost }, connections: connections
+            hosts: hosts.compactMap { $0 as? RemoteHost }, projects: projects, connections: connections
         )
         return UpdateID(
             projectNames: local.map(\.name),
@@ -82,16 +82,18 @@ final class ExplorerStore: ObservableObject {
         )
     }
 
-    func update(projects: [Project], hosts: [WhubCore.Host], connections: RemoteConnectionStore,
+    func update(projects: [Project], hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore,
                 refreshID: Int, context: ModelContext) async {
         let id = updateID(projects: projects, hosts: hosts, connections: connections, refreshID: refreshID)
         self.hosts = hosts.compactMap { $0 as? RemoteHost }
-        localWorkspace.update(projects: projects, basePath: id.localBasePath, id: id.worktrees)
+        await localWorkspace.update(host: hosts.compactMap { $0 as? LocalHost }.first,
+                                    basePath: id.localBasePath, id: id.worktrees, context: context)
+        guard !Task.isCancelled else { return }
         remoteSources = id.sources
-        remoteWorkspace.update(hosts: self.hosts, connections: connections, refreshID: refreshID)
+        remoteWorkspace.update(hosts: self.hosts, connections: connections, servers: servers, refreshID: refreshID, context: context, projects: projects)
         validateCurrentSelection()
         remoteTree.update(location: selectedLocation, hosts: self.hosts,
-                          connections: connections, refreshID: refreshID)
+                          connections: connections, servers: servers, refreshID: refreshID)
         await load(context: context)
     }
 
@@ -184,7 +186,7 @@ final class ExplorerStore: ObservableObject {
     }
 
     private func load(context: ModelContext) async {
-        errorMessage = nil
+        errorMessage = localWorkspace.errorMessage
         guard let selectedRootURL else { return }
         func isCurrent() -> Bool {
             !Task.isCancelled && isVisible && self.selectedRootURL == selectedRootURL
@@ -220,6 +222,12 @@ final class ExplorerStore: ObservableObject {
     }
 
     func isUnavailable(_ item: ExplorerItem) -> Bool {
+        if case .remote = selectedLocation {
+            return item.isDirectory && remoteSources.contains { source in
+                selectedLocation == source.baseLocation
+                    && ["projects", "worktrees"].contains { item.location == source.baseLocation.appending($0) }
+            }
+        }
         guard let basePathURL, selectedRootURL?.standardizedFileURL == basePathURL,
               item.isDirectory, let url = item.location.localURL?.standardizedFileURL else { return false }
         return url.deletingLastPathComponent().path == basePathURL.path
@@ -227,8 +235,8 @@ final class ExplorerStore: ObservableObject {
     }
 
     func children(for item: ExplorerItem?) -> [ExplorerItem] {
-        if case .remote = selectedLocation { return remoteTree.children(for: item) }
         if let item, isUnavailable(item) { return [] }
+        if case .remote = selectedLocation { return remoteTree.children(for: item) }
         return localTree.children(for: item)
     }
 
@@ -239,7 +247,7 @@ final class ExplorerStore: ObservableObject {
     }
 
     func expand(_ item: ExplorerItem) {
-        guard case .remote = item.location else { return }
+        guard case .remote = item.location, !isUnavailable(item) else { return }
         remoteTree.loadChildren(of: item)
     }
 }

@@ -1,0 +1,59 @@
+import Foundation
+import SwiftData
+
+@Model
+public class Host {
+    @Attribute(.unique) public internal(set) var name: String
+    public internal(set) var basePath: String
+
+    init(name: String, basePath: String) {
+        self.name = name
+        self.basePath = basePath
+    }
+
+    public var projectsPath: String {
+        (basePath as NSString).appendingPathComponent("projects")
+    }
+
+    public var worktreesPath: String {
+        (basePath as NSString).appendingPathComponent("worktrees")
+    }
+}
+
+@available(macOS 26.0, *)
+@Model
+public final class LocalHost: Host {
+    override init(name: String, basePath: String) {
+        super.init(name: name, basePath: basePath)
+    }
+}
+
+@available(macOS 26.0, *)
+@Model
+public final class RemoteHost: Host {
+    public internal(set) var hostname: String
+    public internal(set) var user: String
+    public internal(set) var port: Int
+    public internal(set) var identityFile: String
+    public internal(set) var devServerURL: String? = nil
+    public internal(set) var prodServerURL: String? = nil
+
+    init(
+        name: String,
+        basePath: String,
+        hostname: String,
+        user: String,
+        port: Int = 22,
+        identityFile: String,
+        devServerURL: String? = nil,
+        prodServerURL: String? = nil
+    ) {
+        self.hostname = hostname
+        self.user = user
+        self.port = port
+        self.identityFile = identityFile
+        self.devServerURL = devServerURL
+        self.prodServerURL = prodServerURL
+        super.init(name: name, basePath: basePath)
+    }
+}

@@ -10,6 +10,7 @@
 		A49000000000000000000001 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = A49000000000000000000002 /* SwiftMath */; };
 		C8244DC530553E480038A6AF /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C8244DC430553E480038A6AF /* SwiftTerm */; };
 		C8244E5C3056B24F0038A6AF /* WhubCore in Frameworks */ = {isa = PBXBuildFile; productRef = C8244E5B3056B24F0038A6AF /* WhubCore */; };
+		A49200000000000000000001 /* WhubClient in Frameworks */ = {isa = PBXBuildFile; productRef = A49200000000000000000002 /* WhubClient */; };
 		C8FC99EA307C641200355EB0 /* whub-terminal.icon in Resources */ = {isa = PBXBuildFile; fileRef = C8FC99E9307C641200355EB0 /* whub-terminal.icon */; };
 		CAA6689B4CD1D40F57C3DB8D /* Highlighter in Frameworks */ = {isa = PBXBuildFile; productRef = E46B7CCC8930061F68FD4E6E /* Highlighter */; };
 /* End PBXBuildFile section */
@@ -51,6 +52,7 @@
 				A49000000000000000000001 /* SwiftMath in Frameworks */,
 				C8244DC530553E480038A6AF /* SwiftTerm in Frameworks */,
 				C8244E5C3056B24F0038A6AF /* WhubCore in Frameworks */,
+				A49200000000000000000001 /* WhubClient in Frameworks */,
 				CAA6689B4CD1D40F57C3DB8D /* Highlighter in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -107,6 +109,7 @@
 				A49000000000000000000002 /* SwiftMath */,
 				C8244DC430553E480038A6AF /* SwiftTerm */,
 				C8244E5B3056B24F0038A6AF /* WhubCore */,
+				A49200000000000000000002 /* WhubClient */,
 				E46B7CCC8930061F68FD4E6E /* Highlighter */,
 			);
 			productName = whub;
@@ -167,7 +170,7 @@
 			packageReferences = (
 				A49000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftMath" */,
 				C8244DC330553E480038A6AF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
-				C8244E5A3056B24F0038A6AF /* XCLocalSwiftPackageReference "Packages/WhubCore" */,
+				C8244E5A3056B24F0038A6AF /* XCLocalSwiftPackageReference "Packages/WhubPackage" */,
 				03AEE2700291130EC651D647 /* XCRemoteSwiftPackageReference "HighlighterSwift" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -497,9 +500,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		C8244E5A3056B24F0038A6AF /* XCLocalSwiftPackageReference "Packages/WhubCore" */ = {
+		C8244E5A3056B24F0038A6AF /* XCLocalSwiftPackageReference "Packages/WhubPackage" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/WhubCore;
+			relativePath = Packages/WhubPackage;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -531,6 +534,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A49200000000000000000002 /* WhubClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = WhubClient;
+		};
 		A49000000000000000000002 /* SwiftMath */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A49000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftMath" */;

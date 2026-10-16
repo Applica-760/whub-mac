@@ -42,26 +42,27 @@ struct ExplorerStoreTests {
         defer { try? FileManager.default.removeItem(at: base) }
         let projectURL = base.appendingPathComponent("projects/app")
         let firstWorktree = base.appendingPathComponent("worktrees/app-1")
-        for url in [projectURL, firstWorktree] {
+        for url in [projectURL, firstWorktree, base.appendingPathComponent("projects/unregistered")] {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         }
         let host = try HostStore(context: context).addLocal(name: "local", basePath: base.path)
         let project = try ProjectStore(context: context).add(name: "app", gitURL: nil, host: host)
+        _ = try ProjectStore(context: context).add(name: "missing", gitURL: nil, host: host)
         let files = FilesStore()
         let store = files.explorer
         let connections = RemoteConnectionStore()
         store.startWatching()
         defer { store.stopWatching() }
-        await store.update(projects: [project], hosts: [host], connections: connections,
+        await store.update(projects: [project], hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections),
                            refreshID: 0, context: context)
         #expect(store.locations.map(\.path) == [base.path, projectURL.path, firstWorktree.path])
         #expect(store.canRefresh)
         store.selectedLocation = .local(URL(fileURLWithPath: project.path))
-        await store.update(projects: [project], hosts: [host], connections: connections,
+        await store.update(projects: [project], hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections),
                            refreshID: 0, context: context)
         let secondWorktree = base.appendingPathComponent("worktrees/app-2")
         try FileManager.default.createDirectory(at: secondWorktree, withIntermediateDirectories: true)
-        await store.update(projects: [project], hosts: [host], connections: connections,
+        await store.update(projects: [project], hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections),
                            refreshID: 1, context: context)
         #expect(store.selectedLocation?.path == projectURL.path)
         #expect(store.rootURL?.path == projectURL.path)
@@ -98,7 +99,7 @@ struct ExplorerStoreTests {
         let connections = RemoteConnectionStore()
         let files = FilesStore()
         let store = files.explorer
-        await store.update(projects: [], hosts: [host], connections: connections,
+        await store.update(projects: [], hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections),
                            refreshID: 0, context: container.mainContext)
         #expect(!store.canRefresh)
         let root = FileLocation.remote(hostID: host.persistentModelID, path: "/workspace/projects/app")
@@ -109,14 +110,14 @@ struct ExplorerStoreTests {
         defer { store.stopWatching() }
         let file = root.appending("file.swift")
         defer { editor.close(.file(file)) }
-        files.preview(file, hosts: [host], connections: connections)
+        files.preview(file, hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections))
         #expect(editor.local.fileStores.isEmpty)
         #expect(editor.previewTab == .file(file))
         #expect(editor.selectedTab == .file(file))
         if case .disconnected = editor.remote.states[file] {} else {
             Issue.record("正しい閲覧ルートでRemote取得を準備できていません")
         }
-        files.open(file, hosts: [host], connections: connections)
+        files.open(file, hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections))
         #expect(editor.previewTab == nil)
         #expect(editor.tabs == [.file(file)])
     }
@@ -308,7 +309,7 @@ struct ExplorerStoreTests {
         #expect(try String(contentsOf: file, encoding: .utf8) == "saved")
         #expect(throws: (any Error).self) { try files.create(in: directory, name: "folder", isDirectory: true) }
         let location = FileLocation.local(file)
-        files.open(location, hosts: [], connections: RemoteConnectionStore())
+        files.open(location, hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
         let editor = files.activeEditor
         let local = try #require(editor.local.fileStores[location])
         local.document.content = .text("unsaved")
@@ -327,7 +328,7 @@ struct ExplorerStoreTests {
         #expect(!FileManager.default.fileExists(atPath: folder.path))
         let renamed = directory.appendingPathComponent("renamed/file.txt")
         #expect(try String(contentsOf: renamed, encoding: .utf8) == "unsaved")
-        files.open(.local(renamed), hosts: [], connections: RemoteConnectionStore())
+        files.open(.local(renamed), hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
         let trashed = try #require(try files.trash(renamed))
         defer { try? FileManager.default.removeItem(at: trashed) }
         #expect(!FileManager.default.fileExists(atPath: renamed.path))
@@ -404,7 +405,7 @@ struct ExplorerStoreTests {
         let page = browser.selectedSession.page
         let deadline = ContinuousClock.now + .seconds(15)
         while page.isLoading || page.title != "Local HTML" {
-            guard ContinuousClock.now < deadline else { throw RemoteSessionError.timedOut }
+            guard ContinuousClock.now < deadline else { throw SSHError.timedOut }
             try await Task.sleep(for: .milliseconds(50))
         }
         #expect(try await page.callJavaScript("return getComputedStyle(document.body).color") as? String == "rgb(1, 2, 3)")
