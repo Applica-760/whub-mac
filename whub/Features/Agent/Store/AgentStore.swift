@@ -22,6 +22,7 @@ protocol AgentSession: AnyObject {
 
     func connect(directory: String) async throws
     func send(_ input: [AgentInput]) async throws
+    func loadModelOptions() async throws -> [AgentModelOption]
     func changeModel(_ option: AgentModelOption) async throws
     func disconnect()
 }
@@ -31,6 +32,8 @@ final class AgentStore: ObservableObject, Identifiable {
     let id = UUID()
     @Published var draft = ""
     @Published private(set) var exchanges: [AgentExchange] = []
+    @Published private(set) var modelOptions: [AgentModelOption] = []
+    @Published private(set) var isLoadingModelOptions = false
     @Published private(set) var selectedModelOption: AgentModelOption?
     @Published private(set) var isChangingModel = false
     @Published private(set) var isConnecting = false
@@ -104,6 +107,22 @@ final class AgentStore: ObservableObject, Identifiable {
             try await session.send(input)
         } catch {
             fail(error.localizedDescription)
+        }
+    }
+
+    func loadModelOptions() async {
+        guard isConnected, !isClosed, !isLoadingModelOptions else { return }
+        isLoadingModelOptions = true
+        errorMessage = nil
+        defer { isLoadingModelOptions = false }
+
+        do {
+            let options = try await session.loadModelOptions()
+            guard !isClosed else { return }
+            modelOptions = options
+        } catch {
+            guard !isClosed else { return }
+            errorMessage = error.localizedDescription
         }
     }
 
