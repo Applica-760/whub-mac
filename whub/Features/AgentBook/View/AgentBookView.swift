@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-struct AgentBookView<Tabs: View, ModelControls: View>: View {
+struct AgentBookView<Tabs: View, OptionControls: View>: View {
     @ObservedObject var store: AgentStore
     let agentName: String
     let featureActivity: RetainedPageActivity?
@@ -13,21 +13,30 @@ struct AgentBookView<Tabs: View, ModelControls: View>: View {
     var isResuming = false
     var resumeError: String? = nil
     @ViewBuilder let tabs: () -> Tabs
-    @ViewBuilder let modelControls: () -> ModelControls
+    @ViewBuilder let optionControls: () -> OptionControls
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
     @State private var bookFocus = AgentBookFocus()
     @State private var confirmsReset = false
     @State private var spread = 0
+    @State private var pageCount = 1
 
     var body: some View {
         VStack(spacing: 0) {
             WidgetFrame {
                 AgentBookExchangeView(
                     store: store, agentName: agentName, spread: $spread,
-                    pageCountChanged: { _ in }, focus: bookFocus,
+                    pageCountChanged: { pageCount = $0 }, focus: bookFocus,
                     featureActivity: featureActivity
                 )
+                // Reserve navigation space outside Exchange’s existing input inset.
+                .padding(.bottom, AgentBookNavigationView.rowHeight)
+                .overlay(alignment: .bottom) {
+                    AgentBookNavigationView(
+                        spread: $spread, pageCount: pageCount, isGenerating: store.isBusy,
+                        focus: bookFocus, featureActivity: featureActivity
+                    )
+                }
                 .overlay(alignment: .bottom) {
                     AgentBookInputView(
                         store: store, skillStore: skillStore, historyStore: historyStore,
@@ -47,7 +56,7 @@ struct AgentBookView<Tabs: View, ModelControls: View>: View {
                         .padding(.bottom, 16)
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    modelControls()
+                    optionControls()
                         .padding(.trailing, 16)
                         .padding(.bottom, 16)
                 }
