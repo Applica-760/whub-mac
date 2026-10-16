@@ -25,7 +25,7 @@ private func updateDecoder() -> JSONDecoder {
 @Test func managerRoutesRequireAuthenticationBeforeReadingRequests() async throws {
     let fixture = try BuildFixture()
     let api = managerAPI(fixture)
-    let app = Application(router: makeRouter(files: FilesAPI(service: try FilesService(root: fixture.source.path)), manager: api))
+    let app = Application(router: makeRouter(files: FilesAPI(), manager: api))
     try await app.test(.router) { client in
         let id = UUID().uuidString
         for uri in ["/manager/status", "/manager/updates", "/manager/updates/\(id)", "/manager/updates/\(id)/log"] {
@@ -51,7 +51,7 @@ private func updateDecoder() -> JSONDecoder {
         let attributes = try FileManager.default.attributesOfItem(atPath: runner.path)
         #expect(attributes[.type] as? FileAttributeType == .typeRegular)
     }
-    let app = Application(router: makeRouter(files: FilesAPI(service: try FilesService(root: fixture.source.path)), manager: api))
+    let app = Application(router: makeRouter(files: FilesAPI(), manager: api))
     try await app.test(.router) { client in
         let response = try await client.execute(uri: "/manager/updates", method: .post,
                                                 headers: [.authorization: "Bearer \(managerToken)", .contentType: "application/json"],
@@ -97,7 +97,7 @@ private func updateDecoder() -> JSONDecoder {
     let dev = managerAPI(fixture)
     let queued = try dev.releases.start(configuration: dev.configuration, ref: "main", executable: dev.executable)
     let prod = managerAPI(fixture, environment: .prod)
-    let app = Application(router: makeRouter(files: FilesAPI(service: try FilesService(root: fixture.source.path)), manager: prod))
+    let app = Application(router: makeRouter(files: FilesAPI(), manager: prod))
     try await app.test(.router) { client in
         for body in [#"{"ref":"feature"}"#, #"{"service":"other"}"#, #"{"ref":null}"#, "[]", String(repeating: "x", count: 4097)] {
             let response = try await client.execute(uri: "/manager/updates", method: .post,
@@ -119,7 +119,7 @@ private func updateDecoder() -> JSONDecoder {
 @Test func managerLaunchFailureRetainsReservationForManualInspection() async throws {
     let fixture = try BuildFixture()
     let api = managerAPI(fixture) { _, _, _ in throw ReleaseError("launch_failed", "fixture") }
-    let app = Application(router: makeRouter(files: FilesAPI(service: try FilesService(root: fixture.source.path)), manager: api))
+    let app = Application(router: makeRouter(files: FilesAPI(), manager: api))
     try await app.test(.router) { client in
         let response = try await client.execute(uri: "/manager/updates", method: .post,
                                                 headers: [.authorization: "Bearer \(managerToken)", .contentType: "application/json"],

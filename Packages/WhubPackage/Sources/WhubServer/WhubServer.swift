@@ -2,13 +2,12 @@ import Foundation
 import Hummingbird
 
 enum ConfigurationError: Error, CustomStringConvertible {
-    case invalidAddress, invalidPort, missingRoot
+    case invalidAddress, invalidPort
 
     var description: String {
         switch self {
         case .invalidAddress: "WHUB_SERVER_HOST must not be empty."
         case .invalidPort: "WHUB_SERVER_PORT must be an integer between 1 and 65535."
-        case .missingRoot: "WHUB_SERVER_ROOT must specify an accessible absolute directory without symlinks."
         }
     }
 }
@@ -34,9 +33,7 @@ struct WhubServer {
             throw ConfigurationError.invalidPort
         }
 
-        guard let root = environment["WHUB_SERVER_ROOT"] else { throw ConfigurationError.missingRoot }
-        let files = try FilesService(root: root)
-        let router = makeRouter(files: FilesAPI(service: files), manager: try managerAPI(environment))
+        let router = makeRouter(files: FilesAPI(), manager: try managerAPI(environment))
 
         let app = Application(
             router: router,

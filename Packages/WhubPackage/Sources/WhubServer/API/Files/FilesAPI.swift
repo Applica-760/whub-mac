@@ -2,14 +2,14 @@ import Foundation
 import Hummingbird
 
 struct FilesAPI: Sendable {
-    let service: FilesService
     private static let maxResponseBytes = 8 * 1_048_576
 
     func list(query: String?) async -> Response {
         do {
-            let path = try Self.path(from: query)
+            let (root, path) = try Self.parameters(from: query)
             // Directory I/O must not block the HTTP event loop.
             let data = try await Task.detached {
+                let service = try FilesService(root: root)
                 var data = Data("[".utf8)
                 let encoder = JSONEncoder()
                 try service.list(path: path) { entry in
@@ -37,9 +37,11 @@ struct FilesAPI: Sendable {
 
     func readText(query: String?) async -> Response {
         do {
-            let path = try Self.path(from: query)
+            let (root, path) = try Self.parameters(from: query)
             guard !path.isEmpty else { throw FilesAPIError.invalidPath }
-            let text = try await Task.detached { try service.readText(path: path) }.value
+            let text = try await Task.detached {
+                try FilesService(root: root).readText(path: path)
+            }.value
             let data = try JSONEncoder().encode(["text": text])
             return Response(status: .ok, headers: [.contentType: "application/json"],
                             body: .init(byteBuffer: .init(bytes: data)))
@@ -52,19 +54,25 @@ struct FilesAPI: Sendable {
         }
     }
 
-    private static func path(from query: String?) throws -> String {
-        guard let query, !query.isEmpty else { return "" }
-        let fields = query.split(separator: "&", omittingEmptySubsequences: false)
-        guard fields.count == 1 else { throw FilesAPIError.invalidPath }
-        let pair = fields[0].split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+    private static func parameters(from query: String?) throws -> (root: String, path: String) {
+        guard let query, !query.isEmpty else { throw FilesAPIError.invalidPath }
+        var values: [String: String] = [:]
         func decode(_ value: Substring) throws -> String {
             guard let decoded = value.replacingOccurrences(of: "+", with: " ").removingPercentEncoding else {
                 throw FilesAPIError.invalidPath
             }
             return decoded
         }
-        guard try decode(pair[0]) == "path" else { throw FilesAPIError.invalidPath }
-        return try pair.count == 2 ? decode(pair[1]) : ""
+        for field in query.split(separator: "&", omittingEmptySubsequences: false) {
+            let pair = field.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pair.count == 2 else { throw FilesAPIError.invalidPath }
+            let name = try decode(pair[0])
+            guard ["root", "path"].contains(name), values[name] == nil else {
+                throw FilesAPIError.invalidPath
+            }
+            values[name] = try decode(pair[1])
+        }
+        guard let root = values["root"] else { throw FilesAPIError.invalidPath }
+        return (root, values["path"] ?? "")
     }
-
 }

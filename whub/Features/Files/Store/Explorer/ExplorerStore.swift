@@ -82,16 +82,16 @@ final class ExplorerStore: ObservableObject {
         )
     }
 
-    func update(projects: [Project], hosts: [WhubCore.Host], connections: RemoteConnectionStore,
+    func update(projects: [Project], hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore,
                 refreshID: Int, context: ModelContext) async {
         let id = updateID(projects: projects, hosts: hosts, connections: connections, refreshID: refreshID)
         self.hosts = hosts.compactMap { $0 as? RemoteHost }
         localWorkspace.update(projects: projects, basePath: id.localBasePath, id: id.worktrees)
         remoteSources = id.sources
-        remoteWorkspace.update(hosts: self.hosts, connections: connections, refreshID: refreshID)
+        remoteWorkspace.update(hosts: self.hosts, connections: connections, servers: servers, refreshID: refreshID)
         validateCurrentSelection()
         remoteTree.update(location: selectedLocation, hosts: self.hosts,
-                          connections: connections, refreshID: refreshID)
+                          connections: connections, servers: servers, refreshID: refreshID)
         await load(context: context)
     }
 

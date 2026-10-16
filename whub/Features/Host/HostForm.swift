@@ -13,6 +13,8 @@ struct HostForm: View {
     @State private var user: String
     @State private var port: Int
     @State private var identityFile: String
+    @State private var devServerURL: String
+    @State private var prodServerURL: String
     @State private var errorMessage: String?
 
     init(host: WhubCore.Host? = nil) {
@@ -25,6 +27,8 @@ struct HostForm: View {
         _user = State(initialValue: remote?.user ?? "")
         _port = State(initialValue: remote?.port ?? 22)
         _identityFile = State(initialValue: remote?.identityFile ?? "")
+        _devServerURL = State(initialValue: remote?.devServerURL ?? "")
+        _prodServerURL = State(initialValue: remote?.prodServerURL ?? "")
     }
 
     var body: some View {
@@ -46,6 +50,8 @@ struct HostForm: View {
                     TextField("User", text: $user)
                     TextField("Port", value: $port, format: .number)
                     TextField("Identity File", text: $identityFile)
+                    TextField("Dev Server URL", text: $devServerURL)
+                    TextField("Prod Server URL", text: $prodServerURL)
                 }
 
                 TextField("Base Path", text: $basePath)
@@ -83,7 +89,9 @@ struct HostForm: View {
                     hostname: hostname,
                     user: user,
                     port: port,
-                    identityFile: identityFile
+                    identityFile: identityFile,
+                    devServerURL: devServerURL,
+                    prodServerURL: prodServerURL
                 )
             } else if type == .local {
                 try store.addLocal(name: name, basePath: basePath)
@@ -94,7 +102,9 @@ struct HostForm: View {
                     hostname: hostname,
                     user: user,
                     port: port,
-                    identityFile: identityFile
+                    identityFile: identityFile,
+                    devServerURL: devServerURL,
+                    prodServerURL: prodServerURL
                 )
             }
             dismiss()
