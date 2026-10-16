@@ -28,14 +28,18 @@ protocol AgentSession: AnyObject {
     func loadModelOptions() async throws -> [AgentModelOption]
     func changeModel(_ option: AgentModelOption) async throws
     func respond(to requestID: String, with response: AgentResponse) async throws
+    func loadHistory(cursor: String?) async throws -> AgentHistoryPage
+    func resume(_ entry: AgentHistoryEntry) async throws -> AgentHistorySnapshot
     func disconnect()
 }
 
 @MainActor
 final class AgentStore: ObservableObject, Identifiable {
     let id = UUID()
-    @Published var draft = ""
+    @Published var draft: [AgentInput] = []
     @Published private(set) var exchanges: [AgentExchange] = []
+    @Published private(set) var historyEntry: AgentHistoryEntry?
+    @Published private(set) var isResuming = false
     @Published private(set) var modelOptions: [AgentModelOption] = []
     @Published private(set) var isLoadingModelOptions = false
     @Published private(set) var selectedModelOption: AgentModelOption?
@@ -52,16 +56,28 @@ final class AgentStore: ObservableObject, Identifiable {
     var agentKind: AgentKind { session.kind }
 
     var canSend: Bool {
-        isConnected && !isClosed && !isBusy && !isChangingModel
-            && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isConnected && !isBusy && !isChangingModel && !isResuming
     }
 
     private let session: any AgentSession
     private var eventTask: Task<Void, Never>?
-    private var pendingInput: String?
+    private var pendingInput: [AgentInput]?
 
     private var activeExchangeIndex: Int? {
         exchanges.lastIndex { $0.status == .running }
+    }
+
+    private func isActiveExchange(_ id: UUID) -> Bool {
+        guard !isClosed, let index = activeExchangeIndex else { return false }
+        return exchanges[index].id == id
+    }
+
+    private func normalizedInput(_ input: [AgentInput]) -> [AgentInput] {
+        input.compactMap { item in
+            guard case .text(let text) = item else { return item }
+            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmedText.isEmpty ? nil : .text(trimmedText)
+        }
     }
 
     init(session: any AgentSession) {
@@ -100,43 +116,77 @@ final class AgentStore: ObservableObject, Identifiable {
         }
     }
 
-    func send() async {
+    @discardableResult
+    func resume(_ entry: AgentHistoryEntry) async -> Bool {
+        guard !isClosed, !isConnected, !isConnecting, !isResuming,
+              historyEntry == nil, exchanges.isEmpty else { return false }
+        isResuming = true
+        errorMessage = nil
+        defer { isResuming = false }
+
+        await connect(directory: entry.directory)
+        guard isConnected else { return false }
+
+        do {
+            let snapshot = try await session.resume(entry)
+            guard !isClosed else { return false }
+            guard snapshot.entry.id == entry.id,
+                  snapshot.exchanges.allSatisfy({ $0.status != .running }) else {
+                errorMessage = "指定した会話の完了済みの履歴を確認できませんでした。"
+                disconnect()
+                return false
+            }
+            historyEntry = snapshot.entry
+            exchanges = snapshot.exchanges
+            selectedModelOption = snapshot.selectedModelOption
+            return true
+        } catch {
+            guard !isClosed else { return false }
+            errorMessage = error.localizedDescription
+            disconnect()
+            return false
+        }
+    }
+
+    func send(_ input: [AgentInput]) async {
         guard canSend else { return }
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let input: [AgentInput] = [.text(text)]
-        pendingInput = text
-        draft = ""
-        exchanges.append(AgentExchange(input: input))
+        let submittedInput = normalizedInput(input)
+        guard !submittedInput.isEmpty else { return }
+        pendingInput = submittedInput
+        draft = []
+        exchanges.append(AgentExchange(input: submittedInput))
         errorMessage = nil
         isBusy = true
 
         do {
-            try await session.send(input)
+            try await session.send(submittedInput)
         } catch {
             fail(error.localizedDescription)
         }
     }
 
     func sendAdditionalInput(_ input: [AgentInput]) async {
-        guard isConnected, !isClosed, isBusy, !isStopping, !isSendingAdditionalInput,
-              !input.isEmpty, let index = activeExchangeIndex else { return }
+        guard isConnected, isBusy, !isStopping, !isSendingAdditionalInput,
+              let index = activeExchangeIndex else { return }
+        let submittedInput = normalizedInput(input)
+        guard !submittedInput.isEmpty else { return }
         let exchangeID = exchanges[index].id
         isSendingAdditionalInput = true
         errorMessage = nil
         defer { isSendingAdditionalInput = false }
 
         do {
-            try await session.sendAdditionalInput(input)
+            try await session.sendAdditionalInput(submittedInput)
             guard let index = exchanges.firstIndex(where: { $0.id == exchangeID }) else { return }
-            exchanges[index].input.append(contentsOf: input)
+            exchanges[index].input.append(contentsOf: submittedInput)
         } catch {
-            guard !isClosed, let index = activeExchangeIndex, exchanges[index].id == exchangeID else { return }
+            guard isActiveExchange(exchangeID) else { return }
             errorMessage = error.localizedDescription
         }
     }
 
     func interrupt() async {
-        guard isConnected, !isClosed, isBusy, !isStopping,
+        guard isConnected, isBusy, !isStopping,
               let index = activeExchangeIndex else { return }
         let exchangeID = exchanges[index].id
         isStopping = true
@@ -145,14 +195,14 @@ final class AgentStore: ObservableObject, Identifiable {
         do {
             try await session.interrupt()
         } catch {
-            guard !isClosed, let index = activeExchangeIndex, exchanges[index].id == exchangeID else { return }
+            guard isActiveExchange(exchangeID) else { return }
             isStopping = false
             errorMessage = error.localizedDescription
         }
     }
 
     func loadModelOptions() async {
-        guard isConnected, !isClosed, !isLoadingModelOptions else { return }
+        guard isConnected, !isResuming, !isLoadingModelOptions else { return }
         isLoadingModelOptions = true
         errorMessage = nil
         defer { isLoadingModelOptions = false }
@@ -168,7 +218,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func changeModel(_ option: AgentModelOption) async {
-        guard isConnected, !isClosed, !isBusy, !isChangingModel else { return }
+        guard isConnected, !isBusy, !isChangingModel, !isResuming else { return }
         isChangingModel = true
         errorMessage = nil
         defer { isChangingModel = false }
@@ -182,7 +232,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func respond(to requestID: String, with response: AgentResponse) async {
-        guard isConnected, !isClosed, !respondingRequestIDs.contains(requestID),
+        guard isConnected, !respondingRequestIDs.contains(requestID),
               let index = activeExchangeIndex,
               let request = exchanges[index].pendingRequests.first(where: { $0.id == requestID }) else { return }
         switch (request.kind, response) {
@@ -207,7 +257,7 @@ final class AgentStore: ObservableObject, Identifiable {
         do {
             try await session.respond(to: requestID, with: response)
         } catch {
-            guard !isClosed, let index = activeExchangeIndex, exchanges[index].id == exchangeID else { return }
+            guard isActiveExchange(exchangeID) else { return }
             respondingRequestIDs.remove(requestID)
             errorMessage = error.localizedDescription
         }
@@ -225,6 +275,7 @@ final class AgentStore: ObservableObject, Identifiable {
 
     private func handle(_ event: AgentEvent) {
         if case .modelOptionChanged(let option) = event {
+            guard !isResuming else { return }
             selectedModelOption = option
             return
         }
