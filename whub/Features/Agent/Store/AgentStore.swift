@@ -11,6 +11,7 @@ enum AgentEvent {
     // 同じIDのOutputは、差分ではなく最新の内容全体を渡す。
     case output(AgentOutput)
     case completed
+    case interrupted
     case failed(String)
 }
 
@@ -22,6 +23,8 @@ protocol AgentSession: AnyObject {
 
     func connect(directory: String) async throws
     func send(_ input: [AgentInput]) async throws
+    func sendAdditionalInput(_ input: [AgentInput]) async throws
+    func interrupt() async throws
     func loadModelOptions() async throws -> [AgentModelOption]
     func changeModel(_ option: AgentModelOption) async throws
     func respond(to requestID: String, with response: AgentResponse) async throws
@@ -41,6 +44,8 @@ final class AgentStore: ObservableObject, Identifiable {
     @Published private(set) var isConnecting = false
     @Published private(set) var isConnected = false
     @Published private(set) var isBusy = false
+    @Published private(set) var isStopping = false
+    @Published private(set) var isSendingAdditionalInput = false
     @Published private(set) var isClosed = false
     @Published private(set) var errorMessage: String?
 
@@ -109,6 +114,40 @@ final class AgentStore: ObservableObject, Identifiable {
             try await session.send(input)
         } catch {
             fail(error.localizedDescription)
+        }
+    }
+
+    func sendAdditionalInput(_ input: [AgentInput]) async {
+        guard isConnected, !isClosed, isBusy, !isStopping, !isSendingAdditionalInput,
+              !input.isEmpty, let index = activeExchangeIndex else { return }
+        let exchangeID = exchanges[index].id
+        isSendingAdditionalInput = true
+        errorMessage = nil
+        defer { isSendingAdditionalInput = false }
+
+        do {
+            try await session.sendAdditionalInput(input)
+            guard let index = exchanges.firstIndex(where: { $0.id == exchangeID }) else { return }
+            exchanges[index].input.append(contentsOf: input)
+        } catch {
+            guard !isClosed, let index = activeExchangeIndex, exchanges[index].id == exchangeID else { return }
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func interrupt() async {
+        guard isConnected, !isClosed, isBusy, !isStopping,
+              let index = activeExchangeIndex else { return }
+        let exchangeID = exchanges[index].id
+        isStopping = true
+        errorMessage = nil
+
+        do {
+            try await session.interrupt()
+        } catch {
+            guard !isClosed, let index = activeExchangeIndex, exchanges[index].id == exchangeID else { return }
+            isStopping = false
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -207,6 +246,14 @@ final class AgentStore: ObservableObject, Identifiable {
             respondingRequestIDs.removeAll()
             pendingInput = nil
             isBusy = false
+            isStopping = false
+        case .interrupted:
+            exchanges[exchangeIndex].status = .interrupted
+            respondingRequestIDs.removeAll()
+            if draft.isEmpty, let pendingInput { draft = pendingInput }
+            pendingInput = nil
+            isBusy = false
+            isStopping = false
         case .failed(let message):
             fail(message)
         }
@@ -226,5 +273,6 @@ final class AgentStore: ObservableObject, Identifiable {
         if draft.isEmpty, let pendingInput { draft = pendingInput }
         pendingInput = nil
         isBusy = false
+        isStopping = false
     }
 }
