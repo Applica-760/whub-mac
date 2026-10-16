@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import SwiftData
 import WhubCore
+import WhubClient
 
 @MainActor
 final class RemoteEditorStore: ObservableObject {
@@ -21,7 +22,7 @@ final class RemoteEditorStore: ObservableObject {
         fileStores[location]?.document
     }
 
-    func load(_ location: FileLocation, root: FileLocation?, hosts: [RemoteHost], connections: RemoteConnectionStore) {
+    func load(_ location: FileLocation, root: FileLocation?, hosts: [RemoteHost], connections: RemoteConnectionStore, servers: RemoteServerStore) {
         if self.connections !== connections {
             self.connections = connections
             connectionChanges = connections.$states.dropFirst().receive(on: RunLoop.main)
@@ -35,9 +36,10 @@ final class RemoteEditorStore: ObservableObject {
             guard let host, let connection = connections.connection(for: host) else {
                 throw SSHError.disconnected
             }
-            let session = try await connections.legacySession(for: host)
-            let text = try await session.readText(root: rootPath, path: path)
-            guard connections.connection(for: host) === connection else { throw SSHError.disconnected }
+            let serverURL = servers.configuredURL(for: host)
+            let client = try await servers.client(for: host)
+            let text = try await client.files.readText(root: rootPath, path: path)
+            guard connections.connection(for: host) === connection, servers.configuredURL(for: host) == serverURL else { throw SSHError.disconnected }
             return text
         }
     }

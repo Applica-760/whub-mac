@@ -16,7 +16,16 @@ enum RemoteServerError: LocalizedError {
 }
 
 @MainActor
-final class RemoteServerStore {
+final class RemoteServerStore: ObservableObject {
+    #if DEBUG
+    static let currentEnvironment: Environment = .dev
+    #else
+    static let currentEnvironment: Environment = .prod
+    #endif
+
+    func configuredURL(for host: RemoteHost) -> String? {
+        Self.currentEnvironment == .dev ? host.devServerURL : host.prodServerURL
+    }
     enum Environment: Hashable { case dev, prod }
 
     private struct Key: Hashable {
@@ -69,6 +78,10 @@ final class RemoteServerStore {
                 self.discard(key)
             }
         }
+    }
+
+    func client(for host: RemoteHost) async throws -> WhubClient {
+        try await client(for: host, environment: Self.currentEnvironment)
     }
 
     func client(for host: RemoteHost, environment: Environment) async throws -> WhubClient {

@@ -10,19 +10,20 @@ import SwiftData
 import SwiftUI
 import Testing
 import WhubCore
+import WhubClient
 @testable import whub
 
 @Suite @MainActor
 struct RemoteWorkspaceStoreTests {
-    private func entries(_ names: [String], kind: String = "directory") throws -> [RemoteFileEntry] {
+    private func entries(_ names: [String], kind: String = "directory") throws -> [FilesAPI.FileEntry] {
         let data = try JSONSerialization.data(withJSONObject: names.map { ["name": $0, "kind": kind] })
-        return try JSONDecoder().decode([RemoteFileEntry].self, from: data)
+        return try JSONDecoder().decode([FilesAPI.FileEntry].self, from: data)
     }
 
     private func eventually(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(3)
         while !condition() {
-            guard ContinuousClock.now < deadline else { throw RemoteSessionError.timedOut }
+            guard ContinuousClock.now < deadline else { throw SSHError.timedOut }
             try await Task.sleep(for: .milliseconds(10))
         }
     }
@@ -128,7 +129,7 @@ struct RemoteWorkspaceStoreTests {
         store.update(sources: [old], refreshID: 0) { _, _ in
             await gate.wait()
             oldReturned = true
-            if !succeeds { throw RemoteSessionError.timedOut }
+            if !succeeds { throw SSHError.timedOut }
             return try entries(["old"])
         }
         try await eventually { gate.waiting }
@@ -147,12 +148,38 @@ struct RemoteWorkspaceStoreTests {
         store.stop()
     }
 
+    @Test func URLChangeDiscardsLateListingWithoutSSHReconnect() async throws {
+        let fixture = try Fixture()
+        var old = fixture.source(fixture.first)
+        old.serverURL = "http://server:8081"
+        var current = old
+        current.serverURL = "http://server:8082"
+        let gate = Gate()
+        let store = RemoteWorkspaceStore()
+        var returned = false
+        store.update(sources: [old], refreshID: 0) { _, _ in
+            await gate.wait()
+            returned = true
+            return try entries(["old"])
+        }
+        try await eventually { gate.waiting }
+        store.update(sources: [current], refreshID: 0) { source, path in
+            try entries(path == source.projectsPath ? ["current"] : [])
+        }
+        try await eventually { store.states[current.hostID] == .loaded }
+        gate.release()
+        try await eventually { returned }
+        #expect(store.entries(for: [current]).map(\.name) == ["current"])
+        #expect(store.entries(for: [old]).isEmpty)
+        store.stop()
+    }
+
     @Test func refreshAndPartialFailure() async throws {
         let fixture = try Fixture()
         let source = fixture.source(fixture.first)
         let store = RemoteWorkspaceStore()
         store.update(sources: [source], refreshID: 0) { source, path in
-            if path == source.worktreesPath { throw RemoteSessionError.remote(-32000, "permission denied") }
+            if path == source.worktreesPath { throw SSHError.operationFailed("permission denied") }
             return try entries(["a"])
         }
         try await eventually {

@@ -1,12 +1,14 @@
 import Foundation
 import SwiftData
 import WhubCore
+import WhubClient
 
 @MainActor
 final class RemoteTreeStore {
     struct Source: Equatable {
         let root: FileLocation
         let sessionID: ObjectIdentifier
+        var serverURL: String? = nil
     }
 
     enum State: Equatable {
@@ -20,12 +22,12 @@ final class RemoteTreeStore {
     private var jobs: [String: Task<Void, Never>] = [:]
     private var generation = UUID()
     private var refreshID: Int?
-    private var list: (@MainActor (String) async throws -> [RemoteFileEntry])?
+    private var list: (@MainActor (String) async throws -> [FilesAPI.FileEntry])?
     var onChange: (() -> Void)?
 
     var cachedItems: [ExplorerItem] { Array(items.values) }
 
-    func update(location: FileLocation?, hosts: [RemoteHost], connections: RemoteConnectionStore, refreshID: Int) {
+    func update(location: FileLocation?, hosts: [RemoteHost], connections: RemoteConnectionStore, servers: RemoteServerStore, refreshID: Int) {
         guard let location,
               case let .remote(hostID, root) = location,
               let host = hosts.first(where: { $0.persistentModelID == hostID }),
@@ -33,17 +35,18 @@ final class RemoteTreeStore {
             update(source: nil, refreshID: refreshID, list: nil)
             return
         }
-        update(source: .init(root: location, sessionID: ObjectIdentifier(connection)), refreshID: refreshID) { path in
+        update(source: .init(root: location, sessionID: ObjectIdentifier(connection), serverURL: servers.configuredURL(for: host)), refreshID: refreshID) { path in
             guard connections.connection(for: host) === connection else { throw SSHError.disconnected }
-            let session = try await connections.legacySession(for: host)
-            let entries = try await session.listDirectory(root: root, path: path)
-            guard connections.connection(for: host) === connection else { throw SSHError.disconnected }
+            let serverURL = servers.configuredURL(for: host)
+            let client = try await servers.client(for: host)
+            let entries = try await client.files.listDirectory(root: root, path: path)
+            guard connections.connection(for: host) === connection, servers.configuredURL(for: host) == serverURL else { throw SSHError.disconnected }
             return entries
         }
     }
 
     func update(source: Source?, refreshID: Int,
-                list: (@MainActor (String) async throws -> [RemoteFileEntry])?) {
+                list: (@MainActor (String) async throws -> [FilesAPI.FileEntry])?) {
         guard self.source != source || self.refreshID != refreshID else { return }
         let changed = self.source != source
         let paths = Array(states.keys)

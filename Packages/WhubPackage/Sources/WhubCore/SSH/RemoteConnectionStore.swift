@@ -11,7 +11,6 @@ public final class RemoteConnectionStore: ObservableObject {
 
     @Published public private(set) var states: [PersistentIdentifier: State] = [:]
     private var connections: [PersistentIdentifier: SSHConnectionService] = [:]
-    let legacySessions = LegacyRemoteSessions()
     private var jobs: [PersistentIdentifier: Task<Void, Never>] = [:]
     private var generations: [PersistentIdentifier: UUID] = [:]
     private var shuttingDown = false
@@ -65,7 +64,6 @@ public final class RemoteConnectionStore: ObservableObject {
         let task = Task { [weak self, open] in
             do {
                 await previousSession?.close()
-                if let previousSession { await self?.legacySessions.close(for: previousSession) }
                 try Task.checkCancellation()
                 let session = try await open(host)
                 guard let self, !Task.isCancelled, self.generations[id] == generation else {
@@ -103,7 +101,6 @@ public final class RemoteConnectionStore: ObservableObject {
         states[id] = .disconnecting
         let task = Task { [weak self] in
             await session?.close()
-            if let session { await self?.legacySessions.close(for: session) }
             // Wait for cancelled attempts too: a late result must be closed before reconnecting.
             await previous?.value
             guard let self, self.generations[id] == generation else { return }

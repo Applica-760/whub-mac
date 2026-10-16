@@ -131,6 +131,51 @@ struct RemoteServerStoreTests {
         await fixture.connections.shutdown()
     }
 
+    @Test func filesStoresUseTheSharedHTTPClient() async throws {
+        let fixture = try Fixture()
+        await fixture.connections.connect(fixture.host)
+        let session = fixtureSession()
+        defer { session.invalidateAndCancel() }
+        var forwards = 0
+        let servers = RemoteServerStore(connections: fixture.connections, session: session, forward: { _, _, _ in
+            forwards += 1
+            return 31001
+        }, cancel: { _, _, _, _ in })
+        #if DEBUG
+        #expect(RemoteServerStore.currentEnvironment == .dev)
+        #else
+        #expect(RemoteServerStore.currentEnvironment == .prod)
+        #endif
+        let workspace = RemoteWorkspaceStore()
+        workspace.update(hosts: [fixture.host], connections: fixture.connections, servers: servers, refreshID: 0)
+        try await eventually { workspace.states[fixture.host.persistentModelID] == .loaded }
+        let sources = RemoteWorkspaceStore.connectedSources(hosts: [fixture.host], connections: fixture.connections)
+        let root = FileLocation.remote(hostID: fixture.host.persistentModelID, path: "/workspace/projects/demo")
+        #expect(workspace.entries(for: sources) == [root])
+        let tree = RemoteTreeStore()
+        tree.update(location: root, hosts: [fixture.host], connections: fixture.connections, servers: servers, refreshID: 0)
+        try await eventually { tree.states[""] == .loaded }
+        #expect(tree.rootItems.map(\.location) == [root.appending("hello.txt")])
+        let editor = RemoteEditorStore()
+        let file = root.appending("hello.txt")
+        editor.load(file, root: root, hosts: [fixture.host], connections: fixture.connections, servers: servers)
+        try await eventually {
+            if case .loaded = editor.states[file] { return true }
+            return false
+        }
+        #expect(forwards == 1)
+        await fixture.connections.disconnect(fixture.host)
+        try await eventually {
+            if case .disconnected = editor.states[file] { return true }
+            return false
+        }
+        editor.close(file)
+        tree.stop()
+        workspace.stop()
+        await servers.close()
+        await fixture.connections.shutdown()
+    }
+
     private func fixtureSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PingProtocol.self]
@@ -183,13 +228,40 @@ private final class PingProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         guard let url = request.url, url.scheme == "http", url.host == "127.0.0.1",
-              url.path == "/api/ping", [31001, 31002].contains(url.port ?? 0) else {
+              ["/api/ping", "/api/files/list", "/api/files/read"].contains(url.path),
+              [31001, 31002].contains(url.port ?? 0) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
                             cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data("pong".utf8))
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let root = query.first { $0.name == "root" }?.value
+        let path = query.first { $0.name == "path" }?.value
+        let body: String
+        switch url.path {
+        case "/api/files/list":
+            guard path == "", let root else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+            switch root {
+            case "/workspace/projects": body = #"[{"name":"demo","kind":"directory"}]"#
+            case "/workspace/worktrees": body = "[]"
+            case "/workspace/projects/demo": body = #"[{"name":"hello.txt","kind":"file"}]"#
+            default:
+                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+        case "/api/files/read":
+            guard root == "/workspace/projects/demo", path == "hello.txt" else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+            body = #"{"text":"hello over HTTP"}"#
+        default: body = "pong"
+        }
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

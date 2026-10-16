@@ -11,9 +11,11 @@ Linux上でSwift・Git・systemd userサービスを使えることが前提。�
 - ソースはcleanなGit checkoutとし、`origin`を設定する。Buildはdetached checkoutへ切り替え、元ブランチには戻さない。更新中はソースを編集しない。
 - 保存先はソースcheckoutの外に置き、dev／prodの全更新で同じ絶対パスを使う。同じcheckoutを使う別のBuildも並行実行しない。
 - dev／prodそれぞれのsystemd userサービスを事前に登録し、`ExecStart`に各環境の`current/whub-server`の絶対パスを指定する。シェルやラッパーを介さず、Server自身をMainPIDとして管理する。
-- サービスごとに`WHUB_SERVER_HOST`・`WHUB_SERVER_PORT`・`WHUB_SERVER_ROOT`を設定する。ポートは環境間で分ける。渡すhealth URLは、そのサービスの`/ping`を直接指す。
+- サービスごとに`WHUB_SERVER_HOST`・`WHUB_SERVER_PORT`を設定する。ポートは環境間で分ける。渡すhealth URLは、そのサービスの`/ping`を直接指す。
 - systemdの起動・停止タイムアウトは有限値にする。更新プロセスは`systemd-run --user`で独立した一時サービスとして起動する。常駐Serverと同じサービスには属さない。ログアウト後・OS再起動後の常駐設定は後続作業。
 - systemd 254以降を使う。起動引数の環境変数展開を無効にする`--expand-environment=no`を使用する（[systemdの公式文書](https://github.com/systemd/systemd/blob/v254/man/systemd-run.xml)）。
+
+Files APIの閲覧ルートはMacが保持し、`/files/list`・`/files/read`の`root`クエリに絶対パスを渡す。`path`はその配下の相対パス（省略時は空）。`WHUB_SERVER_ROOT`は使用しない。
 
 ## Manager APIを有効にする
 

@@ -15,7 +15,7 @@ let package = Package(
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
     ],
     targets: [
-        .target(name: "WhubCore", resources: [.copy("SSH/Legacy/Resources/remote_agent.py"), .copy("SSH/Legacy/Resources/remote_files.py")]),
+        .target(name: "WhubCore"),
         .target(name: "WhubClient"),
         .executableTarget(name: "WhubCLI", dependencies: ["WhubCore"]),
         .executableTarget(

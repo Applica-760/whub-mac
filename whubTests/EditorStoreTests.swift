@@ -109,7 +109,7 @@ struct EditorStoreTests {
     private func eventually(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(3)
         while !condition() {
-            guard ContinuousClock.now < deadline else { throw RemoteSessionError.timedOut }
+            guard ContinuousClock.now < deadline else { throw SSHError.timedOut }
             try await Task.sleep(for: .milliseconds(10))
         }
     }
@@ -178,7 +178,7 @@ struct EditorStoreTests {
             await gate.wait()
             returned = true
             if succeeds { return "old" }
-            throw RemoteSessionError.disconnected
+            throw SSHError.disconnected
         }
         editor.preview(.file(old))
         try await eventually { gate.waiting }
@@ -201,7 +201,7 @@ struct EditorStoreTests {
         let store = RemoteEditorStore()
         let root = fixture.root()
         let file = root.appending("missing")
-        store.load(file, root: root) { _, _, _ in throw RemoteSessionError.disconnected }
+        store.load(file, root: root) { _, _, _ in throw SSHError.disconnected }
         try await eventually { if case .failed = store.states[file] { return true }; return false }
         for location in [root.appending("../outside"), fixture.root(second: true).appending("file")] {
             store.load(location, root: root) { _, _, _ in
@@ -229,7 +229,7 @@ struct EditorStoreTests {
             switch reads {
             case 1: return "first"
             case 2: return "second"
-            case 3: throw RemoteSessionError.remote(-32000, "ファイルが削除されました")
+            case 3: throw SSHError.operationFailed("ファイルが削除されました")
             default: return ""
             }
         }
@@ -273,7 +273,7 @@ struct EditorStoreTests {
                 await gate.wait()
                 returned = true
                 if succeeds { return "old session" }
-                throw RemoteSessionError.disconnected
+                throw SSHError.disconnected
             }
             return "new session"
         }
@@ -368,7 +368,7 @@ struct EditorStoreTests {
         let editor = files.activeEditor
         let connections = RemoteConnectionStore()
         let location = FileLocation.local(url)
-        files.open(location, hosts: [], connections: connections)
+        files.open(location, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
         let local = try #require(editor.local.fileStores[location])
         let document = local.document
         #expect(editor.file(for: location) === document)
@@ -410,8 +410,8 @@ struct EditorStoreTests {
         let projectEditor = files.activeEditor
         let first = FileLocation.local(roots[0].appendingPathComponent("first.txt"))
         let second = FileLocation.local(roots[0].appendingPathComponent("second.txt"))
-        files.open(first, hosts: [], connections: connections)
-        files.preview(second, hosts: [], connections: connections)
+        files.open(first, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
+        files.preview(second, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
         projectEditor.move(.file(second), before: .file(first))
         projectEditor.select(.file(first))
         let document = try #require(projectEditor.local.fileStores[first])
@@ -422,7 +422,7 @@ struct EditorStoreTests {
         #expect(worktreeEditor !== projectEditor)
         #expect(worktreeEditor.tabs.isEmpty)
         let worktreeFile = FileLocation.local(roots[1].appendingPathComponent("first.txt"))
-        files.preview(worktreeFile, hosts: [], connections: connections)
+        files.preview(worktreeFile, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
         let worktreeDocument = try #require(worktreeEditor.local.fileStores[worktreeFile])
         #expect(worktreeDocument.document.savedSource == roots[1].path)
         worktreeDocument.document.content = .text("unsaved worktree edit")
@@ -504,7 +504,7 @@ struct EditorStoreTests {
         let editor = files.activeEditor
         let connections = RemoteConnectionStore()
         let location = FileLocation.local(url)
-        files.preview(location, hosts: [], connections: connections)
+        files.preview(location, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
         #expect(editor.remote.states.isEmpty)
         let localFile = try #require(editor.local.fileStores[location])
         let file = localFile.document
@@ -513,7 +513,7 @@ struct EditorStoreTests {
         #expect(file.textStorage.string == "original")
         file.content = .text("edited")
         #expect(file.hasUnsavedChanges)
-        files.open(location, hosts: [], connections: connections)
+        files.open(location, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
         #expect(editor.local.fileStores[location] === localFile)
         try localFile.save()
         #expect(try String(contentsOf: url, encoding: .utf8) == "edited")

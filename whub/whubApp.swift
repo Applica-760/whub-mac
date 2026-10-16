@@ -10,13 +10,17 @@ struct whubApp: App {
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
     @StateObject private var codexStore: CodexTabsStore
-    @StateObject private var remoteConnections = RemoteConnectionStore()
+    @StateObject private var remoteConnections: RemoteConnectionStore
+    @StateObject private var remoteServers: RemoteServerStore
     @State private var section = AppView.Section.file
     @FocusedValue(\.explorerPulldownSelection) private var explorerPulldownSelection
     private let workspaceContainer: ModelContainer
 
     init() {
         NSWindow.allowsAutomaticWindowTabbing = false
+        let connections = RemoteConnectionStore()
+        _remoteConnections = StateObject(wrappedValue: connections)
+        _remoteServers = StateObject(wrappedValue: RemoteServerStore(connections: connections))
         do {
             let container = try Container.make()
             workspaceContainer = container
@@ -38,7 +42,11 @@ struct whubApp: App {
                 .environmentObject(browserStore)
                 .environmentObject(codexStore)
                 .environmentObject(remoteConnections)
-                .onAppear { appDelegate.remoteConnections = remoteConnections }
+                .environmentObject(remoteServers)
+                .onAppear {
+                    appDelegate.remoteConnections = remoteConnections
+                    appDelegate.remoteServers = remoteServers
+                }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                     codexStore.disconnect()
                 }
@@ -128,6 +136,7 @@ struct whubApp: App {
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var remoteConnections: RemoteConnectionStore?
+    weak var remoteServers: RemoteServerStore?
     private var isTerminating = false
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -142,6 +151,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let remoteConnections else { return .terminateNow }
         isTerminating = true
         Task {
+            await remoteServers?.close()
             await remoteConnections.shutdown()
             sender.reply(toApplicationShouldTerminate: true)
         }

@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import SwiftData
 import WhubCore
+import WhubClient
 
 @MainActor
 final class RemoteWorkspaceStore: ObservableObject {
@@ -11,11 +12,13 @@ final class RemoteWorkspaceStore: ObservableObject {
         let projectsPath: String
         let worktreesPath: String
         let sessionID: ObjectIdentifier
+        var serverURL: String? = nil
 
         // Display-name changes do not invalidate directory listings.
         static func == (lhs: Self, rhs: Self) -> Bool {
             lhs.hostID == rhs.hostID && lhs.projectsPath == rhs.projectsPath
                 && lhs.worktreesPath == rhs.worktreesPath && lhs.sessionID == rhs.sessionID
+                && lhs.serverURL == rhs.serverURL
         }
     }
 
@@ -35,20 +38,22 @@ final class RemoteWorkspaceStore: ObservableObject {
             guard let connection = connections.connection(for: host) else { return nil }
             return .init(hostID: host.persistentModelID, hostName: host.name,
                          projectsPath: host.projectsPath, worktreesPath: host.worktreesPath,
-                         sessionID: ObjectIdentifier(connection))
+                         sessionID: ObjectIdentifier(connection),
+                         serverURL: RemoteServerStore.currentEnvironment == .dev ? host.devServerURL : host.prodServerURL)
         }
     }
 
-    func update(hosts: [RemoteHost], connections: RemoteConnectionStore, refreshID: Int) {
+    func update(hosts: [RemoteHost], connections: RemoteConnectionStore, servers: RemoteServerStore, refreshID: Int) {
         let hostsByID = Dictionary(uniqueKeysWithValues: hosts.map { ($0.persistentModelID, $0) })
         update(sources: Self.connectedSources(hosts: hosts, connections: connections), refreshID: refreshID) { source, root in
             guard let host = hostsByID[source.hostID],
                   let connection = connections.connection(for: host), ObjectIdentifier(connection) == source.sessionID else {
                 throw SSHError.disconnected
             }
-            let session = try await connections.legacySession(for: host)
-            let entries = try await session.listDirectory(root: root)
-            guard connections.connection(for: host) === connection else { throw SSHError.disconnected }
+            let serverURL = servers.configuredURL(for: host)
+            let client = try await servers.client(for: host)
+            let entries = try await client.files.listDirectory(root: root)
+            guard connections.connection(for: host) === connection, servers.configuredURL(for: host) == serverURL else { throw SSHError.disconnected }
             return entries
         }
     }
@@ -61,7 +66,7 @@ final class RemoteWorkspaceStore: ObservableObject {
 
     func update(
         sources current: [Source], refreshID: Int,
-        list: @escaping @MainActor (Source, String) async throws -> [RemoteFileEntry]
+        list: @escaping @MainActor (Source, String) async throws -> [FilesAPI.FileEntry]
     ) {
         let ids = Set(current.map(\.hostID))
         for id in Array(sources.keys) where !ids.contains(id) {
@@ -111,7 +116,7 @@ final class RemoteWorkspaceStore: ObservableObject {
         }
     }
 
-    private static func directoryNames(_ entries: [RemoteFileEntry]) -> [String] {
+    private static func directoryNames(_ entries: [FilesAPI.FileEntry]) -> [String] {
         entries.filter {
             $0.kind == .directory && !$0.name.isEmpty && $0.name != "." && $0.name != ".."
                 && !$0.name.contains("/") && !$0.name.contains("\0")

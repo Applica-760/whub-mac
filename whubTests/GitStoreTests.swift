@@ -39,7 +39,7 @@ struct GitStoreTests {
         let files = FilesStore()
         files.explorer.localTree.setRoot(fixture.first)
         let location = FileLocation.local(fixture.firstFile)
-        files.preview(location, hosts: [], connections: RemoteConnectionStore())
+        files.preview(location, hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
         let document = try #require(files.activeEditor.file(for: location))
         document.content = .text("unsaved")
         files.openDiff(location, preview: true)
@@ -79,7 +79,7 @@ struct GitStoreTests {
         let diff = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
         try await eventually { diff.diff != nil && !files.git.isLoadingDiff }
         #expect(diff.diff?.change == nil)
-        files.open(location, hosts: [], connections: RemoteConnectionStore())
+        files.open(location, hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
         let local = try #require(files.activeEditor.local.fileStores[location])
         local.document.content = .text("saved\n")
         try local.save()
@@ -211,7 +211,7 @@ struct GitStoreTests {
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let files = FilesStore()
         let location = FileLocation.local(fixture.firstFile)
-        files.open(location, hosts: [], connections: RemoteConnectionStore())
+        files.open(location, hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
         let document = try #require(files.activeEditor.file(for: location))
         let host = NSHostingView(rootView: EditorView()
             .environmentObject(files).environmentObject(files.activeEditor).environmentObject(files.git))

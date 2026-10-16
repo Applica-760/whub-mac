@@ -7,19 +7,20 @@ import Foundation
 import SwiftData
 import Testing
 import WhubCore
+import WhubClient
 @testable import whub
 
 @Suite @MainActor
 struct RemoteTreeStoreTests {
-    private func entries(_ names: [String], kind: String = "file") throws -> [RemoteFileEntry] {
+    private func entries(_ names: [String], kind: String = "file") throws -> [FilesAPI.FileEntry] {
         let data = try JSONSerialization.data(withJSONObject: names.map { ["name": $0, "kind": kind] })
-        return try JSONDecoder().decode([RemoteFileEntry].self, from: data)
+        return try JSONDecoder().decode([FilesAPI.FileEntry].self, from: data)
     }
 
     private func eventually(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(3)
         while !condition() {
-            guard ContinuousClock.now < deadline else { throw RemoteSessionError.timedOut }
+            guard ContinuousClock.now < deadline else { throw SSHError.timedOut }
             try await Task.sleep(for: .milliseconds(10))
         }
     }
@@ -70,7 +71,7 @@ struct RemoteTreeStoreTests {
         store.update(source: old, refreshID: 0) { _ in
             await gate.wait()
             returned = true
-            if !succeeds { throw RemoteSessionError.timedOut }
+            if !succeeds { throw SSHError.timedOut }
             return try entries(["old"])
         }
         try await eventually { gate.waiting }
@@ -99,6 +100,29 @@ struct RemoteTreeStoreTests {
         store.stop()
     }
 
+    @Test func URLChangeDiscardsLateListingWithoutSSHReconnect() async throws {
+        let fixture = try TreeFixture()
+        let store = RemoteTreeStore()
+        let gate = TreeGate()
+        var old = fixture.source()
+        old.serverURL = "http://server:8081"
+        var current = old
+        current.serverURL = "http://server:8082"
+        var returned = false
+        store.update(source: old, refreshID: 0) { _ in
+            await gate.wait()
+            returned = true
+            return try entries(["old"])
+        }
+        try await eventually { gate.waiting }
+        store.update(source: current, refreshID: 0) { _ in try entries(["current"]) }
+        try await eventually { store.states[""] == .loaded }
+        gate.release()
+        try await eventually { returned }
+        #expect(store.rootItems.map { $0.location.name } == ["current"])
+        store.stop()
+    }
+
     @Test func selectionChangeAndRemovedDirectory() async throws {
         let fixture = try TreeFixture()
         let store = RemoteTreeStore()
@@ -112,7 +136,7 @@ struct RemoteTreeStoreTests {
         try await eventually { store.states["src"] == .loaded }
         store.update(source: source, refreshID: 1) { path in
             if path.isEmpty { return [] }
-            throw RemoteSessionError.remote(-32000, "deleted")
+            throw SSHError.operationFailed("deleted")
         }
         try await eventually { store.states[""] == .loaded }
         #expect(store.rootItems.isEmpty)
@@ -142,7 +166,7 @@ struct RemoteTreeStoreTests {
         let source = fixture.source()
         store.update(source: source, refreshID: 0) { path in
             if path.isEmpty { return try entries(["src"], kind: "directory") }
-            throw RemoteSessionError.remote(-32000, "permission denied")
+            throw SSHError.operationFailed("permission denied")
         }
         try await eventually { store.states[""] == .loaded }
         let directory = try #require(store.rootItems.first)
