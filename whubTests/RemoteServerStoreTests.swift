@@ -146,12 +146,14 @@ struct RemoteServerStoreTests {
         #else
         #expect(RemoteServerStore.currentEnvironment == .prod)
         #endif
+        let project = try ProjectStore(context: fixture.container.mainContext).add(name: "demo", gitURL: nil, host: fixture.host)
         let workspace = RemoteWorkspaceStore()
-        workspace.update(hosts: [fixture.host], connections: fixture.connections, servers: servers, refreshID: 0)
+        workspace.update(hosts: [fixture.host], connections: fixture.connections, servers: servers, refreshID: 0,
+                         context: fixture.container.mainContext, projects: [project])
         try await eventually { workspace.states[fixture.host.persistentModelID] == .loaded }
-        let sources = RemoteWorkspaceStore.connectedSources(hosts: [fixture.host], connections: fixture.connections)
+        let sources = RemoteWorkspaceStore.connectedSources(hosts: [fixture.host], projects: [project], connections: fixture.connections)
         let root = FileLocation.remote(hostID: fixture.host.persistentModelID, path: "/workspace/projects/demo")
-        #expect(workspace.entries(for: sources) == [root])
+        #expect(workspace.entries(for: sources) == [sources[0].baseLocation, root])
         let tree = RemoteTreeStore()
         tree.update(location: root, hosts: [fixture.host], connections: fixture.connections, servers: servers, refreshID: 0)
         try await eventually { tree.states[""] == .loaded }

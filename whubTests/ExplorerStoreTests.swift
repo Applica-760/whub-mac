@@ -42,11 +42,12 @@ struct ExplorerStoreTests {
         defer { try? FileManager.default.removeItem(at: base) }
         let projectURL = base.appendingPathComponent("projects/app")
         let firstWorktree = base.appendingPathComponent("worktrees/app-1")
-        for url in [projectURL, firstWorktree] {
+        for url in [projectURL, firstWorktree, base.appendingPathComponent("projects/unregistered")] {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         }
         let host = try HostStore(context: context).addLocal(name: "local", basePath: base.path)
         let project = try ProjectStore(context: context).add(name: "app", gitURL: nil, host: host)
+        _ = try ProjectStore(context: context).add(name: "missing", gitURL: nil, host: host)
         let files = FilesStore()
         let store = files.explorer
         let connections = RemoteConnectionStore()

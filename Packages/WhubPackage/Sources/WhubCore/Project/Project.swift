@@ -3,7 +3,9 @@ import SwiftData
 
 @Model
 public final class Project {
-    @Attribute(.unique) public internal(set) var name: String
+    #Unique<Project>([\.host, \.name])
+
+    public internal(set) var name: String
     public internal(set) var gitURL: String?
     public internal(set) var host: Host
 
@@ -19,5 +21,14 @@ public final class Project {
 
     public func worktreePath(issueNumber: Int) -> String {
         (host.worktreesPath as NSString).appendingPathComponent("\(name)-\(issueNumber)")
+    }
+
+    public func worktreeIssueNumber(for path: String) -> Int? {
+        let directoryName = (path as NSString).lastPathComponent
+        let prefix = name + "-"
+        guard directoryName.hasPrefix(prefix),
+              let number = Int(directoryName.dropFirst(prefix.count)), number > 0,
+              path == worktreePath(issueNumber: number) else { return nil }
+        return number
     }
 }
