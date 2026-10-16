@@ -1,10 +1,10 @@
 // 検証する内容:
-// - 接続操作を重ねても、同じホストに起動するPythonプロセスは1つである。
+// - 接続操作を重ねても、同じホストの共通SSH接続は1つである。
 // - 接続中に切断すると、遅れて成功・失敗した結果が接続状態を復活・上書きしない。
 // - 要求を送っていない時のプロセス終了も通知され、接続済みのまま残らない。
 // - 通知購読前に切断していた場合も検知し、アプリ終了時は接続中の処理も片付ける。
 // - 保存済みHostの接続先変更・削除で旧接続を無効化し、表示名変更と入力エラーでは維持する。
-// 限界: ローカルの実Pythonで状態管理を検証する。ホバー・フォーカス・見た目はGUI確認が必要。
+// 限界: ローカルのプロセスで接続の所有・状態管理を検証する。実SSH認証は対象外。ホバー・フォーカス・見た目はGUI確認が必要。
 import SwiftData
 import Foundation
 import Testing
@@ -16,17 +16,19 @@ struct RemoteConnectionStoreTests {
         RemoteHost(name: name, basePath: "/", hostname: "unused", user: "test", identityFile: "")
     }
 
-    private func localSession() async throws -> (SSH.Connection, RemoteSession) {
-        let connection = try SSH.Connection(executable: URL(fileURLWithPath: "/usr/bin/python3"),
-                                            arguments: ["-u", "-c", RemoteSession.bootstrap])
-        let session = try await RemoteSession.connect(connection: connection, source: RemoteSession.agent)
-        return (connection, session)
+    private func localConnection() throws -> (SSH.Connection, SSHConnectionService) {
+        let process = try SSH.Connection(executable: URL(fileURLWithPath: "/bin/cat"), arguments: [])
+        let connection = SSHConnectionService(
+            configuration: try SSH.Configuration(hostname: "unused", user: "test"),
+            master: process, controlDirectory: try SSHConnectionService.makeControlDirectory()
+        )
+        return (process, connection)
     }
 
     private func eventually(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(3)
         while !condition() {
-            guard ContinuousClock.now < deadline else { throw RemoteSessionError.timedOut }
+            guard ContinuousClock.now < deadline else { throw SSHError.timedOut }
             try await Task.sleep(for: .milliseconds(10))
         }
     }
@@ -44,21 +46,21 @@ struct RemoteConnectionStoreTests {
         var destinations: [String] = []
         let store = RemoteConnectionStore { host in
             destinations.append(host.hostname)
-            let (connection, session) = try await localSession()
+            let (connection, session) = try localConnection()
             processes.append(connection)
             return session
         }
         await store.connect(host)
-        let original = try #require(store.session(for: host))
+        let original = try #require(store.connection(for: host))
         try hosts.editRemote(host, name: "renamed", basePath: "/", hostname: "old", user: "test", port: 22, identityFile: "")
-        #expect(store.session(for: host) === original)
+        #expect(store.connection(for: host) === original)
         #expect(throws: (any Error).self) {
             try hosts.editRemote(host, name: "renamed", basePath: "/", hostname: "", user: "test", port: 22, identityFile: "")
         }
-        #expect(store.session(for: host) === original)
+        #expect(store.connection(for: host) === original)
 
         try hosts.editRemote(host, name: "renamed", basePath: "/", hostname: "new", user: "test", port: 22, identityFile: "")
-        #expect(store.session(for: host) == nil)
+        #expect(store.connection(for: host) == nil)
         #expect(store.state(for: host) == .disconnecting)
         await store.connect(host)
         #expect(destinations == ["old"])
@@ -83,7 +85,7 @@ struct RemoteConnectionStoreTests {
         var process: SSH.Connection?
         let store = RemoteConnectionStore { _ in
             starts += 1
-            let (connection, session) = try await localSession()
+            let (connection, session) = try localConnection()
             process = connection
             await gate.wait()
             return session
@@ -95,12 +97,12 @@ struct RemoteConnectionStoreTests {
         #expect(store.state(for: host) == .connecting)
         gate.release()
         await first.value
-        let session = try #require(store.session(for: host))
-        let pid = try await session.ping()
+        let session = try #require(store.connection(for: host))
+        #expect(session.isConnected)
         await store.connect(host)
         #expect(starts == 1)
-        #expect(store.session(for: host) === session)
-        #expect(try await session.ping() == pid)
+        #expect(store.connection(for: host) === session)
+        #expect(session.isConnected)
         await store.disconnect(host)
         #expect(store.state(for: host) == .disconnected)
         #expect(process?.process.isRunning == false)
@@ -114,14 +116,14 @@ struct RemoteConnectionStoreTests {
         var oldProcess: SSH.Connection?
         let store = RemoteConnectionStore { _ in
             starts += 1
-            let (connection, session) = try await localSession()
+            let (connection, session) = try localConnection()
             if starts == 1 {
                 oldProcess = connection
                 // Deliberately ignore cancellation to simulate a late connection completion.
                 await gate.wait()
                 if !succeeds {
                     await session.close()
-                    throw RemoteSessionError.timedOut
+                    throw SSHError.timedOut
                 }
             }
             return session
@@ -136,7 +138,7 @@ struct RemoteConnectionStoreTests {
         await disconnect.value
         await attempt.value
         #expect(store.state(for: host) == .disconnected)
-        #expect(store.session(for: host) == nil)
+        #expect(store.connection(for: host) == nil)
         #expect(oldProcess?.process.isRunning == false)
         await store.connect(host)
         #expect(starts == 2)
@@ -146,7 +148,7 @@ struct RemoteConnectionStoreTests {
 
     @Test func idleDisconnectUpdatesState() async throws {
         let host = host()
-        let (connection, session) = try await localSession()
+        let (connection, session) = try localConnection()
         let store = RemoteConnectionStore { _ in session }
         await store.connect(host)
         #expect(store.state(for: host) == .connected)
@@ -155,19 +157,19 @@ struct RemoteConnectionStoreTests {
             if case .failed = store.state(for: host) { return true }
             return false
         }
-        #expect(store.session(for: host) == nil)
+        #expect(store.connection(for: host) == nil)
         #expect(session.disconnectionError != nil)
         await session.close()
     }
 
     @Test func disconnectBeforeObservationIsNotLost() async throws {
         let host = host()
-        let (_, session) = try await localSession()
+        let (_, session) = try localConnection()
         await session.close()
         let store = RemoteConnectionStore { _ in session }
         await store.connect(host)
-        #expect(store.state(for: host) == .failed(RemoteSessionError.disconnected.localizedDescription))
-        #expect(store.session(for: host) == nil)
+        #expect(store.state(for: host) == .failed(SSHError.disconnected.localizedDescription))
+        #expect(store.connection(for: host) == nil)
     }
 
     @Test func shutdownClosesActiveAndPendingConnections() async throws {
@@ -175,7 +177,7 @@ struct RemoteConnectionStoreTests {
         let gate = Gate()
         var processes: [SSH.Connection] = []
         let store = RemoteConnectionStore { host in
-            let (connection, session) = try await localSession()
+            let (connection, session) = try localConnection()
             processes.append(connection)
             if host.name == "pending" { await gate.wait() }
             return session

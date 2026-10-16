@@ -277,7 +277,11 @@ struct RemoteSessionTests {
             HostStore(context: container.mainContext).fetchHosts().first { $0.name == name } as? RemoteHost,
             "指定した名前のRemoteHostが保存されていません。"
         )
-        let session = try await RemoteSession.connect(to: host)
+        let connection = try await SSHConnectionService.connect(configuration: SSH.Configuration(
+            hostname: host.hostname, user: host.user, port: host.port, identityFile: host.identityFile
+        ))
+        defer { Task { await connection.close() } }
+        let session = try await RemoteSession.connect(using: connection)
         let pid = try await session.ping()
         for _ in 0..<20 { #expect(try await session.ping() == pid) }
         let projects = try ProjectStore(context: container.mainContext).fetchProjects().filter { $0.host.name == name }

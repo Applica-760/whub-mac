@@ -1,22 +1,46 @@
 import Foundation
 import Darwin
 
-enum SSHError: LocalizedError {
+public enum SSHError: LocalizedError {
     case emptyCommand, invalidHostname, invalidUser, invalidPort, invalidIdentityFile
+    case disconnected, timedOut, invalidForwarding
+    case operationFailed(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .emptyCommand: "SSH command is required."
         case .invalidHostname: "SSH hostname is invalid."
         case .invalidUser: "SSH user is invalid."
         case .invalidPort: "SSH port must be between 1 and 65535."
         case .invalidIdentityFile: "SSH identity path contains a NUL character."
+        case .disconnected: "SSH connection is closed."
+        case .timedOut: "SSH connection timed out."
+        case .invalidForwarding: "SSH forwarding requires valid ports and a destination host."
+        case let .operationFailed(message): message
         }
     }
 }
 
 @MainActor
 public enum SSH {
+    public struct Configuration: Sendable, Equatable {
+        public let hostname: String
+        public let user: String
+        public let port: Int
+        public let identityFile: String
+
+        public init(hostname: String, user: String, port: Int = 22, identityFile: String = "") throws {
+            try SSH.validate(hostname: hostname, user: user, port: port)
+            guard !identityFile.contains("\0") else { throw SSHError.invalidIdentityFile }
+            self.hostname = hostname
+            self.user = user
+            self.port = port
+            self.identityFile = identityFile
+        }
+
+        var destination: String { "\(user)@\(hostname)" }
+    }
+
     public static func validate(hostname: String, user: String, port: Int) throws {
         let forbidden = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)
         guard !hostname.isEmpty, !hostname.hasPrefix("-"), !hostname.contains("@"),
@@ -30,32 +54,12 @@ public enum SSH {
         guard (1...65535).contains(port) else { throw SSHError.invalidPort }
     }
 
-    static func arguments(_ command: [String], on host: RemoteHost) throws -> [String] {
-        guard !command.isEmpty else { throw SSHError.emptyCommand }
-        try validate(hostname: host.hostname, user: host.user, port: host.port)
-        guard !host.identityFile.contains("\0") else { throw SSHError.invalidIdentityFile }
+    static func arguments(for configuration: Configuration) -> [String] {
         var arguments = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
                          "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
-                         "-p", String(host.port)]
-        if !host.identityFile.isEmpty { arguments += ["-i", host.identityFile] }
-        arguments += ["\(host.user)@\(host.hostname)", command.map(quote).joined(separator: " ")]
+                         "-p", String(configuration.port)]
+        if !configuration.identityFile.isEmpty { arguments += ["-i", configuration.identityFile] }
         return arguments
-    }
-
-    static func start(_ command: [String], on host: RemoteHost) throws -> Connection {
-        try Connection(executable: URL(fileURLWithPath: "/usr/bin/ssh"),
-                       arguments: arguments(command, on: host))
-    }
-
-    static func run(_ command: [String], on host: RemoteHost) async throws -> Int32 {
-        let connection = try start(command, on: host)
-        let drain = Task { for await _ in connection.output {} }
-        let errors = Task { for await _ in connection.errors {} }
-        connection.closeInput()
-        let status = await connection.wait()
-        await drain.value
-        await errors.value
-        return status
     }
 
     static func quote(_ argument: String) -> String {
@@ -64,9 +68,9 @@ public enum SSH {
 
     // Owns a single subprocess and its pipes; has no knowledge of the wire protocol.
     @MainActor
-    final class Connection {
-        let output: AsyncStream<Data>
-        let errors: AsyncStream<Data>
+    public final class Connection {
+        public let output: AsyncStream<Data>
+        public let errors: AsyncStream<Data>
         let process: Process
         private let input: FileHandle
         private let writer = DispatchQueue(label: "whub.ssh.input")
@@ -125,7 +129,7 @@ public enum SSH {
             }
         }
 
-        func send(_ data: Data) async throws {
+        public func send(_ data: Data) async throws {
             let input = input
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 writer.async {
@@ -137,12 +141,12 @@ public enum SSH {
             }
         }
 
-        func closeInput() {
+        public func closeInput() {
             let input = input
             writer.async { try? input.close() }
         }
 
-        func stop() {
+        public func stop() {
             guard !stopping else { return }
             stopping = true
             closeInput()
@@ -155,7 +159,29 @@ public enum SSH {
             }
         }
 
-        func wait() async -> Int32 { await exit.value }
+        public func wait() async -> Int32 { await exit.value }
+
+        func result() async throws -> (status: Int32, output: Data, errors: Data) {
+            func collect(_ stream: AsyncStream<Data>) async -> Data {
+                var result = Data()
+                for await chunk in stream {
+                    result.append(chunk)
+                    result = Data(result.suffix(16_384))
+                }
+                return result
+            }
+            let output = Task { await collect(self.output) }
+            let errors = Task { await collect(self.errors) }
+            closeInput()
+            return try await withTaskCancellationHandler {
+                let status = await wait()
+                let result = await (status, output.value, errors.value)
+                try Task.checkCancellation()
+                return result
+            } onCancel: {
+                Task { @MainActor in self.stop() }
+            }
+        }
 
         isolated deinit {
             if process.isRunning { process.terminate() }

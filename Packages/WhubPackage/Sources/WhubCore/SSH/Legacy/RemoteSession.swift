@@ -94,9 +94,9 @@ public final class RemoteSession {
         }
     }
 
-    public static func connect(to host: RemoteHost, timeout: Duration = .seconds(10)) async throws -> RemoteSession {
+    public static func connect(using service: SSHConnectionService, timeout: Duration = .seconds(10)) async throws -> RemoteSession {
         let source = try agent
-        let connection = try SSH.start(["python3", "-u", "-c", bootstrap], on: host)
+        let connection = try service.startCommand(["python3", "-u", "-c", bootstrap])
         return try await connect(connection: connection, source: source, timeout: timeout)
     }
 

@@ -10,26 +10,31 @@ public final class RemoteConnectionStore: ObservableObject {
     }
 
     @Published public private(set) var states: [PersistentIdentifier: State] = [:]
-    private var sessions: [PersistentIdentifier: RemoteSession] = [:]
+    private var connections: [PersistentIdentifier: SSHConnectionService] = [:]
+    let legacySessions = LegacyRemoteSessions()
     private var jobs: [PersistentIdentifier: Task<Void, Never>] = [:]
     private var generations: [PersistentIdentifier: UUID] = [:]
     private var shuttingDown = false
-    private let open: @MainActor (RemoteHost) async throws -> RemoteSession
+    private let open: @MainActor (RemoteHost) async throws -> SSHConnectionService
 
     private var hostChanges: AnyCancellable?
 
     public convenience init() {
-        self.init(open: { try await RemoteSession.connect(to: $0) })
+        self.init(open: { host in
+            try await SSHConnectionService.connect(configuration: SSH.Configuration(
+                hostname: host.hostname, user: host.user, port: host.port, identityFile: host.identityFile
+            ))
+        })
     }
 
-    init(open: @escaping @MainActor (RemoteHost) async throws -> RemoteSession) {
+    init(open: @escaping @MainActor (RemoteHost) async throws -> SSHConnectionService) {
         self.open = open
         hostChanges = NotificationCenter.default.publisher(for: HostStore.connectionInvalidated)
             .sink { [weak self] notification in
                 // HostStore posts synchronously on MainActor, before changing the model.
                 MainActor.assumeIsolated {
                     guard let self, let id = notification.object as? PersistentIdentifier,
-                          self.sessions[id] != nil || self.jobs[id] != nil else { return }
+                          self.connections[id] != nil || self.jobs[id] != nil else { return }
                     _ = self.beginDisconnect(id)
                 }
             }
@@ -39,8 +44,10 @@ public final class RemoteConnectionStore: ObservableObject {
         states[host.persistentModelID] ?? .disconnected
     }
 
-    public func session(for host: RemoteHost) -> RemoteSession? {
-        state(for: host) == .connected ? sessions[host.persistentModelID] : nil
+    public func connection(for host: RemoteHost) -> SSHConnectionService? {
+        guard state(for: host) == .connected,
+              let connection = connections[host.persistentModelID], connection.isConnected else { return nil }
+        return connection
     }
 
     public func connect(_ host: RemoteHost) async {
@@ -53,18 +60,19 @@ public final class RemoteConnectionStore: ObservableObject {
         let generation = UUID()
         generations[id] = generation
         states[id] = .connecting
-        let previousSession = sessions.removeValue(forKey: id)
+        let previousSession = connections.removeValue(forKey: id)
         previousSession?.onDisconnect = nil
         let task = Task { [weak self, open] in
             do {
                 await previousSession?.close()
+                if let previousSession { await self?.legacySessions.close(for: previousSession) }
                 try Task.checkCancellation()
                 let session = try await open(host)
                 guard let self, !Task.isCancelled, self.generations[id] == generation else {
                     await session.close()
                     return
                 }
-                self.sessions[id] = session
+                self.connections[id] = session
                 self.states[id] = .connected
                 session.onDisconnect = { [weak self] error in
                     guard let self, self.generations[id] == generation else { return }
@@ -90,11 +98,12 @@ public final class RemoteConnectionStore: ObservableObject {
         generations[id] = generation
         let previous = jobs.removeValue(forKey: id)
         previous?.cancel()
-        let session = sessions.removeValue(forKey: id)
+        let session = connections.removeValue(forKey: id)
         session?.onDisconnect = nil
         states[id] = .disconnecting
         let task = Task { [weak self] in
             await session?.close()
+            if let session { await self?.legacySessions.close(for: session) }
             // Wait for cancelled attempts too: a late result must be closed before reconnecting.
             await previous?.value
             guard let self, self.generations[id] == generation else { return }
@@ -107,7 +116,7 @@ public final class RemoteConnectionStore: ObservableObject {
 
     public func shutdown() async {
         shuttingDown = true
-        let ids = Set(sessions.keys).union(jobs.keys)
+        let ids = Set(connections.keys).union(jobs.keys)
         let tasks = ids.map { beginDisconnect($0) }
         for task in tasks { await task.value }
     }
