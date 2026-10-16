@@ -27,6 +27,7 @@ protocol AgentSession: AnyObject {
     func interrupt() async throws
     func loadModelOptions() async throws -> [AgentModelOption]
     func loadSkills() async throws -> [AgentSkill]
+    func loadStatus() async throws -> [AgentContent]
     func changeModel(_ option: AgentModelOption) async throws
     func respond(to requestID: String, with response: AgentResponse) async throws
     func loadHistory(cursor: String?) async throws -> AgentHistoryPage
@@ -43,6 +44,8 @@ final class AgentStore: ObservableObject, Identifiable {
     @Published private(set) var isResuming = false
     @Published private(set) var modelOptions: [AgentModelOption] = []
     @Published private(set) var isLoadingModelOptions = false
+    @Published private(set) var statusContent: [AgentContent] = []
+    @Published private(set) var isLoadingStatus = false
     @Published private(set) var selectedModelOption: AgentModelOption?
     @Published private(set) var isChangingModel = false
     @Published private(set) var respondingRequestIDs: Set<String> = []
@@ -212,6 +215,22 @@ final class AgentStore: ObservableObject, Identifiable {
             let options = try await session.loadModelOptions()
             guard !isClosed else { return }
             modelOptions = options
+        } catch {
+            guard !isClosed else { return }
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadStatus() async {
+        guard isConnected, !isResuming, !isLoadingStatus else { return }
+        isLoadingStatus = true
+        errorMessage = nil
+        defer { isLoadingStatus = false }
+
+        do {
+            let content = try await session.loadStatus()
+            guard !isClosed else { return }
+            statusContent = content
         } catch {
             guard !isClosed else { return }
             errorMessage = error.localizedDescription
