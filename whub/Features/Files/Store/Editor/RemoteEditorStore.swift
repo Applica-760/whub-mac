@@ -30,13 +30,14 @@ final class RemoteEditorStore: ObservableObject {
         guard case let .remote(hostID, _) = location else { return }
         let host = hosts.first { $0.persistentModelID == hostID }
         load(location, root: root, connection: {
-            host.flatMap { connections.session(for: $0) }.map(ObjectIdentifier.init)
+            host.flatMap { connections.connection(for: $0) }.map(ObjectIdentifier.init)
         }) { _, rootPath, path in
-            guard let host, let session = connections.session(for: host) else {
-                throw RemoteSessionError.disconnected
+            guard let host, let connection = connections.connection(for: host) else {
+                throw SSHError.disconnected
             }
+            let session = try await connections.legacySession(for: host)
             let text = try await session.readText(root: rootPath, path: path)
-            guard connections.session(for: host) === session else { throw RemoteSessionError.disconnected }
+            guard connections.connection(for: host) === connection else { throw SSHError.disconnected }
             return text
         }
     }

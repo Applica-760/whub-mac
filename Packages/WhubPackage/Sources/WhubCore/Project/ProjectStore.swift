@@ -53,11 +53,16 @@ public struct ProjectStore {
         try context.save()
     }
 
-    public func resolvePath(for project: Project) async throws -> String {
+    public func resolvePath(for project: Project, connection: SSHConnectionService? = nil) async throws -> String {
         let path = project.path
 
         if let remote = project.host as? RemoteHost {
-            let status = try await SSH.run(["test", "-d", path], on: remote)
+            let configuration = try SSH.Configuration(hostname: remote.hostname, user: remote.user,
+                                                      port: remote.port, identityFile: remote.identityFile)
+            guard let connection, connection.configuration == configuration else {
+                throw ProjectStoreError.remoteCheckFailed(remote.name)
+            }
+            let status = try await connection.run(["test", "-d", path])
             guard status == 0 else {
                 if status == 1 { throw ProjectStoreError.directoryNotFound(path) }
                 throw ProjectStoreError.remoteCheckFailed(remote.name)

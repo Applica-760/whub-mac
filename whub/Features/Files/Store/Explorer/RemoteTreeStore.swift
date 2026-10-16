@@ -29,12 +29,16 @@ final class RemoteTreeStore {
         guard let location,
               case let .remote(hostID, root) = location,
               let host = hosts.first(where: { $0.persistentModelID == hostID }),
-              let session = connections.session(for: host) else {
+              let connection = connections.connection(for: host) else {
             update(source: nil, refreshID: refreshID, list: nil)
             return
         }
-        update(source: .init(root: location, sessionID: ObjectIdentifier(session)), refreshID: refreshID) { path in
-            try await session.listDirectory(root: root, path: path)
+        update(source: .init(root: location, sessionID: ObjectIdentifier(connection)), refreshID: refreshID) { path in
+            guard connections.connection(for: host) === connection else { throw SSHError.disconnected }
+            let session = try await connections.legacySession(for: host)
+            let entries = try await session.listDirectory(root: root, path: path)
+            guard connections.connection(for: host) === connection else { throw SSHError.disconnected }
+            return entries
         }
     }
 

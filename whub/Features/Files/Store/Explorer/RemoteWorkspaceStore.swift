@@ -32,22 +32,24 @@ final class RemoteWorkspaceStore: ObservableObject {
 
     static func connectedSources(hosts: [RemoteHost], connections: RemoteConnectionStore) -> [Source] {
         hosts.compactMap { host in
-            guard let session = connections.session(for: host) else { return nil }
+            guard let connection = connections.connection(for: host) else { return nil }
             return .init(hostID: host.persistentModelID, hostName: host.name,
                          projectsPath: host.projectsPath, worktreesPath: host.worktreesPath,
-                         sessionID: ObjectIdentifier(session))
+                         sessionID: ObjectIdentifier(connection))
         }
     }
 
     func update(hosts: [RemoteHost], connections: RemoteConnectionStore, refreshID: Int) {
-        let sessions = Dictionary(uniqueKeysWithValues: hosts.compactMap { host in
-            connections.session(for: host).map { (host.persistentModelID, $0) }
-        })
+        let hostsByID = Dictionary(uniqueKeysWithValues: hosts.map { ($0.persistentModelID, $0) })
         update(sources: Self.connectedSources(hosts: hosts, connections: connections), refreshID: refreshID) { source, root in
-            guard let session = sessions[source.hostID], ObjectIdentifier(session) == source.sessionID else {
-                throw RemoteSessionError.disconnected
+            guard let host = hostsByID[source.hostID],
+                  let connection = connections.connection(for: host), ObjectIdentifier(connection) == source.sessionID else {
+                throw SSHError.disconnected
             }
-            return try await session.listDirectory(root: root)
+            let session = try await connections.legacySession(for: host)
+            let entries = try await session.listDirectory(root: root)
+            guard connections.connection(for: host) === connection else { throw SSHError.disconnected }
+            return entries
         }
     }
 
