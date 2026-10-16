@@ -54,6 +54,9 @@ struct EditorTabBarView: View {
                 } else if case .remote = location {
                     TabBar(title: location.name, icon: Image(systemName: "network"),
                            isSelected: isSelected, isPreview: tab == store.previewTab,
+                           status: store.remote.fileStores[location]?.message != nil ? (.orange, "保存・外部変更の確認が必要")
+                               : store.remote.fileStores[location]?.isSaving == true ? (.secondary, "保存中")
+                               : store.remote.fileStores[location]?.hasUnsavedChanges == true ? (.primary, "未保存") : nil,
                            openAction: { store.open(tab) }, action: actions.select, closeAction: actions.close)
                         .help(location.path)
                 }

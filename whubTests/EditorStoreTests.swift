@@ -1,5 +1,5 @@
 // 検証内容: 本文の遅延取得・再利用、ホスト識別、ルート検証、失敗表示、閉じたタブへの遅延応答破棄。
-// 読み取り専用の編集・保存拒否と、ローカルの保存・プレビュー・タブ操作も確認する。
+// リモート保存・競合拒否・応答消失・保存中の追加入力と、ローカルの保存・タブ操作も確認する。
 // リロード・切断・再接続・取得失敗時の旧本文保持と、旧セッションの応答破棄も確認する。
 // 限界: 通信と接続識別は制御した値を使用。実SSH・画面操作は別途確認する。
 import AppKit
@@ -7,6 +7,7 @@ import SwiftData
 import SwiftUI
 import Testing
 import WhubCore
+import WhubClient
 @testable import whub
 
 @Suite @MainActor
@@ -112,6 +113,209 @@ struct EditorStoreTests {
             guard ContinuousClock.now < deadline else { throw SSHError.timedOut }
             try await Task.sleep(for: .milliseconds(10))
         }
+    }
+
+    private func edit(_ file: FileStore, _ source: String) {
+        file.textStorage.replaceCharacters(in: NSRange(location: 0, length: file.textStorage.length), with: source)
+        file.content = .text(source)
+    }
+
+    @Test func remoteSaveKeepsNewerEditsAndPreventsDuplicateSaves() async throws {
+        let fixture = try ViewerFixture()
+        let root = fixture.root()
+        let editor = EditorStore()
+        let location = root.appending("file")
+        let gate = ViewerGate()
+        var disk = "original"
+        var writes = 0
+        editor.remote.load(location, root: root, write: { rootPath, path, expected, text in
+            #expect(rootPath == "/project" && path == "file")
+            #expect(expected == disk)
+            writes += 1
+            await gate.wait()
+            disk = text
+            return text
+        }) { _, _, _ in disk }
+        try await eventually { editor.remote.file(for: location) != nil }
+        let remote = try #require(editor.remote.fileStores[location])
+        let file = try #require(remote.document)
+        #expect(file.isEditable && file.saveAction != nil && file.canSave?() == true)
+        edit(file, "submitted")
+        let saving = Task { await remote.save() }
+        try await eventually { gate.waiting }
+        #expect(remote.isSaving && !remote.canSave)
+        #expect(await remote.save() == false)
+        #expect(await remote.confirmClose(choice: .discard) == false)
+        edit(file, "newer edit")
+        editor.refresh()
+        gate.release()
+        #expect(await saving.value)
+        #expect(disk == "submitted" && writes == 1)
+        #expect(file.savedSource == "submitted")
+        #expect(file.textStorage.string == "newer edit" && file.hasUnsavedChanges)
+        #expect(await remote.confirmClose(choice: .cancel) == false)
+        #expect(await remote.confirmClose(choice: .discard))
+    }
+
+    @Test func remoteConflictAndFailedClosePreserveDraft() async throws {
+        let fixture = try ViewerFixture()
+        let root = fixture.root()
+        let location = root.appending("file")
+        var disk = "original"
+        let store = RemoteEditorStore()
+        store.load(location, root: root, write: { _, _, expected, text in
+            guard expected.utf8.elementsEqual(disk.utf8) else {
+                throw WhubClientError.api(status: 409, code: "conflict", message: "外部変更")
+            }
+            disk = text
+            return text
+        }) { _, _, _ in disk }
+        try await eventually { store.file(for: location) != nil }
+        let remote = try #require(store.fileStores[location])
+        let file = try #require(remote.document)
+        edit(file, "draft")
+        disk = "external"
+        #expect(await remote.confirmClose(choice: .save) == false)
+        #expect(disk == "external" && file.savedSource == "original")
+        #expect(file.hasUnsavedChanges && remote.message != nil)
+        remote.refresh()
+        try await eventually { if case .loaded = remote.state { return true }; return false }
+        #expect(file.textStorage.string == "draft" && file.hasUnsavedChanges)
+        #expect(remote.message != nil)
+    }
+
+    @Test(arguments: [true, false])
+    func remoteLostSaveResponseIsReconciledBeforeRetry(committed: Bool) async throws {
+        let fixture = try ViewerFixture()
+        let root = fixture.root()
+        let location = root.appending("file")
+        var disk = "original"
+        var writes = 0
+        let store = RemoteEditorStore()
+        store.load(location, root: root, write: { _, _, _, text in
+            writes += 1
+            if committed { disk = text }
+            throw SSHError.disconnected
+        }) { _, _, _ in disk }
+        try await eventually { store.file(for: location) != nil }
+        let remote = try #require(store.fileStores[location])
+        let file = try #require(remote.document)
+        edit(file, "submitted")
+        #expect(await remote.save() == false)
+        #expect(!remote.canSave && file.hasUnsavedChanges)
+        #expect(await remote.save() == false)
+        #expect(writes == 1)
+        edit(file, "newer edit")
+        remote.refresh()
+        try await eventually { if case .loaded = remote.state { return remote.canSave }; return false }
+        #expect(file.textStorage.string == "newer edit" && file.hasUnsavedChanges)
+        #expect(file.savedSource == (committed ? "submitted" : "original"))
+        #expect(writes == 1)
+    }
+
+    @Test(arguments: ["original", "submitted", "external"])
+    func remoteUndoAfterUnconfirmedSaveStillProtectsTab(latest: String) async throws {
+        let fixture = try ViewerFixture()
+        let root = fixture.root()
+        let location = root.appending("file")
+        let other = root.appending("other")
+        var reads = 0
+        let editor = EditorStore()
+        editor.remote.load(location, root: root, write: { _, _, _, _ in throw SSHError.disconnected }) { _, _, _ in
+            reads += 1
+            return reads == 1 ? "original" : latest
+        }
+        editor.remote.load(other, root: root) { _, _, _ in "other" }
+        editor.preview(.file(location))
+        try await eventually { editor.remote.file(for: location) != nil }
+        let remote = try #require(editor.remote.fileStores[location])
+        let file = try #require(remote.document)
+        edit(file, "submitted")
+        #expect(await remote.save() == false)
+        edit(file, "original")
+        #expect(remote.needsCloseConfirmation)
+        #expect(await remote.confirmClose(choice: .cancel) == false)
+        editor.preview(.file(other))
+        #expect(editor.tabs == [.file(location), .file(other)])
+        remote.refresh()
+        try await eventually { if case .loaded = remote.state { return true }; return false }
+        #expect(file.textStorage.string == "original")
+        #expect(remote.needsCloseConfirmation == (latest != "original"))
+        if latest == "external" { #expect(!remote.canSave && remote.message != nil) }
+    }
+
+    @Test func remoteDirtyPreviewAndReconnectKeepDraft() async throws {
+        let fixture = try ViewerFixture()
+        let root = fixture.root()
+        let location = root.appending("file")
+        let other = root.appending("other")
+        let first = NSObject()
+        let second = NSObject()
+        var connection: ObjectIdentifier? = ObjectIdentifier(first)
+        let disk = NSMutableString(string: "original")
+        let editor = EditorStore()
+        editor.remote.load(location, root: root, connection: { connection }, write: { _, _, _, text in text }) { _, _, _ in disk as String }
+        editor.remote.load(other, root: root) { _, _, _ in "other" }
+        editor.preview(.file(location))
+        try await eventually { editor.remote.file(for: location) != nil }
+        let remote = try #require(editor.remote.fileStores[location])
+        let file = try #require(remote.document)
+        edit(file, "draft")
+        editor.preview(.file(other))
+        #expect(editor.tabs == [.file(location), .file(other)])
+        #expect(editor.previewTab == .file(other))
+        connection = nil
+        editor.remote.synchronizeConnections()
+        #expect(!remote.canSave && file.textStorage.string == "draft")
+        disk.setString("external")
+        connection = ObjectIdentifier(second)
+        editor.remote.synchronizeConnections()
+        try await eventually { if case .loaded = remote.state { return true }; return false }
+        #expect(file.textStorage.string == "draft" && file.savedSource == "original")
+        #expect(remote.message != nil)
+    }
+
+    @Test func remoteTracksByteChangesInCanonicallyEquivalentText() async throws {
+        let fixture = try ViewerFixture()
+        let root = fixture.root()
+        let location = root.appending("file")
+        var disk = "é"
+        let store = RemoteEditorStore()
+        store.load(location, root: root, write: { _, _, _, text in
+            disk = text
+            return text
+        }) { _, _, _ in disk }
+        try await eventually { store.file(for: location) != nil }
+        let remote = try #require(store.fileStores[location])
+        let file = try #require(remote.document)
+        edit(file, "e\u{301}")
+        #expect(remote.hasUnsavedChanges && remote.needsCloseConfirmation)
+        #expect(await remote.save())
+        #expect(disk.utf8.elementsEqual("e\u{301}".utf8))
+        #expect(!remote.hasUnsavedChanges)
+    }
+
+    @Test func remoteSavePreservesBOMLineEndingsAndCloseWaitsForSuccess() async throws {
+        let fixture = try ViewerFixture()
+        let root = fixture.root()
+        let location = root.appending("file")
+        var disk = "\u{FEFF}original\r\n"
+        let store = RemoteEditorStore()
+        store.load(location, root: root, write: { _, _, expected, text in
+            #expect(expected.utf8.elementsEqual(disk.utf8))
+            disk = text
+            return text
+        }) { _, _, _ in disk }
+        try await eventually { store.file(for: location) != nil }
+        let remote = try #require(store.fileStores[location])
+        let file = try #require(remote.document)
+        edit(file, "日本語\nnext\n")
+        #expect(await remote.confirmClose(choice: .save))
+        #expect(disk.utf8.elementsEqual("\u{FEFF}日本語\r\nnext\r\n".utf8))
+        #expect(!file.hasUnsavedChanges)
+        remote.refresh()
+        try await eventually { remote.canSave }
+        #expect(!file.hasUnsavedChanges)
     }
 
     @Test func remoteReadsAndReadOnly() async throws {

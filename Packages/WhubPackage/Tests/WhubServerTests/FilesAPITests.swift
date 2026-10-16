@@ -95,3 +95,98 @@ private final class FilesFixture: Sendable {
         #expect(rootLink.status == .forbidden)
     }
 }
+
+
+@Test func filesWritePreservesBytesPermissionsAndRejectsStaleBase() async throws {
+    let fixture = try FilesFixture()
+    let file = fixture.first.appendingPathComponent("日本語 + file")
+    let original = "\u{FEFF}before\r\n"
+    let saved = "\u{FEFF}after\r\n"
+    try Data(original.utf8).write(to: file)
+    try FileManager.default.setAttributes([.posixPermissions: 0o750], ofItemAtPath: file.path)
+    let body = try JSONEncoder().encode(["expectedText": original, "text": saved])
+    try await fixture.app.test(.router) { client in
+        let uri = fixture.uri("write", root: fixture.first, path: file.lastPathComponent)
+        let response = try await client.execute(uri: uri, method: .put, headers: [.contentType: "application/json"],
+                                               body: .init(bytes: body))
+        #expect(response.status == .ok)
+        #expect(try Data(contentsOf: file) == Data(saved.utf8))
+        #expect(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int == 0o750)
+        let read = try await client.execute(uri: fixture.uri("read", root: fixture.first, path: file.lastPathComponent), method: .get)
+        #expect(try JSONDecoder().decode([String: String].self, from: Data(read.body.readableBytesView))["text"] == saved)
+        let conflict = try await client.execute(uri: uri, method: .put, headers: [.contentType: "application/json"],
+                                               body: .init(bytes: body))
+        #expect(conflict.status == .conflict)
+        #expect(try Data(contentsOf: file) == Data(saved.utf8))
+    }
+    #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.first.path) == [file.lastPathComponent])
+}
+
+@Test func filesWriteChecksBytesRatherThanUnicodeEquivalenceAndSerializesSaves() async throws {
+    let fixture = try FilesFixture()
+    let file = fixture.first.appendingPathComponent("file")
+    let service = try FilesService(root: fixture.first.path)
+    try Data("e\u{301}".utf8).write(to: file)
+    #expect(throws: FilesError.conflict) { try service.writeText(path: "file", expectedText: "é", text: "replacement") }
+    try Data("base".utf8).write(to: file)
+    let results = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+        for text in ["one", "two"] {
+            group.addTask {
+                do {
+                    _ = try service.writeText(path: "file", expectedText: "base", text: text)
+                    return true
+                } catch { return false }
+            }
+        }
+        var results: [Bool] = []
+        for await result in group { results.append(result) }
+        return results
+    }
+    #expect(results.filter { $0 }.count == 1)
+    #expect(["one", "two"].contains(try service.readText(path: "file")))
+}
+
+@Test func filesWriteRefusesUnsafeUnsupportedAndUnwritableTargetsWithoutChangingFiles() async throws {
+    let fixture = try FilesFixture()
+    let fm = FileManager.default
+    let file = fixture.first.appendingPathComponent("file")
+    try Data("base".utf8).write(to: file)
+    try fm.createSymbolicLink(at: fixture.first.appendingPathComponent("link"), withDestinationURL: fixture.second)
+    try fm.createSymbolicLink(at: fixture.first.appendingPathComponent("file-link"), withDestinationURL: file)
+    try Data("outside".utf8).write(to: fixture.second.appendingPathComponent("file"))
+    let service = try FilesService(root: fixture.first.path)
+    for path in ["", ".", "file/", "../second/file", "/file", "file\0", "link/file", "file-link", "missing"] {
+        #expect(throws: (any Error).self) { try service.writeText(path: path, expectedText: "base", text: "changed") }
+    }
+    #expect(throws: FilesError.binaryFile) { try service.writeText(path: "file", expectedText: "base", text: "bad\0") }
+    #expect(throws: FilesError.textTooLarge) {
+        try service.writeText(path: "file", expectedText: "base", text: String(repeating: "a", count: 1_048_577))
+    }
+    try fm.setAttributes([.posixPermissions: 0o444], ofItemAtPath: file.path)
+    #expect(throws: (any Error).self) { try service.writeText(path: "file", expectedText: "base", text: "changed") }
+    #expect(try Data(contentsOf: file) == Data("base".utf8))
+    #expect(try Data(contentsOf: fixture.second.appendingPathComponent("file")) == Data("outside".utf8))
+    #expect(try fm.contentsOfDirectory(atPath: fixture.first.path).allSatisfy { !$0.hasPrefix(".whub-save-") })
+}
+
+@Test func filesWriteValidatesRequestAndSupportsEscapedOneMiBText() async throws {
+    let fixture = try FilesFixture()
+    let file = fixture.first.appendingPathComponent("file")
+    let text = String(repeating: "\t", count: 1_048_576)
+    try Data(text.utf8).write(to: file)
+    try await fixture.app.test(.router) { client in
+        let uri = fixture.uri("write", root: fixture.first, path: "file")
+        for body in ["{}", "{", #"{"expectedText":null,"text":"x"}"#] {
+            let response = try await client.execute(uri: uri, method: .put, headers: [.contentType: "application/json"],
+                                                   body: .init(string: body))
+            #expect(response.status == .badRequest)
+        }
+        let wrongType = try await client.execute(uri: uri, method: .put, body: .init(string: "{}"))
+        #expect(wrongType.status == .badRequest)
+        let body = try JSONEncoder().encode(["expectedText": text, "text": text])
+        let response = try await client.execute(uri: uri, method: .put, headers: [.contentType: "application/json"],
+                                               body: .init(bytes: body))
+        #expect(response.status == .ok)
+        #expect(try Data(contentsOf: file) == Data(text.utf8))
+    }
+}

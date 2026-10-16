@@ -24,6 +24,14 @@ public struct FilesAPI: Sendable {
         return try client.decode(Reply.self, from: data).text
     }
 
+    public func writeText(root: String, path: String, expectedText: String, text: String) async throws -> String {
+        guard !path.isEmpty else { throw WhubClientError.invalidPath }
+        struct Reply: Decodable { let text: String }
+        let body = try JSONEncoder().encode(["expectedText": expectedText, "text": text])
+        let data = try await client.request("files/write", query: query(root: root, path: path), body: body)
+        return try client.decode(Reply.self, from: data).text
+    }
+
     private func query(root: String, path: String) throws -> [URLQueryItem] {
         guard root.hasPrefix("/"), !path.hasPrefix("/"),
               !root.contains("\0"), !path.contains("\0"),

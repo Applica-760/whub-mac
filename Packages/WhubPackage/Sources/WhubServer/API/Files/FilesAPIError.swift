@@ -13,6 +13,9 @@ enum FilesAPIError: String, Error {
     case binaryFile = "binary_file"
     case invalidUTF8 = "invalid_utf8"
     case readFailed = "read_failed"
+    case conflict = "conflict"
+    case writeFailed = "write_failed"
+    case invalidRequest = "invalid_request"
 
     init(_ error: FilesError) {
         switch error {
@@ -26,6 +29,8 @@ enum FilesAPIError: String, Error {
         case .binaryFile: self = .binaryFile
         case .invalidUTF8: self = .invalidUTF8
         case .readFailed: self = .readFailed
+        case .conflict: self = .conflict
+        case .writeFailed: self = .writeFailed
         }
     }
 
@@ -41,7 +46,7 @@ enum FilesAPIError: String, Error {
             message = "シンボリックリンクは辿れません。"
         case .permissionDenied:
             status = .forbidden
-            message = "閲覧する権限がありません。"
+            message = "ファイルにアクセスする権限がありません。"
         case .notFound:
             status = .notFound
             message = "対象が存在しません。"
@@ -51,6 +56,15 @@ enum FilesAPIError: String, Error {
         case .listingTooLarge:
             status = .unprocessableContent
             message = "取得結果が8 MiBの上限を超えています。"
+        case .conflict:
+            status = .conflict
+            message = "ファイルが外部で変更されています。保存を拒否しました。"
+        case .writeFailed:
+            status = .internalServerError
+            message = "ファイルを保存できません。"
+        case .invalidRequest:
+            status = .badRequest
+            message = "保存要求が不正です。"
         case .readFailed:
             status = .internalServerError
             message = "ファイルを取得できません。"

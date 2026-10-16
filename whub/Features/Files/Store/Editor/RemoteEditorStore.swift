@@ -32,6 +32,13 @@ final class RemoteEditorStore: ObservableObject {
         let host = hosts.first { $0.persistentModelID == hostID }
         load(location, root: root, connection: {
             host.flatMap { connections.connection(for: $0) }.map(ObjectIdentifier.init)
+        }, write: { rootPath, path, expected, text in
+            guard let host, let connection = connections.connection(for: host) else { throw SSHError.disconnected }
+            let serverURL = servers.configuredURL(for: host)
+            let client = try await servers.client(for: host)
+            let saved = try await client.files.writeText(root: rootPath, path: path, expectedText: expected, text: text)
+            guard connections.connection(for: host) === connection, servers.configuredURL(for: host) == serverURL else { throw SSHError.disconnected }
+            return saved
         }) { _, rootPath, path in
             guard let host, let connection = connections.connection(for: host) else {
                 throw SSHError.disconnected
@@ -46,9 +53,10 @@ final class RemoteEditorStore: ObservableObject {
 
     func load(_ location: FileLocation, root: FileLocation?,
               connection: (() -> ObjectIdentifier?)? = nil,
+              write: (@MainActor (String, String, String, String) async throws -> String)? = nil,
               read: @escaping @MainActor (FileLocation, String, String) async throws -> String) {
         guard case .remote = location, fileStores[location] == nil else { return }
-        fileStores[location] = RemoteFileStore(location: location, root: root, connection: connection, read: read)
+        fileStores[location] = RemoteFileStore(location: location, root: root, connection: connection, write: write, read: read)
     }
 
     func refresh() {

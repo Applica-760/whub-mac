@@ -54,6 +54,35 @@ struct FilesAPI: Sendable {
         }
     }
 
+    func writeText(_ request: Request) async -> Response {
+        do {
+            let (root, path) = try Self.parameters(from: request.uri.query)
+            guard !path.isEmpty else { throw FilesAPIError.invalidPath }
+            guard request.headers[.contentType]?.split(separator: ";").first?.lowercased() == "application/json" else {
+                throw FilesAPIError.invalidRequest
+            }
+            struct Body: Decodable, Sendable { let expectedText: String; let text: String }
+            let body: Body
+            do {
+                // Two 1 MiB strings, allowing JSON's six-byte escaping of each input byte.
+                let buffer = try await request.body.collect(upTo: 12 * 1_048_576 + 1024)
+                body = try JSONDecoder().decode(Body.self, from: Data(buffer.readableBytesView))
+            } catch { throw FilesAPIError.invalidRequest }
+            let text = try await Task.detached {
+                try FilesService(root: root).writeText(path: path, expectedText: body.expectedText, text: body.text)
+            }.value
+            let data = try JSONEncoder().encode(["text": text])
+            return Response(status: .ok, headers: [.contentType: "application/json", .cacheControl: "no-store"],
+                            body: .init(byteBuffer: .init(bytes: data)))
+        } catch let error as FilesAPIError {
+            return error.response
+        } catch let error as FilesError {
+            return FilesAPIError(error).response
+        } catch {
+            return FilesAPIError.writeFailed.response
+        }
+    }
+
     private static func parameters(from query: String?) throws -> (root: String, path: String) {
         guard let query, !query.isEmpty else { throw FilesAPIError.invalidPath }
         var values: [String: String] = [:]
