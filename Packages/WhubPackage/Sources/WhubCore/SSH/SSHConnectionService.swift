@@ -100,6 +100,26 @@ public final class SSHConnectionService {
         try await control(["-O", "forward", "-L", specification])
     }
 
+    public func forward(remoteHost: String = "127.0.0.1", remotePort: Int) async throws -> Int {
+        _ = try forwarding(localPort: 1, remoteHost: remoteHost, remotePort: remotePort)
+        for attempt in 0..<3 {
+            try Task.checkCancellation()
+            let port = try Self.availableLocalPort()
+            do {
+                try await forward(localPort: port, remoteHost: remoteHost, remotePort: remotePort)
+                return port
+            } catch {
+                // A cancelled control request may already have opened the forwarding.
+                await Task { try? await self.cancelForward(localPort: port, remoteHost: remoteHost, remotePort: remotePort) }.value
+                try Task.checkCancellation()
+                guard isConnected else { throw SSHError.disconnected }
+                // OpenSSH cannot inherit our reserved socket; retry a bind race.
+                if attempt == 2 { throw error }
+            }
+        }
+        throw SSHError.invalidForwarding
+    }
+
     public func cancelForward(localPort: Int, remoteHost: String = "127.0.0.1", remotePort: Int) async throws {
         let specification = try forwarding(localPort: localPort, remoteHost: remoteHost, remotePort: remotePort)
         try await control(["-O", "cancel", "-L", specification])
@@ -158,6 +178,25 @@ public final class SSHConnectionService {
         }
         let host = remoteHost.contains(":") ? "[\(remoteHost)]" : remoteHost
         return "127.0.0.1:\(localPort):\(host):\(remotePort)"
+    }
+
+    private static func availableLocalPort() throws -> Int {
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(descriptor) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let result = withUnsafeMutablePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                guard bind(descriptor, socketAddress, length) == 0 else { return Int32(-1) }
+                return getsockname(descriptor, socketAddress, &length)
+            }
+        }
+        guard result == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+        return Int(UInt16(bigEndian: address.sin_port))
     }
 
     static func makeControlDirectory() throws -> URL {
