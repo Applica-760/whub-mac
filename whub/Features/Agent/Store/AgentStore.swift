@@ -26,6 +26,7 @@ protocol AgentSession: AnyObject {
     func sendAdditionalInput(_ input: [AgentInput]) async throws
     func interrupt() async throws
     func loadModelOptions() async throws -> [AgentModelOption]
+    func loadSkills() async throws -> [AgentSkill]
     func changeModel(_ option: AgentModelOption) async throws
     func respond(to requestID: String, with response: AgentResponse) async throws
     func loadHistory(cursor: String?) async throws -> AgentHistoryPage
