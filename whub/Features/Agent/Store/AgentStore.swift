@@ -24,6 +24,7 @@ protocol AgentSession: AnyObject {
     func send(_ input: [AgentInput]) async throws
     func loadModelOptions() async throws -> [AgentModelOption]
     func changeModel(_ option: AgentModelOption) async throws
+    func respond(to requestID: String, with response: AgentResponse) async throws
     func disconnect()
 }
 
@@ -36,6 +37,7 @@ final class AgentStore: ObservableObject, Identifiable {
     @Published private(set) var isLoadingModelOptions = false
     @Published private(set) var selectedModelOption: AgentModelOption?
     @Published private(set) var isChangingModel = false
+    @Published private(set) var respondingRequestIDs: Set<String> = []
     @Published private(set) var isConnecting = false
     @Published private(set) var isConnected = false
     @Published private(set) var isBusy = false
@@ -140,6 +142,38 @@ final class AgentStore: ObservableObject, Identifiable {
         }
     }
 
+    func respond(to requestID: String, with response: AgentResponse) async {
+        guard isConnected, !isClosed, !respondingRequestIDs.contains(requestID),
+              let index = activeExchangeIndex,
+              let request = exchanges[index].pendingRequests.first(where: { $0.id == requestID }) else { return }
+        switch (request.kind, response) {
+        case (.approval, .approval):
+            break
+        case (.questions(let questions), .answers(let answers)):
+            guard questions.allSatisfy({ question in
+                guard let answer = answers[question.id] else { return false }
+                return !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }) else {
+                errorMessage = "すべての質問に回答してください。"
+                return
+            }
+        default:
+            errorMessage = "要求に対応する種類の回答を指定してください。"
+            return
+        }
+        let exchangeID = exchanges[index].id
+        respondingRequestIDs.insert(requestID)
+        errorMessage = nil
+
+        do {
+            try await session.respond(to: requestID, with: response)
+        } catch {
+            guard !isClosed, let index = activeExchangeIndex, exchanges[index].id == exchangeID else { return }
+            respondingRequestIDs.remove(requestID)
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func disconnect() {
         guard !isClosed else { return }
         isClosed = true
@@ -160,6 +194,9 @@ final class AgentStore: ObservableObject, Identifiable {
         case .modelOptionChanged:
             break
         case .output(let output):
+            if case .request(let request) = output, request.outcome != nil {
+                respondingRequestIDs.remove(request.id)
+            }
             if let index = exchanges[exchangeIndex].outputs.firstIndex(where: { $0.id == output.id }) {
                 exchanges[exchangeIndex].outputs[index] = output
             } else {
@@ -167,6 +204,7 @@ final class AgentStore: ObservableObject, Identifiable {
             }
         case .completed:
             exchanges[exchangeIndex].status = .completed
+            respondingRequestIDs.removeAll()
             pendingInput = nil
             isBusy = false
         case .failed(let message):
@@ -183,6 +221,7 @@ final class AgentStore: ObservableObject, Identifiable {
 
     private func fail(_ message: String) {
         errorMessage = message
+        respondingRequestIDs.removeAll()
         if let index = activeExchangeIndex { exchanges[index].status = .failed }
         if draft.isEmpty, let pendingInput { draft = pendingInput }
         pendingInput = nil
