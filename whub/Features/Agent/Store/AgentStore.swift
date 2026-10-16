@@ -22,6 +22,7 @@ protocol AgentSession: AnyObject {
 
     func connect(directory: String) async throws
     func send(_ input: [AgentInput]) async throws
+    func changeModel(_ option: AgentModelOption) async throws
     func disconnect()
 }
 
@@ -31,6 +32,7 @@ final class AgentStore: ObservableObject, Identifiable {
     @Published var draft = ""
     @Published private(set) var exchanges: [AgentExchange] = []
     @Published private(set) var selectedModelOption: AgentModelOption?
+    @Published private(set) var isChangingModel = false
     @Published private(set) var isConnecting = false
     @Published private(set) var isConnected = false
     @Published private(set) var isBusy = false
@@ -40,7 +42,8 @@ final class AgentStore: ObservableObject, Identifiable {
     var agentKind: AgentKind { session.kind }
 
     var canSend: Bool {
-        isConnected && !isClosed && !isBusy && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isConnected && !isClosed && !isBusy && !isChangingModel
+            && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private let session: any AgentSession
@@ -101,6 +104,20 @@ final class AgentStore: ObservableObject, Identifiable {
             try await session.send(input)
         } catch {
             fail(error.localizedDescription)
+        }
+    }
+
+    func changeModel(_ option: AgentModelOption) async {
+        guard isConnected, !isClosed, !isBusy, !isChangingModel else { return }
+        isChangingModel = true
+        errorMessage = nil
+        defer { isChangingModel = false }
+
+        do {
+            try await session.changeModel(option)
+        } catch {
+            guard !isClosed else { return }
+            errorMessage = error.localizedDescription
         }
     }
 
