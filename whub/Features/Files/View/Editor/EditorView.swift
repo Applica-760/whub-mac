@@ -98,3 +98,24 @@ private struct DiffContent: View {
         }
     }
 }
+
+struct FilesCommands: Commands {
+    var body: some Commands {
+        CommandGroup(replacing: .saveItem) {
+            Button("Save") {
+                guard NSApp.keyWindow?.firstResponder is CodeTextView else { return }
+                NSApp.sendAction(#selector(CodeTextView.saveDocument(_:)), to: nil, from: nil)
+            }
+            .keyboardShortcut("s", modifiers: .command)
+        }
+        CommandGroup(after: .textEditing) {
+            Button("Find…") {
+                guard NSApp.keyWindow?.firstResponder is CodeTextView else { return }
+                let item = NSMenuItem()
+                item.tag = NSTextFinder.Action.showFindInterface.rawValue
+                NSApp.sendAction(#selector(NSTextView.performTextFinderAction(_:)), to: nil, from: item)
+            }
+            .keyboardShortcut("f", modifiers: .command)
+        }
+    }
+}

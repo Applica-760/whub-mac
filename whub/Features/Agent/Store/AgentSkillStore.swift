@@ -7,15 +7,15 @@ final class AgentSkillStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
-    private let session: any AgentSession
+    private let session: (any AgentSession)?
 
     // 接続の開始・終了はAgentStoreが担当する。
-    init(session: any AgentSession) {
+    init(session: (any AgentSession)?) {
         self.session = session
     }
 
     func load() async {
-        guard !isLoading else { return }
+        guard let session, !isLoading else { return }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }

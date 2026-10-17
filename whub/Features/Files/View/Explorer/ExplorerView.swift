@@ -3,6 +3,17 @@ import SwiftData
 import SwiftUI
 import WhubCore
 
+struct ExplorerSidebar: View {
+    let onFileSelect: () -> Void
+    let onOpenInBrowser: (URL) -> Void
+    @EnvironmentObject private var files: FilesStore
+
+    var body: some View {
+        ExplorerView(onFileSelect: onFileSelect, onOpenInBrowser: onOpenInBrowser, store: files.explorer)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 640)
+    }
+}
+
 struct ExplorerView: View {
     let onFileSelect: () -> Void
     let onOpenInBrowser: (URL) -> Void

@@ -9,11 +9,10 @@ struct whubApp: App {
     @StateObject private var files = FilesStore()
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
-    @StateObject private var codexStore: CodexTabsStore
+    @StateObject private var agentBookStore: AgentBookStore
     @StateObject private var remoteConnections: RemoteConnectionStore
     @StateObject private var remoteServers: RemoteServerStore
-    @State private var section = AppView.Section.file
-    @FocusedValue(\.explorerPulldownSelection) private var explorerPulldownSelection
+    @State private var section = AppView.Section.agentBook
     private let workspaceContainer: ModelContainer
 
     init() {
@@ -25,7 +24,7 @@ struct whubApp: App {
             let container = try Container.make()
             workspaceContainer = container
             _terminalStore = StateObject(wrappedValue: TerminalStore(context: container.mainContext))
-            _codexStore = StateObject(wrappedValue: CodexTabsStore(context: container.mainContext))
+            _agentBookStore = StateObject(wrappedValue: AgentBookStore(context: container.mainContext))
         } catch {
             fatalError("Unable to open workspace store: \(error)")
         }
@@ -40,7 +39,7 @@ struct whubApp: App {
                 .environmentObject(files.git)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
-                .environmentObject(codexStore)
+                .environmentObject(agentBookStore)
                 .environmentObject(remoteConnections)
                 .environmentObject(remoteServers)
                 .onAppear {
@@ -48,7 +47,7 @@ struct whubApp: App {
                     appDelegate.remoteServers = remoteServers
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-                    codexStore.disconnect()
+                    agentBookStore.disconnect()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                     files.checkForExternalChanges()
@@ -57,79 +56,14 @@ struct whubApp: App {
         .windowResizability(.contentMinSize)
         .modelContainer(workspaceContainer)
         .commands {
-            CommandGroup(after: .newItem) {
-                Button("新規タブ") {
-                    switch section {
-                    case .terminal: terminalStore.add()
-                    case .browser: browserStore.add()
-                    case .codex: codexStore.add()
-                    default: break
-                    }
-                }
-                .keyboardShortcut("t", modifiers: .command)
-                .disabled(section != .terminal && section != .browser && section != .codex)
-            }
-            CommandGroup(replacing: .saveItem) {
-                Button("Save") {
-                    guard NSApp.keyWindow?.firstResponder is CodeTextView else { return }
-                    NSApp.sendAction(#selector(CodeTextView.saveDocument(_:)), to: nil, from: nil)
-                }
-                .keyboardShortcut("s", modifiers: .command)
-            }
-            CommandGroup(after: .textEditing) {
-                Button("Find…") {
-                    guard NSApp.keyWindow?.firstResponder is CodeTextView else { return }
-                    let item = NSMenuItem()
-                    item.tag = NSTextFinder.Action.showFindInterface.rawValue
-                    NSApp.sendAction(#selector(NSTextView.performTextFinderAction(_:)), to: nil, from: item)
-                }
-                .keyboardShortcut("f", modifiers: .command)
-            }
-            CommandGroup(replacing: .sidebar) {
-                Button("Toggle Full Screen") {
-                    NSApp.sendAction(#selector(NSWindow.toggleFullScreen(_:)), to: nil, from: nil)
-                }
-                .keyboardShortcut("f", modifiers: [.command, .control])
-            }
-            CommandMenu("Navigate") {
-                ForEach(AppView.Section.allCases, id: \.self) { destination in
-                    Button(destination.label) { section = destination }
-                }
-                Divider()
-                ForEach(1...9, id: \.self) { number in
-                    Button("AgentBook \(number)") {
-                        guard section == .codex, codexStore.sessions.indices.contains(number - 1) else { return }
-                        codexStore.select(codexStore.sessions[number - 1].id)
-                    }
-                    .keyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: .command)
-                    .disabled(section != .codex || !codexStore.sessions.indices.contains(number - 1))
-                }
-                Divider()
-                Button("Previous Page") { moveSection(by: -1) }
-                    .keyboardShortcut("h", modifiers: [.command, .shift])
-                Button("Next Page") { moveSection(by: 1) }
-                    .keyboardShortcut("l", modifiers: [.command, .shift])
-                Button("Reload Files") { files.refresh() }
-                    .keyboardShortcut("r", modifiers: [.command, .shift])
-                Button("Previous Project or Worktree") { explorerPulldownSelection?.move(by: -1) }
-                    .keyboardShortcut("k", modifiers: [.command, .shift])
-                    .disabled(explorerPulldownSelection == nil)
-                Button("Next Project or Worktree") { explorerPulldownSelection?.move(by: 1) }
-                    .keyboardShortcut("j", modifiers: [.command, .shift])
-                    .disabled(explorerPulldownSelection == nil)
-            }
+            AppCommands(section: $section, files: files, terminalStore: terminalStore,
+                        browserStore: browserStore, agentBookStore: agentBookStore)
         }
 
         Settings {
             SettingsView()
         }
         .modelContainer(workspaceContainer)
-    }
-
-    private func moveSection(by offset: Int) {
-        let sections = AppView.Section.allCases
-        guard let index = sections.firstIndex(of: section) else { return }
-        section = sections[(index + offset + sections.count) % sections.count]
     }
 }
 
@@ -145,8 +79,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = "whubを終了しますか？"
         alert.informativeText = "未保存の編集内容は失われ、実行中のコマンドは中断されます。"
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "キャンセル").keyEquivalent = "\r"
+        let cancelButton = alert.addButton(withTitle: "キャンセル")
         alert.addButton(withTitle: "終了").keyEquivalent = ""
+        alert.window.defaultButtonCell = cancelButton.cell as? NSButtonCell
+        cancelButton.keyEquivalent = "\u{1b}"
+        cancelButton.keyEquivalentModifierMask = []
         guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
         guard let remoteConnections else { return .terminateNow }
         isTerminating = true
