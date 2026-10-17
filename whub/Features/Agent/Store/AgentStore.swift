@@ -44,6 +44,7 @@ final class AgentStore: ObservableObject, Identifiable {
     @Published private(set) var isResuming = false
     @Published private(set) var modelOptions: [AgentModelOption] = []
     @Published private(set) var isLoadingModelOptions = false
+    @Published private(set) var modelOptionsError: String?
     @Published private(set) var statusContent: [AgentContent] = []
     @Published private(set) var isLoadingStatus = false
     @Published private(set) var selectedModelOption: AgentModelOption?
@@ -224,6 +225,7 @@ final class AgentStore: ObservableObject, Identifiable {
     func loadModelOptions() async {
         guard isConnected, !isResuming, !isLoadingModelOptions else { return }
         isLoadingModelOptions = true
+        modelOptionsError = nil
         errorMessage = nil
         defer { isLoadingModelOptions = false }
 
@@ -233,6 +235,7 @@ final class AgentStore: ObservableObject, Identifiable {
             modelOptions = options
         } catch {
             guard !isClosed else { return }
+            modelOptionsError = error.localizedDescription
             errorMessage = error.localizedDescription
         }
     }

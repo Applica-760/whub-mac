@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-struct AgentBookView<OptionControls: View>: View {
+struct AgentBookView: View {
     @ObservedObject var store: AgentStore
     let sessions: [AgentStore]
     let completedSessionIDs: Set<AgentStore.ID>
@@ -16,7 +16,7 @@ struct AgentBookView<OptionControls: View>: View {
     let resume: (AgentHistoryEntry) async -> Bool
     var isResuming = false
     var resumeError: String? = nil
-    @ViewBuilder let optionControls: () -> OptionControls
+    let changeKind: (AgentKind) -> Void
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
     @State private var bookFocus = AgentBookFocus()
@@ -50,7 +50,8 @@ struct AgentBookView<OptionControls: View>: View {
                         },
                         resume: resume, isResuming: isResuming, resumeError: resumeError
                     )
-                    .padding(.horizontal, 232)
+                    .padding(.leading, 232)
+                    .padding(.trailing, AgentBookOptionControlView.inputInset)
                 }
                 .overlay(alignment: .bottomLeading) {
                     AgentBookTabButton(
@@ -63,7 +64,7 @@ struct AgentBookView<OptionControls: View>: View {
                         .padding(.bottom, 16)
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    optionControls()
+                    AgentBookOptionControlView(store: store, changeKind: changeKind)
                         .padding(.trailing, 16)
                         .padding(.bottom, 16)
                 }
