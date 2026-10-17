@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import SwiftUI
 
@@ -169,7 +170,7 @@ struct AgentBookApprovalEntryView: View {
                     isActive: canRespond, isResponding: isResponding, usesNativeKeyEquivalents: false) { _ in }
                     .frame(width: max(1, min(820 + 32, (pageSize.width - 32) * scale)))
                     .frame(maxHeight: max(1, availableHeight))
-                    .background(CodexApprovalKeys(isActive: { canRespond }) { respond(request, allow: $0) })
+                    .background(AgentBookApprovalKeys(isActive: { canRespond }) { respond(request, allow: $0) })
                     .shadow(radius: 8, y: 3)
                     .padding(.top, above ? 0 : anchorY + 12)
                     .padding(.bottom, above ? pageSize.height - anchorY + 12 : 0)
@@ -180,5 +181,56 @@ struct AgentBookApprovalEntryView: View {
         .allowsHitTesting(isActive)
         .accessibilityHidden(!isActive)
         .onChange(of: request?.id) { _, _ in showsDetails = false }
+    }
+}
+
+private struct AgentBookApprovalKeys: NSViewRepresentable {
+    static func approvalDecision(keyCode: UInt16, isRepeat: Bool, hasMarkedText: Bool) -> Bool? {
+        guard !isRepeat, !hasMarkedText else { return nil }
+        switch keyCode {
+        case 36, 76: return true
+        case 53: return false
+        default: return nil
+        }
+    }
+
+    var isActive: () -> Bool = { true }
+    let approve: (Bool) -> Void
+
+    func handle(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard isActive(), event.window === window, window.attachedSheet == nil,
+              event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function]).isEmpty,
+              [36, 76, 53].contains(event.keyCode),
+              (window.firstResponder as? NSTextView)?.hasMarkedText() != true else { return false }
+        if let allow = Self.approvalDecision(keyCode: event.keyCode, isRepeat: event.isARepeat, hasMarkedText: false) {
+            approve(allow)
+        }
+        return true
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = EventView()
+        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak view, weak coordinator = context.coordinator] event in
+            guard let view, let window = view.window, window.isKeyWindow,
+                  !view.isHiddenOrHasHiddenAncestor else { return event }
+            return coordinator?.handle?(event, window) == true ? nil : event
+        }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) { context.coordinator.handle = handle }
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor { NSEvent.removeMonitor(monitor) }
+    }
+    final class Coordinator {
+        var monitor: Any?
+        var handle: ((NSEvent, NSWindow) -> Bool)?
+    }
+    final class EventView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }

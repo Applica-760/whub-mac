@@ -99,7 +99,7 @@ struct AgentBookExchangeView: View {
     }
 
     private func pageX(_ page: Int) -> CGFloat {
-        CGFloat(page - book.spread * 2) * (book.pageSize.width + CodexBookLayout.pageGap)
+        CGFloat(page - book.spread * 2) * (book.pageSize.width + AgentBookPageStyle.pageGap)
     }
 
     private func updateBook(_ exchanges: [AgentExchange]) {

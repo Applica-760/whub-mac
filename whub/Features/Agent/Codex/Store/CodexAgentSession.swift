@@ -5,17 +5,17 @@ final class CodexAgentSession: AgentSession {
     let kind = AgentKind.codex
     let events: AsyncStream<AgentEvent>
     private let emitter: AsyncStream<AgentEvent>.Continuation
-    private let client: CodexClient
+    private let client: CodexAgentClient
     private let requestOverride: ((String, [String: Any], String) async throws -> [String: Any])?
     private let responseOverride: ((Any, [String: Any]) throws -> Void)?
     private var directory: String?
     private var isClosed = false
     private var threadID: String?
-    private var turn: CodexTurn?
+    private var turn: CodexAgentTurn?
     private var stopRequested = false
     private var needsResume = false
     private var isPreparingThread = false
-    private var models: [CodexModel] = []
+    private var models: [CodexAgentModel] = []
     private var skills: [AgentSkill] = []
     private var settings: [String: Any] = [:]
     private var tokenUsage: [String: Any]?
@@ -28,10 +28,10 @@ final class CodexAgentSession: AgentSession {
         var request: AgentRequest
     }
 
-    init(client: CodexClient? = nil,
+    init(client: CodexAgentClient? = nil,
          request: ((String, [String: Any], String) async throws -> [String: Any])? = nil,
          respond: ((Any, [String: Any]) throws -> Void)? = nil) {
-        let client = client ?? CodexClient()
+        let client = client ?? CodexAgentClient()
         self.client = client
         requestOverride = request
         responseOverride = respond
@@ -50,7 +50,7 @@ final class CodexAgentSession: AgentSession {
         guard !isClosed else { throw CancellationError() }
         try validateDirectory(directory)
         guard self.directory == nil || self.directory == directory else {
-            throw CodexError(message: "接続済みSessionの作業ディレクトリは変更できません。")
+            throw CodexAgentError(message: "接続済みSessionの作業ディレクトリは変更できません。")
         }
         self.directory = directory
         if requestOverride == nil { try await client.connect(directory: directory) }
@@ -58,23 +58,23 @@ final class CodexAgentSession: AgentSession {
     }
 
     func send(_ input: [AgentInput]) async throws {
-        guard turn == nil else { throw CodexError(message: "会話は実行中です。追加送信を使用してください。") }
+        guard turn == nil else { throw CodexAgentError(message: "会話は実行中です。追加送信を使用してください。") }
         let payload = try inputPayload(input)
-        let active = CodexTurn(prompt: "")
+        let active = CodexAgentTurn()
         turn = active
         stopRequested = false
         do {
             try await prepareThread()
             guard turn?.id == active.id else { throw CancellationError() }
             if stopRequested { finish(.interrupted); return }
-            guard let threadID else { throw CodexError(message: "会話IDを確認できませんでした。") }
+            guard let threadID else { throw CodexAgentError(message: "会話IDを確認できませんでした。") }
             let result = try await rpc("turn/start", ["threadId": threadID, "input": payload])
             guard turn?.id == active.id else { return }
             guard let remote = result["turn"] as? [String: Any], let id = remote["id"] as? String, !id.isEmpty else {
-                throw CodexError(message: "Codexから実行IDを取得できませんでした。")
+                throw CodexAgentError(message: "Codexから実行IDを取得できませんでした。")
             }
             guard turn?.remoteID == nil || turn?.remoteID == id else {
-                throw CodexError(message: "開始した実行のIDが一致しません。")
+                throw CodexAgentError(message: "開始した実行のIDが一致しません。")
             }
             turn?.remoteID = id
             if stopRequested { try await interrupt() }
@@ -90,11 +90,11 @@ final class CodexAgentSession: AgentSession {
 
     func sendAdditionalInput(_ input: [AgentInput]) async throws {
         guard !stopRequested, !needsResume, let threadID, let active = turn, let turnID = active.remoteID else {
-            throw CodexError(message: "追加送信できる実行がありません。")
+            throw CodexAgentError(message: "追加送信できる実行がありません。")
         }
         let result = try await rpc("turn/steer", ["threadId": threadID, "input": try inputPayload(input), "expectedTurnId": turnID])
         guard result["turnId"] as? String == turnID else {
-            throw CodexError(message: "追加送信の対象を確認できませんでした。")
+            throw CodexAgentError(message: "追加送信の対象を確認できませんでした。")
         }
     }
 
@@ -122,38 +122,38 @@ final class CodexAgentSession: AgentSession {
     func loadModelOptions() async throws -> [AgentModelOption] {
         let result = try await pages("model/list", params: ["limit": 100, "includeHidden": false])
         var seen = Set<String>()
-        let loaded = try result.filter { $0["hidden"] as? Bool != true }.map(CodexModel.init)
+        let loaded = try result.filter { $0["hidden"] as? Bool != true }.map(CodexAgentModel.init)
             .filter { seen.insert($0.id).inserted }
         let config = try await rpc("config/read", ["includeLayers": false, "cwd": directory ?? ""])
         guard let values = config["config"] as? [String: Any],
-              let model = values["model"] as? String ?? loaded.first(where: \.isDefault)?.model else {
-            throw CodexError(message: "起動時のモデル設定を取得できませんでした。")
+              let model = values["model"] as? String ?? loaded.first(where: \.isDefault)?.options.first?.modelID else {
+            throw CodexAgentError(message: "起動時のモデル設定を取得できませんでした。")
         }
         models = loaded
         if threadID == nil {
             settings["model"] = model
             settings["effort"] = values["model_reasoning_effort"] as? String
-                ?? loaded.first(where: { $0.model == model })?.defaultEffort
+                ?? loaded.flatMap(\.options).first(where: { $0.modelID == model && $0.isDefaultEffort })?.effort
         }
         publishModelOption()
-        return loaded.flatMap(CodexAgentMapping.modelOptions)
+        return loaded.flatMap(\.options)
     }
 
     func loadSkills() async throws -> [AgentSkill] {
         let result = try await rpc("skills/list", ["cwds": [directory ?? ""], "forceReload": true])
         guard let entries = result["data"] as? [[String: Any]] else {
-            throw CodexError(message: "Skill一覧の形式が不正です。")
+            throw CodexAgentError(message: "Skill一覧の形式が不正です。")
         }
         let errors = entries.flatMap { $0["errors"] as? [[String: Any]] ?? [] }
-        guard errors.isEmpty else { throw CodexError(message: CodexJSON.pretty(errors)) }
+        guard errors.isEmpty else { throw CodexAgentError(message: CodexAgentJSON.pretty(errors)) }
         var seen = Set<String>()
         let loaded = try entries.flatMap { entry -> [AgentSkill] in
             guard let values = entry["skills"] as? [[String: Any]] else {
-                throw CodexError(message: "Skill一覧の形式が不正です。")
+                throw CodexAgentError(message: "Skill一覧の形式が不正です。")
             }
             return try values.filter { $0["enabled"] as? Bool != false }.map { value in
                 guard let path = value["path"] as? String, !path.isEmpty, let name = value["name"] as? String else {
-                    throw CodexError(message: "Skillの識別子を確認できませんでした。")
+                    throw CodexAgentError(message: "Skillの識別子を確認できませんでした。")
                 }
                 return AgentSkill(id: path, name: name, description: value["description"] as? String ?? "")
             }
@@ -164,14 +164,14 @@ final class CodexAgentSession: AgentSession {
     }
 
     func loadStatus() async throws -> [AgentContent] {
-        guard !isClosed, let directory else { throw CodexError(message: "Codexに接続されていません。") }
+        guard !isClosed, let directory else { throw CodexAgentError(message: "Codexに接続されていません。") }
         let activeID = threadID
         let activeSettings = settings
         let usage = tokenUsage
         var config: [String: Any]?
         var account: [String: Any]?
         var limits: [String: Any]?
-        var failures: [CodexStatusFailure] = []
+        var failures: [CodexAgentStatusFailure] = []
         do {
             let result = try await rpc("config/read", ["includeLayers": false, "cwd": directory])
             config = result["config"] as? [String: Any]
@@ -187,27 +187,27 @@ final class CodexAgentSession: AgentSession {
             catch { failures.append(.rateLimits) }
         }
         guard !isClosed, !Task.isCancelled else { throw CancellationError() }
-        return [.code(CodexAgentMapping.statusText(CodexStatusSnapshot(directory: directory, threadID: activeID,
+        return [.code(CodexAgentMapping.statusText(CodexAgentStatusSnapshot(directory: directory, threadID: activeID,
             settings: activeSettings, config: config, account: account, limits: limits, tokenUsage: usage, failures: failures)))]
     }
 
     func changeModel(_ option: AgentModelOption) async throws {
         guard turn == nil,
-              let model = models.first(where: { CodexAgentMapping.modelOptions($0).contains(where: { $0.id == option.id }) }),
-              let effort = CodexAgentMapping.modelOptions(model).first(where: { $0.id == option.id })?.effort else {
-            throw CodexError(message: "現在選択できるモデルとEffortを指定してください。")
+              let selected = models.flatMap(\.options).first(where: { $0.id == option.id }),
+              let effort = selected.effort else {
+            throw CodexAgentError(message: "現在選択できるモデルとEffortを指定してください。")
         }
         try await prepareThread()
-        guard let threadID else { throw CodexError(message: "会話IDを確認できませんでした。") }
-        _ = try await rpc("thread/settings/update", model.parameters(threadID: threadID, effort: effort))
-        settings["model"] = model.model
+        guard let threadID else { throw CodexAgentError(message: "会話IDを確認できませんでした。") }
+        _ = try await rpc("thread/settings/update", ["threadId": threadID, "model": selected.modelID, "effort": effort])
+        settings["model"] = selected.modelID
         settings["effort"] = effort
         publishModelOption()
     }
 
     func respond(to requestID: String, with response: AgentResponse) async throws {
         guard !isClosed, let pending = pendingRequests[requestID] else {
-            throw CodexError(message: "未回答の要求を確認できませんでした。")
+            throw CodexAgentError(message: "未回答の要求を確認できませんでした。")
         }
         let mapped = try CodexAgentMapping.response(response, to: pending.request, method: pending.method, params: pending.params)
         if let responseOverride { try responseOverride(pending.rpcID, mapped.result) }
@@ -220,17 +220,17 @@ final class CodexAgentSession: AgentSession {
                                    "sourceKinds": ["cli", "appServer", "vscode"], "archived": false]
         if let cursor { params["cursor"] = cursor }
         let result = try await rpc("thread/list", params)
-        guard let data = result["data"] as? [[String: Any]] else { throw CodexError(message: "会話一覧を読み込めませんでした。") }
+        guard let data = result["data"] as? [[String: Any]] else { throw CodexAgentError(message: "会話一覧を読み込めませんでした。") }
         return AgentHistoryPage(entries: try data.map(CodexAgentMapping.historyEntry), nextCursor: result["nextCursor"] as? String)
     }
 
     func resume(_ entry: AgentHistoryEntry) async throws -> AgentHistorySnapshot {
         guard threadID == nil, turn == nil, directory == entry.directory else {
-            throw CodexError(message: "履歴は空のSessionで元の作業ディレクトリから再開してください。")
+            throw CodexAgentError(message: "履歴は空のSessionで元の作業ディレクトリから再開してください。")
         }
         let metadata = try await rpc("thread/read", ["threadId": entry.id])
         guard let stored = metadata["thread"] as? [String: Any], stored["id"] as? String == entry.id else {
-            throw CodexError(message: "指定した会話を読み込めませんでした。")
+            throw CodexAgentError(message: "指定した会話を読み込めませんでした。")
         }
         var params: [String: Any] = ["threadId": entry.id]
         let paginated = stored["historyMode"] as? String == "paginated"
@@ -238,13 +238,13 @@ final class CodexAgentSession: AgentSession {
         let result = try await rpc("thread/resume", params)
         guard let thread = result["thread"] as? [String: Any], thread["id"] as? String == entry.id,
               let cwd = result["cwd"] as? String, cwd == entry.directory,
-              result["model"] is String else { throw CodexError(message: "再開する会話の情報が不正です。") }
+              result["model"] is String else { throw CodexAgentError(message: "再開する会話の情報が不正です。") }
         let values: [[String: Any]]
         if paginated {
             values = try await pages("thread/turns/list", params: ["threadId": entry.id, "limit": 100,
                                                                  "sortDirection": "asc", "itemsView": "full"])
         } else {
-            guard let turns = thread["turns"] as? [[String: Any]] else { throw CodexError(message: "会話履歴を読み込めませんでした。") }
+            guard let turns = thread["turns"] as? [[String: Any]] else { throw CodexAgentError(message: "会話履歴を読み込めませんでした。") }
             values = turns
         }
         let exchanges = try CodexAgentMapping.exchanges(values)
@@ -284,10 +284,10 @@ final class CodexAgentSession: AgentSession {
             var params = params
             if let cursor { params["cursor"] = cursor }
             let result = try await rpc(method, params)
-            guard let page = result["data"] as? [[String: Any]] else { throw CodexError(message: "一覧の形式が不正です: \(method)") }
+            guard let page = result["data"] as? [[String: Any]] else { throw CodexAgentError(message: "一覧の形式が不正です: \(method)") }
             values += page
             cursor = result["nextCursor"] as? String
-            if let cursor, !seen.insert(cursor).inserted { throw CodexError(message: "一覧の取得位置が進みませんでした。") }
+            if let cursor, !seen.insert(cursor).inserted { throw CodexAgentError(message: "一覧の取得位置が進みませんでした。") }
         } while cursor != nil
         return values
     }
@@ -295,28 +295,28 @@ final class CodexAgentSession: AgentSession {
     private func validateDirectory(_ directory: String) throws {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
-            throw CodexError(message: "作業フォルダが存在しません: \(directory)")
+            throw CodexAgentError(message: "作業フォルダが存在しません: \(directory)")
         }
     }
 
     private func inputPayload(_ input: [AgentInput]) throws -> [[String: Any]] {
-        guard !input.isEmpty, let directory else { throw CodexError(message: "入力または接続先を確認できませんでした。") }
+        guard !input.isEmpty, let directory else { throw CodexAgentError(message: "入力または接続先を確認できませんでした。") }
         try validateDirectory(directory)
         if input.contains(where: { if case .image = $0 { return true }; return false }),
-           models.first(where: { $0.model == settings["model"] as? String })?.supportsImages == false {
-            throw CodexError(message: "このモデルは画像入力に対応していません。")
+           models.first(where: { $0.options.contains(where: { $0.modelID == settings["model"] as? String }) })?.supportsImages == false {
+            throw CodexAgentError(message: "このモデルは画像入力に対応していません。")
         }
         return try CodexAgentMapping.input(input, skills: skills)
     }
 
     private func prepareThread() async throws {
-        guard !isPreparingThread else { throw CodexError(message: "会話の準備中です。") }
+        guard !isPreparingThread else { throw CodexAgentError(message: "会話の準備中です。") }
         isPreparingThread = true
         defer { isPreparingThread = false }
         if threadID == nil {
             let result = try await rpc("thread/start", ["cwd": directory ?? ""])
             guard let thread = result["thread"] as? [String: Any], let id = thread["id"] as? String, !id.isEmpty else {
-                throw CodexError(message: "Codexから会話IDを取得できませんでした。")
+                throw CodexAgentError(message: "Codexから会話IDを取得できませんでした。")
             }
             threadID = id
             updateSettings(result)
@@ -327,7 +327,7 @@ final class CodexAgentSession: AgentSession {
             if let effort = settings["effort"] as? String { params["config"] = ["model_reasoning_effort": effort] }
             let result = try await rpc("thread/resume", params)
             guard (result["thread"] as? [String: Any])?["id"] as? String == threadID else {
-                throw CodexError(message: "再接続した会話IDが一致しません。")
+                throw CodexAgentError(message: "再接続した会話IDが一致しません。")
             }
             updateSettings(result)
             needsResume = false
@@ -337,10 +337,10 @@ final class CodexAgentSession: AgentSession {
     private var selectedOption: AgentModelOption? {
         guard let model = settings["model"] as? String else { return nil }
         let effort = settings["effort"] as? String
-        if let option = models.flatMap(CodexAgentMapping.modelOptions).first(where: { $0.modelID == model && $0.effort == effort }) {
+        if let option = models.flatMap(\.options).first(where: { $0.modelID == model && $0.effort == effort }) {
             return option
         }
-        return AgentModelOption(id: CodexJSON.pretty([model, effort as Any? ?? NSNull()]), modelID: model,
+        return AgentModelOption(id: CodexAgentJSON.pretty([model, effort as Any? ?? NSNull()]), modelID: model,
             displayName: model, description: "", effort: effort, isDefaultEffort: false)
     }
 
@@ -362,7 +362,7 @@ final class CodexAgentSession: AgentSession {
             do {
                 guard let active = turn, params["threadId"] == nil || params["threadId"] as? String == threadID,
                       params["turnId"] == nil || active.remoteID == nil || params["turnId"] as? String == active.remoteID else {
-                    throw CodexError(message: "要求の対象となる実行を確認できませんでした。")
+                    throw CodexAgentError(message: "要求の対象となる実行を確認できませんでした。")
                 }
                 var details = params
                 if method == "item/fileChange/requestApproval", let itemID = params["itemId"] as? String,

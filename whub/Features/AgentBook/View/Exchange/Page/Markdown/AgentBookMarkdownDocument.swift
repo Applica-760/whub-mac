@@ -1,8 +1,14 @@
 import AppKit
 import SwiftUI
 
+enum AgentBookCodeStyle {
+    static let codeInset: CGFloat = 12
+    static let codeFont = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+    static var codeLineHeight: CGFloat { ceil(codeFont.ascender - codeFont.descender + codeFont.leading) }
+}
+
 /// Keep Markdown containers so nested lists and multi-paragraph quotes stay together.
-struct CodexMarkdown {
+struct AgentBookMarkdown {
     let source: String
 
     struct Block: Identifiable, Hashable {
@@ -24,7 +30,7 @@ struct CodexMarkdown {
     }
 
     var blocks: [Block] {
-        let math = CodexMathSource(source)
+        let math = AgentBookMathSource(source)
         guard let markdown = try? AttributedString(markdown: math.markdown, options: .init(interpretedSyntax: .full)) else {
             return [Block(id: 0, kind: .paragraph, text: AttributedString(source))]
         }
@@ -49,7 +55,7 @@ struct CodexMarkdown {
 
 }
 
-struct CodexMarkdownDocument {
+struct AgentBookMarkdownDocument {
     let text: NSAttributedString
     let codes: [Code]
 
@@ -63,7 +69,7 @@ struct CodexMarkdownDocument {
         let output = NSMutableAttributedString(string: "")
         var codes: [Code] = []
         var afterTable = false
-        let renderer = CodexMathRenderer(weight: .regular, colorScheme: colorScheme)
+        let renderer = AgentBookMathRenderer(weight: .regular, colorScheme: colorScheme)
         var separator = NSColor.separatorColor
         NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
             separator = NSColor.separatorColor.usingColorSpace(.deviceRGB) ?? .separatorColor
@@ -85,7 +91,7 @@ struct CodexMarkdownDocument {
             afterTable = false
         }
 
-        func render(_ block: CodexMarkdown.Block, indent: CGFloat = 0,
+        func render(_ block: AgentBookMarkdown.Block, indent: CGFloat = 0,
                     ordered: Bool = false, decorations: [NSTextBlock] = []) {
             switch block.kind {
             case .orderedList, .unorderedList:
@@ -108,17 +114,17 @@ struct CodexMarkdownDocument {
                 for child in block.children { render(child, indent: indent, decorations: decorations + [quote]) }
             case .header(let level):
                 let size = [25.0, 22, 20, 18, 16, 15][min(max(level, 1), 6) - 1]
-                paragraph(CodexMathRenderer(fontSize: size, weight: .regular, colorScheme: colorScheme).attributed(block.text),
+                paragraph(AgentBookMathRenderer(fontSize: size, weight: .regular, colorScheme: colorScheme).attributed(block.text),
                           indent: indent, blocks: decorations, before: level <= 2 ? 10 : 4)
             case .codeBlock:
                 let code = String(block.text.characters)
                 let lines = code.components(separatedBy: "\n")
-                let lineHeight = CodexBookLayout.codeLineHeight
-                let size = CGSize(width: max(1, width - indent), height: CGFloat(max(1, lines.count)) * lineHeight + 2 * CodexBookLayout.codeInset)
+                let lineHeight = AgentBookCodeStyle.codeLineHeight
+                let size = CGSize(width: max(1, width - indent), height: CGFloat(max(1, lines.count)) * lineHeight + 2 * AgentBookCodeStyle.codeInset)
                 let attachment = NSTextAttachment()
                 attachment.bounds = CGRect(origin: .zero, size: size)
                 let part = NSMutableAttributedString(attachment: attachment)
-                part.addAttribute(.codexBookCodeSource, value: code, range: NSRange(location: 0, length: 1))
+                part.addAttribute(.agentBookCodeSource, value: code, range: NSRange(location: 0, length: 1))
                 codes.append(Code(range: NSRange(location: output.length, length: 1), text: code, size: size))
                 paragraph(part, indent: indent, blocks: decorations)
             case .table(let columns):
@@ -176,9 +182,9 @@ struct CodexMarkdownDocument {
                 }
             }
         }
-        for block in CodexMarkdown(source: source).blocks { render(block) }
+        for block in AgentBookMarkdown(source: source).blocks { render(block) }
         assert(codes.allSatisfy {
-            output.attribute(.codexBookCodeSource, at: $0.range.location, effectiveRange: nil) as? String == $0.text
+            output.attribute(.agentBookCodeSource, at: $0.range.location, effectiveRange: nil) as? String == $0.text
         }, "Code attachments must retain their complete, unwrapped source for copying")
         text = output
         self.codes = codes
@@ -186,5 +192,5 @@ struct CodexMarkdownDocument {
 }
 
 extension NSAttributedString.Key {
-    static let codexBookCodeSource = NSAttributedString.Key("whub.book.codeSource")
+    static let agentBookCodeSource = NSAttributedString.Key("whub.book.codeSource")
 }

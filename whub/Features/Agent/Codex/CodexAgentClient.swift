@@ -1,12 +1,12 @@
 import Foundation
 
-struct CodexError: LocalizedError {
+struct CodexAgentError: LocalizedError {
     let message: String
     var errorDescription: String? { message }
 }
 
 @MainActor
-final class CodexClient {
+final class CodexAgentClient {
     struct LineBuffer {
         private var buffer = Data()
         private var searchStart = 0
@@ -72,7 +72,7 @@ final class CodexClient {
                         guard let self, self.generation == connection else { return }
                         try buffer.append(chunk) { line in
                             guard let message = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
-                                throw CodexError(message: "Codexから不正な応答を受信しました。")
+                                throw CodexAgentError(message: "Codexから不正な応答を受信しました。")
                             }
                             self.receive(message)
                         }
@@ -124,11 +124,11 @@ final class CodexClient {
         let data = await reader.value
         let fields = String(decoding: data, as: UTF8.self).components(separatedBy: "\0")
         guard fields.count >= 4 else {
-            throw CodexError(message: "シェルからCodexの実行パスを取得できませんでした。ターミナルの起動設定を確認してください。")
+            throw CodexAgentError(message: "シェルからCodexの実行パスを取得できませんでした。ターミナルの起動設定を確認してください。")
         }
         let executable = fields[fields.count - 3]
         guard executable.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: executable) else {
-            throw CodexError(message: "Codex CLIが見つかりません。新しいターミナルでcommand -v codexを確認してください。")
+            throw CodexAgentError(message: "Codex CLIが見つかりません。新しいターミナルでcommand -v codexを確認してください。")
         }
         return (executable, fields[fields.count - 2])
     }
@@ -150,7 +150,7 @@ final class CodexClient {
     }
 
     func request(_ method: String, _ params: [String: Any] = [:]) async throws -> [String: Any] {
-        guard isConnected else { throw CodexError(message: "Codexに接続されていません。") }
+        guard isConnected else { throw CodexAgentError(message: "Codexに接続されていません。") }
         nextID += 1
         let id = nextID
         return try await withCheckedThrowingContinuation { continuation in
@@ -176,7 +176,7 @@ final class CodexClient {
     }
 
     private func write(_ message: [String: Any]) throws {
-        guard let input else { throw CodexError(message: "Codex接続が閉じています。") }
+        guard let input else { throw CodexAgentError(message: "Codex接続が閉じています。") }
         var data = try JSONSerialization.data(withJSONObject: message, options: [.sortedKeys])
         data.append(10)
         try input.write(contentsOf: data)
@@ -188,7 +188,7 @@ final class CodexClient {
         } else if let id = message["id"] as? Int, let continuation = pending.removeValue(forKey: id) {
             timeouts.removeValue(forKey: id)?.cancel()
             if let error = message["error"] as? [String: Any] {
-                continuation.resume(throwing: CodexError(message: error["message"] as? String ?? "Codexの要求が失敗しました。"))
+                continuation.resume(throwing: CodexAgentError(message: error["message"] as? String ?? "Codexの要求が失敗しました。"))
             } else {
                 continuation.resume(returning: message["result"] as? [String: Any] ?? [:])
             }
@@ -214,7 +214,7 @@ final class CodexClient {
         timeouts.removeAll()
         let waiting = pending.values
         pending.removeAll()
-        for continuation in waiting { continuation.resume(throwing: CodexError(message: reason)) }
+        for continuation in waiting { continuation.resume(throwing: CodexAgentError(message: reason)) }
         diagnostics = ""
     }
 }

@@ -1,14 +1,23 @@
 import Foundation
 
-// Field order and remaining-quota notation follow Codex CLI's status/card.rs.
-enum CodexCommandPresentation {
-    static func codeBlock(_ text: String) -> String {
-        let longest = text.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0
-        let fence = String(repeating: "`", count: max(3, longest + 1))
-        return fence + "\n" + text + "\n" + fence
-    }
+enum CodexAgentStatusFailure {
+    case settings, account, rateLimits
+}
 
-    static func render(_ snapshot: CodexStatusSnapshot, timeZone: TimeZone = .current) -> String {
+struct CodexAgentStatusSnapshot {
+    let directory: String
+    let threadID: String?
+    let settings: [String: Any]
+    let config: [String: Any]?
+    let account: [String: Any]?
+    let limits: [String: Any]?
+    let tokenUsage: [String: Any]?
+    let failures: [CodexAgentStatusFailure]
+}
+
+// 既存Statusの項目順・残量表記を維持する。
+extension CodexAgentMapping {
+    static func statusText(_ snapshot: CodexAgentStatusSnapshot, timeZone: TimeZone = .current) -> String {
         let directory = snapshot.directory
         let threadID = snapshot.threadID
         let settings = snapshot.settings
@@ -16,7 +25,13 @@ enum CodexCommandPresentation {
         let account = snapshot.account
         let limits = snapshot.limits
         let tokenUsage = snapshot.tokenUsage
-        let failures = snapshot.failures.map(\.displayName)
+        let failures = snapshot.failures.map { failure in
+            switch failure {
+            case .settings: "Settings"
+            case .account: "Account"
+            case .rateLimits: "Rate limits"
+            }
+        }
         var rows: [(String, String)] = []
         func value(_ source: [String: Any]?, _ key: String) -> String? {
             guard let text = source?[key] as? String, !text.isEmpty else { return nil }
@@ -33,7 +48,7 @@ enum CodexCommandPresentation {
         let sandbox = active ? value(settings["sandboxPolicy"] as? [String: Any], "type") : value(config, "sandbox_mode")
         let policy = active ? value(settings, "approvalPolicy") : value(config, "approval_policy")
         let reviewer = active ? value(settings, "approvalsReviewer") : value(config, "approvals_reviewer")
-        rows.append(("Permissions", [sandbox, policy, reviewer].compactMap { $0 }.joined(separator: " · ").nonEmpty ?? "Not available"))
+        rows.append(("Permissions", [sandbox, policy, reviewer].compactMap { $0 }.joined(separator: " · ").codexAgentNonEmpty ?? "Not available"))
         if let sources = settings["instructionSources"] as? [String] {
             rows.append(("Agents.md", sources.isEmpty ? "<none>" : sources.joined(separator: ", ")))
         }
@@ -43,7 +58,7 @@ enum CodexCommandPresentation {
         switch account?["type"] as? String {
         case "apiKey": rows.append(("Account", "API key configured"))
         case "chatgpt":
-            rows.append(("Account", [value(account, "email"), value(account, "planType")].compactMap { $0 }.joined(separator: " · ").nonEmpty ?? "ChatGPT"))
+            rows.append(("Account", [value(account, "email"), value(account, "planType")].compactMap { $0 }.joined(separator: " · ").codexAgentNonEmpty ?? "ChatGPT"))
         default: rows.append(("Account", failures.contains("Account") ? "Unavailable" : "Not signed in"))
         }
         rows.append(("Session", threadID ?? "Not started"))
@@ -94,45 +109,5 @@ enum CodexCommandPresentation {
 }
 
 private extension String {
-    var nonEmpty: String? { isEmpty ? nil : self }
-}
-
-extension CodexCommand {
-    var description: String {
-        switch self {
-        case .new: "新しい会話"
-        case .stop: "作業を停止"
-        case .skills: "Skillを選択"
-        case .status: "状態を確認"
-        case .model: "モデルと推論設定を選択"
-        case .resume: "過去の会話を再開"
-        }
-    }
-}
-
-extension CodexStatusFailure {
-    var displayName: String {
-        switch self {
-        case .settings: "Settings"
-        case .account: "Account"
-        case .rateLimits: "Rate limits"
-        }
-    }
-}
-
-extension CodexCommandOutput {
-    var displayText: String {
-        switch self {
-        case let .text(text): text
-        case let .json(data): CodexJSON.pretty(data)
-        case let .status(snapshot): CodexCommandPresentation.render(snapshot)
-        case .newConversation: "新しい会話を開始しました。"
-        case let .modelChanged(name, effort): "Model changed to \(name) (\(effort)) for this session only"
-        case .stopRequested: "停止を要求しました。"
-        case .stopped: "作業を停止しました。"
-        case .noRunningTask: "実行中の作業はありません。"
-        case .missingDirectory: "作業フォルダがありません。"
-        case .directoryChanged: "作業フォルダが変更されました。再実行してください。"
-        }
-    }
+    var codexAgentNonEmpty: String? { isEmpty ? nil : self }
 }
