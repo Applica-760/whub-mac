@@ -63,15 +63,7 @@ struct AppView: View {
         .toolbar {
             AgentBookToolbar { section = .agentBook }
             TimerToolbar()
-
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-
-            ToolbarItem(placement: .primaryAction) {
-                RemoteConnectionToolbarView()
-            }
-            .sharedBackgroundVisibility(.hidden)
-
-            ToolbarSpacer(.fixed, placement: .primaryAction)
+            RemoteConnectionToolbar()
             FeatureToolbar(selection: $section)
             SettingsToolbar()
         }

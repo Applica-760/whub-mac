@@ -2,6 +2,19 @@ import SwiftData
 import SwiftUI
 import WhubCore
 
+struct RemoteConnectionToolbar: ToolbarContent {
+    var body: some ToolbarContent {
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+
+        ToolbarItem(placement: .primaryAction) {
+            RemoteConnectionToolbarView()
+        }
+        .sharedBackgroundVisibility(.hidden)
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+    }
+}
+
 struct RemoteConnectionToolbarView: View {
     @Query(sort: \WhubCore.Host.name) private var allHosts: [WhubCore.Host]
     @EnvironmentObject private var connections: RemoteConnectionStore
