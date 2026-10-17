@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AgentBookTabButton: View {
-    let sessions: [AgentStore]
+    let tabs: [AgentBookTabStore]
     let selection: AgentStore.ID
     let completedSessionIDs: Set<AgentStore.ID>
     let notificationDates: [AgentStore.ID: Date]
@@ -15,14 +15,15 @@ struct AgentBookTabButton: View {
     }
 
     var body: some View {
-        let selectedIndex = sessions.firstIndex { $0.id == selection } ?? 0
-        let range = Self.visibleRange(count: sessions.count, selectedIndex: selectedIndex)
-        let visible = Array(sessions.enumerated()).filter { range.contains($0.offset) }
+        let selectedIndex = tabs.firstIndex { $0.id == selection } ?? 0
+        let range = Self.visibleRange(count: tabs.count, selectedIndex: selectedIndex)
+        let visible = Array(tabs.enumerated()).filter { range.contains($0.offset) }
         ZStack {
             GlassEffectContainer(spacing: 6) {
                 HStack(spacing: 6) {
                     Color.clear.frame(width: 16)
-                    ForEach(visible, id: \.element.id) { _, session in
+                    ForEach(visible, id: \.element.id) { _, tab in
+                        let session = tab.store
                         let selected = session.id == selection
                         ZStack {
                             if selected {
@@ -50,16 +51,17 @@ struct AgentBookTabButton: View {
             // Keep labels outside the glass container so the material cannot blur them.
             HStack(spacing: 6) {
                 overflow(0..<range.lowerBound)
-                ForEach(visible, id: \.element.id) { index, session in
-                    AgentBookRoundTab(session: session, number: index + 1,
-                                  isSelected: session.id == selection,
-                                  hasCompleted: completedSessionIDs.contains(session.id),
-                                  notificationDate: notificationDates[session.id]) {
-                        select(session.id)
+                ForEach(visible, id: \.element.id) { index, tab in
+                    AgentBookRoundTab(tab: tab, session: tab.store, number: index + 1,
+                                      isSelected: tab.id == selection,
+                                      hasCompleted: completedSessionIDs.contains(tab.id),
+                                      notificationDate: notificationDates[tab.id]
+                    ) {
+                        select(tab.id)
                     }
                     .frame(width: 32, height: 36)
                 }
-                overflow(range.upperBound..<sessions.count)
+                overflow(range.upperBound..<tabs.count)
             }
             .foregroundStyle(.primary)
             .zIndex(1)
@@ -69,14 +71,14 @@ struct AgentBookTabButton: View {
     }
 
     private func overflow(_ range: Range<Int>) -> some View {
-        let hasCompleted = range.contains { completedSessionIDs.contains(sessions[$0].id) }
+        let hasCompleted = range.contains { completedSessionIDs.contains(tabs[$0].id) }
         return Menu {
             ForEach(Array(range), id: \.self) { index in
-                Button { select(sessions[index].id) } label: {
-                    if completedSessionIDs.contains(sessions[index].id) {
-                        Label("\(sessions[index].agentKind.agentBookTabTitle) \(index + 1)・完了", systemImage: "checkmark.circle.fill")
+                Button { select(tabs[index].id) } label: {
+                    if completedSessionIDs.contains(tabs[index].id) {
+                        Label("\(tabs[index].store.agentKind.agentBookTabTitle) \(index + 1)・完了", systemImage: "checkmark.circle.fill")
                     } else {
-                        Text("\(sessions[index].agentKind.agentBookTabTitle) \(index + 1)")
+                        Text("\(tabs[index].store.agentKind.agentBookTabTitle) \(index + 1)")
                     }
                 }
             }
@@ -102,6 +104,7 @@ struct AgentBookTabButton: View {
 }
 
 private struct AgentBookRoundTab: View {
+    @ObservedObject var tab: AgentBookTabStore
     @ObservedObject var session: AgentStore
     let number: Int
     let isSelected: Bool
@@ -120,13 +123,49 @@ private struct AgentBookRoundTab: View {
     }
 
     var body: some View {
+        let purpose = tab.purpose
         Button(action: select) {
-            Text("\(number)")
-                .font(.system(size: isSelected ? 18 : 10, weight: .regular).monospacedDigit())
+            Group {
+                if let purpose {
+                    Image(systemName: purpose.symbol)
+                        .font(.system(size: isSelected ? 15 : 11, weight: .regular))
+                } else {
+                    Text("\(number)")
+                        .font(.system(size: isSelected ? 18 : 10, weight: .regular).monospacedDigit())
+                }
+            }
                 .frame(width: isSelected ? 32 : 24, height: isSelected ? 32 : 24)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            ForEach(AgentBookTabPurpose.allCases.prefix(2)) { option in
+                Button {
+                    tab.purpose = option
+                } label: {
+                    Label(option.title, systemImage: option.symbol)
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+            Divider()
+            ForEach(AgentBookTabPurpose.allCases.dropFirst(2)) { option in
+                Button {
+                    tab.purpose = option
+                } label: {
+                    Label(option.title, systemImage: option.symbol)
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+            if purpose != nil {
+                Divider()
+                Button {
+                    tab.purpose = nil
+                } label: {
+                    Label("表示番号に戻す", systemImage: "number")
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+        }
         .overlay(alignment: .bottomTrailing) {
             if let status {
                 AgentBookStatusBadge(color: status.color,
@@ -134,7 +173,7 @@ private struct AgentBookRoundTab: View {
                                  notificationDate: notificationDate)
             }
         }
-        .accessibilityLabel("\(session.agentKind.agentBookTabTitle) \(number)")
+        .accessibilityLabel("\(session.agentKind.agentBookTabTitle) \(number)・\(purpose?.title ?? "番号表示")")
         .accessibilityValue(status?.label ?? "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .help("\(session.agentKind.agentBookTabTitle) \(number)" + (status.map { "・" + $0.label } ?? ""))
@@ -197,7 +236,7 @@ struct AgentBookToolbar: ToolbarContent {
     var body: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             AgentBookTabButton(
-                sessions: store.tabs.map { $0.store }, selection: store.selectedTabID,
+                tabs: store.tabs, selection: store.selectedTabID,
                 completedSessionIDs: store.completedTabIDs, notificationDates: store.notificationDates
             ) { id in
                 store.select(id)

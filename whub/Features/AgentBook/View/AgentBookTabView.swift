@@ -47,9 +47,10 @@ struct AgentBookTabView: View {
                 }
                 .overlay(alignment: .bottomLeading) {
                     AgentBookTabButton(
-                        sessions: bookStore.tabs.map { $0.store }, selection: tab.id,
+                        tabs: bookStore.tabs, selection: tab.id,
                         completedSessionIDs: bookStore.completedTabIDs,
-                        notificationDates: bookStore.notificationDates, select: select
+                        notificationDates: bookStore.notificationDates,
+                        select: select
                     )
                         .frame(width: 232, height: 36)
                         .padding(.leading, 16)
