@@ -9,6 +9,9 @@ func makeRouter(files: FilesAPI, manager: ManagerAPI) -> Router<BasicRequestCont
     router.get("files/read") { request, _ -> Response in
         await files.readText(query: request.uri.query)
     }
+    router.put("files/write") { request, _ -> Response in
+        await files.writeText(request)
+    }
     router.post("manager/updates") { request, _ in await manager.handle(request, action: .start) }
     router.get("manager/updates") { request, _ in await manager.handle(request, action: .history) }
     router.get("manager/updates/:id") { request, context in

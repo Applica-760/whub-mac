@@ -39,7 +39,9 @@ final class EditorStore: ObservableObject {
             selectedTab = tab
             return
         }
-        if case let .file(previous) = previewTab, local.fileStores[previous]?.document.hasUnsavedChanges == true {
+        if case let .file(previous) = previewTab,
+           file(for: previous)?.hasUnsavedChanges == true || file(for: previous)?.editorViews.hasMarkedText == true
+            || remote.fileStores[previous]?.needsCloseConfirmation == true {
             previewTab = nil
         }
         if let previewTab, let index = tabs.firstIndex(of: previewTab) {
@@ -57,8 +59,21 @@ final class EditorStore: ObservableObject {
     func close(_ tab: EditorTab) {
         guard !isClosing, tabs.contains(tab) else { return }
         isClosing = true
+        if case let .file(file) = tab, let remoteFile = remote.fileStores[file],
+           remoteFile.needsCloseConfirmation {
+            Task { @MainActor in
+                defer { isClosing = false }
+                guard await remoteFile.confirmClose() else { return }
+                finishClose(tab)
+            }
+            return
+        }
         defer { isClosing = false }
         if case let .file(file) = tab, local.fileStores[file]?.confirmClose() == false { return }
+        finishClose(tab)
+    }
+
+    private func finishClose(_ tab: EditorTab) {
         guard let index = tabs.firstIndex(of: tab) else { return }
         tabs.remove(at: index)
         release(tab)

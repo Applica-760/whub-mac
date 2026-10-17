@@ -2,6 +2,11 @@ import Foundation
 import Hummingbird
 import HummingbirdTesting
 import Testing
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
 @testable import WhubServer
 
 private final class FilesFixture: Sendable {
@@ -94,4 +99,185 @@ private final class FilesFixture: Sendable {
         let rootLink = try await client.execute(uri: fixture.uri("list", root: fixture.first.appendingPathComponent("link")), method: .get)
         #expect(rootLink.status == .forbidden)
     }
+}
+
+
+@Test func filesWritePreservesBytesPermissionsAndRejectsStaleBase() async throws {
+    let fixture = try FilesFixture()
+    let file = fixture.first.appendingPathComponent("日本語 + file")
+    let original = "\u{FEFF}before\r\n"
+    let saved = "\u{FEFF}after\r\n"
+    try Data(original.utf8).write(to: file)
+    try FileManager.default.setAttributes([.posixPermissions: 0o750], ofItemAtPath: file.path)
+    let body = try JSONEncoder().encode(["expectedText": original, "text": saved])
+    try await fixture.app.test(.router) { client in
+        let uri = fixture.uri("write", root: fixture.first, path: file.lastPathComponent)
+        let response = try await client.execute(uri: uri, method: .put, headers: [.contentType: "application/json"],
+                                               body: .init(bytes: body))
+        #expect(response.status == .ok)
+        #expect(try Data(contentsOf: file) == Data(saved.utf8))
+        #expect(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int == 0o750)
+        let read = try await client.execute(uri: fixture.uri("read", root: fixture.first, path: file.lastPathComponent), method: .get)
+        #expect(try JSONDecoder().decode([String: String].self, from: Data(read.body.readableBytesView))["text"] == saved)
+        let conflict = try await client.execute(uri: uri, method: .put, headers: [.contentType: "application/json"],
+                                               body: .init(bytes: body))
+        #expect(conflict.status == .conflict)
+        #expect(try Data(contentsOf: file) == Data(saved.utf8))
+    }
+    #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.first.path) == [file.lastPathComponent])
+}
+
+@Test func filesWriteChecksBytesRatherThanUnicodeEquivalenceAndSerializesSaves() async throws {
+    let fixture = try FilesFixture()
+    let file = fixture.first.appendingPathComponent("file")
+    let service = try FilesService(root: fixture.first.path)
+    try Data("e\u{301}".utf8).write(to: file)
+    #expect(throws: FilesError.conflict) { try service.writeText(path: "file", expectedText: "é", text: "replacement") }
+    try Data("base".utf8).write(to: file)
+    let results = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+        for text in ["one", "two"] {
+            group.addTask {
+                do {
+                    _ = try service.writeText(path: "file", expectedText: "base", text: text)
+                    return true
+                } catch { return false }
+            }
+        }
+        var results: [Bool] = []
+        for await result in group { results.append(result) }
+        return results
+    }
+    #expect(results.filter { $0 }.count == 1)
+    #expect(["one", "two"].contains(try service.readText(path: "file")))
+}
+
+@Test func filesWriteRefusesUnsafeUnsupportedAndUnwritableTargetsWithoutChangingFiles() async throws {
+    let fixture = try FilesFixture()
+    let fm = FileManager.default
+    let file = fixture.first.appendingPathComponent("file")
+    try Data("base".utf8).write(to: file)
+    try fm.createSymbolicLink(at: fixture.first.appendingPathComponent("link"), withDestinationURL: fixture.second)
+    try fm.createSymbolicLink(at: fixture.first.appendingPathComponent("file-link"), withDestinationURL: file)
+    try Data("outside".utf8).write(to: fixture.second.appendingPathComponent("file"))
+    let service = try FilesService(root: fixture.first.path)
+    for path in ["", ".", "file/", "../second/file", "/file", "file\0", "link/file", "file-link", "missing"] {
+        #expect(throws: (any Error).self) { try service.writeText(path: path, expectedText: "base", text: "changed") }
+    }
+    #expect(throws: FilesError.binaryFile) { try service.writeText(path: "file", expectedText: "base", text: "bad\0") }
+    #expect(throws: FilesError.textTooLarge) {
+        try service.writeText(path: "file", expectedText: "base", text: String(repeating: "a", count: 1_048_577))
+    }
+    try fm.setAttributes([.posixPermissions: 0o444], ofItemAtPath: file.path)
+    #expect(throws: (any Error).self) { try service.writeText(path: "file", expectedText: "base", text: "changed") }
+    #expect(try Data(contentsOf: file) == Data("base".utf8))
+    #expect(try Data(contentsOf: fixture.second.appendingPathComponent("file")) == Data("outside".utf8))
+    #expect(try fm.contentsOfDirectory(atPath: fixture.first.path).allSatisfy { !$0.hasPrefix(".whub-save-") })
+}
+
+@Test func filesWriteValidatesRequestAndSupportsEscapedOneMiBText() async throws {
+    let fixture = try FilesFixture()
+    let file = fixture.first.appendingPathComponent("file")
+    let text = String(repeating: "\t", count: 1_048_576)
+    try Data(text.utf8).write(to: file)
+    try await fixture.app.test(.router) { client in
+        let uri = fixture.uri("write", root: fixture.first, path: "file")
+        for body in ["{}", "{", #"{"expectedText":null,"text":"x"}"#] {
+            let response = try await client.execute(uri: uri, method: .put, headers: [.contentType: "application/json"],
+                                                   body: .init(string: body))
+            #expect(response.status == .badRequest)
+        }
+        let wrongType = try await client.execute(uri: uri, method: .put, body: .init(string: "{}"))
+        #expect(wrongType.status == .badRequest)
+        let body = try JSONEncoder().encode(["expectedText": text, "text": text])
+        let response = try await client.execute(uri: uri, method: .put, headers: [.contentType: "application/json"],
+                                               body: .init(bytes: body))
+        #expect(response.status == .ok)
+        #expect(try Data(contentsOf: file) == Data(text.utf8))
+    }
+}
+
+
+@Test(arguments: [false, true])
+func filesWriteRejectsExtraMetadataWithoutReplacingOriginal(acl: Bool) async throws {
+    let fixture = try FilesFixture()
+    let file = fixture.first.appendingPathComponent("file")
+    try Data("base".utf8).write(to: file)
+    let fd = open(file.path, O_RDWR | O_CLOEXEC)
+    #expect(fd >= 0)
+    guard fd >= 0 else { return }
+    defer { close(fd) }
+    var before = stat()
+    #expect(fstat(fd, &before) == 0)
+    #if os(Linux)
+    let symbol = try #require(dlsym(nil, "fsetxattr"))
+    let set = unsafeBitCast(symbol, to: (@convention(c) (Int32, UnsafePointer<CChar>, UnsafeRawPointer?, Int, Int32) -> Int32).self)
+    let name = acl ? "system.posix_acl_access" : "user.whub-test"
+    // ACL version, owner, named user, group, mask, other (Linux's on-disk little-endian format).
+    let entries: [UInt32] = [2, 0x00060001, .max, 0x00040002, getuid() + 1,
+                              0x00040004, .max, 0x00040010, .max, 0x00000020, .max].map { $0.littleEndian }
+    let attribute = acl ? entries.withUnsafeBytes { Data($0) } : Data("keep me".utf8)
+    let result = attribute.withUnsafeBytes { bytes in
+        name.withCString { set(fd, $0, bytes.baseAddress, bytes.count, 0) }
+    }
+    #expect(result == 0)
+    let getSymbol = try #require(dlsym(nil, "fgetxattr"))
+    let get = unsafeBitCast(getSymbol, to: (@convention(c) (Int32, UnsafePointer<CChar>, UnsafeMutableRawPointer?, Int) -> Int).self)
+    func metadata() throws -> Data {
+        var bytes = [UInt8](repeating: 0, count: 1024)
+        let count = bytes.withUnsafeMutableBytes { buffer in
+            name.withCString { get(fd, $0, buffer.baseAddress, buffer.count) }
+        }
+        #expect(count >= 0)
+        return Data(bytes.prefix(max(count, 0)))
+    }
+    #else
+    if acl {
+        var access = acl_init(1)
+        _ = try #require(access)
+        defer { if let access { acl_free(UnsafeMutableRawPointer(access)) } }
+        var entry: acl_entry_t?
+        #expect(acl_create_entry(&access, &entry) == 0)
+        let entryValue = try #require(entry)
+        #expect(acl_set_tag_type(entryValue, ACL_EXTENDED_ALLOW) == 0)
+        var qualifier = UUID().uuid
+        #expect(acl_set_qualifier(entryValue, &qualifier) == 0)
+        var permissions: acl_permset_t?
+        #expect(acl_get_permset(entryValue, &permissions) == 0)
+        let permissionSet = try #require(permissions)
+        let accessValue = try #require(access)
+        #expect(acl_add_perm(permissionSet, ACL_READ_DATA) == 0)
+        #expect(acl_set_fd_np(fd, accessValue, ACL_TYPE_EXTENDED) == 0)
+    } else {
+        let data = Data("keep me".utf8)
+        #expect(data.withUnsafeBytes { fsetxattr(fd, "user.whub-test", $0.baseAddress, $0.count, 0, 0) } == 0)
+    }
+    func metadata() throws -> Data {
+        if acl {
+            let access = try #require(acl_get_fd_np(fd, ACL_TYPE_EXTENDED))
+            defer { acl_free(UnsafeMutableRawPointer(access)) }
+            let text = try #require(acl_to_text(access, nil))
+            defer { acl_free(text) }
+            return Data(String(cString: text).utf8)
+        }
+        var bytes = [UInt8](repeating: 0, count: 1024)
+        let count = bytes.withUnsafeMutableBytes { fgetxattr(fd, "user.whub-test", $0.baseAddress, $0.count, 0, 0) }
+        #expect(count >= 0)
+        return Data(bytes.prefix(max(count, 0)))
+    }
+    #endif
+    let originalMetadata = try metadata()
+    try await fixture.app.test(.router) { client in
+        let body = try JSONEncoder().encode(["expectedText": "base", "text": "changed"])
+        let response = try await client.execute(uri: fixture.uri("write", root: fixture.first, path: "file"), method: .put,
+                                               headers: [.contentType: "application/json"], body: .init(bytes: body))
+        #expect(response.status == .unprocessableContent)
+        let error = try JSONDecoder().decode([String: [String: String]].self, from: Data(response.body.readableBytesView))
+        #expect(error["error"]?["code"] == "unsupported_metadata")
+    }
+    var after = stat()
+    #expect(stat(file.path, &after) == 0)
+    #expect(before.st_dev == after.st_dev && before.st_ino == after.st_ino)
+    #expect(try Data(contentsOf: file) == Data("base".utf8))
+    #expect(try metadata() == originalMetadata)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.first.path) == ["file"])
 }
