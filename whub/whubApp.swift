@@ -13,7 +13,6 @@ struct whubApp: App {
     @StateObject private var remoteConnections: RemoteConnectionStore
     @StateObject private var remoteServers: RemoteServerStore
     @State private var section = AppView.Section.agentBook
-    @FocusedValue(\.explorerPulldownSelection) private var explorerPulldownSelection
     private let workspaceContainer: ModelContainer
 
     init() {
@@ -69,22 +68,7 @@ struct whubApp: App {
                 .keyboardShortcut("t", modifiers: .command)
                 .disabled(section != .terminal && section != .browser && section != .agentBook)
             }
-            CommandGroup(replacing: .saveItem) {
-                Button("Save") {
-                    guard NSApp.keyWindow?.firstResponder is CodeTextView else { return }
-                    NSApp.sendAction(#selector(CodeTextView.saveDocument(_:)), to: nil, from: nil)
-                }
-                .keyboardShortcut("s", modifiers: .command)
-            }
-            CommandGroup(after: .textEditing) {
-                Button("Find…") {
-                    guard NSApp.keyWindow?.firstResponder is CodeTextView else { return }
-                    let item = NSMenuItem()
-                    item.tag = NSTextFinder.Action.showFindInterface.rawValue
-                    NSApp.sendAction(#selector(NSTextView.performTextFinderAction(_:)), to: nil, from: item)
-                }
-                .keyboardShortcut("f", modifiers: .command)
-            }
+            FilesCommands()
             CommandGroup(replacing: .sidebar) {
                 Button("Toggle Full Screen") {
                     NSApp.sendAction(#selector(NSWindow.toggleFullScreen(_:)), to: nil, from: nil)
@@ -96,28 +80,13 @@ struct whubApp: App {
                     Button(destination.label) { section = destination }
                 }
                 Divider()
-                ForEach(1...9, id: \.self) { number in
-                    Button("AgentBook \(number)") {
-                        guard agentBookTabIDs.indices.contains(number - 1) else { return }
-                        let id = agentBookTabIDs[number - 1]
-                        agentBookStore.select(id)
-                    }
-                    .keyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: .command)
-                    .disabled(!agentBookTabIDs.indices.contains(number - 1))
-                }
+                AgentBookTabMenu(store: agentBookStore, isActive: section == .agentBook)
                 Divider()
                 Button("Previous Page") { moveSection(by: -1) }
                     .keyboardShortcut("h", modifiers: [.command, .shift])
                 Button("Next Page") { moveSection(by: 1) }
                     .keyboardShortcut("l", modifiers: [.command, .shift])
-                Button("Reload Files") { files.refresh() }
-                    .keyboardShortcut("r", modifiers: [.command, .shift])
-                Button("Previous Project or Worktree") { explorerPulldownSelection?.move(by: -1) }
-                    .keyboardShortcut("k", modifiers: [.command, .shift])
-                    .disabled(explorerPulldownSelection == nil)
-                Button("Next Project or Worktree") { explorerPulldownSelection?.move(by: 1) }
-                    .keyboardShortcut("j", modifiers: [.command, .shift])
-                    .disabled(explorerPulldownSelection == nil)
+                FilesNavigationMenu(store: files)
             }
         }
 
@@ -125,10 +94,6 @@ struct whubApp: App {
             SettingsView()
         }
         .modelContainer(workspaceContainer)
-    }
-
-    private var agentBookTabIDs: [UUID] {
-        section == .agentBook ? agentBookStore.tabs.map(\.id) : []
     }
 
     private func moveSection(by offset: Int) {
