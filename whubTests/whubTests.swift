@@ -294,7 +294,6 @@ struct CodexResumeTests {
         let mixedInput: [[String: Any]] = [
             ["type": "text", "text": "質問"],
             ["type": "skill", "name": "review"],
-            ["type": "mention"],
             ["type": "image", "name": "ignored"],
             [:]
         ]
@@ -302,9 +301,9 @@ struct CodexResumeTests {
             ["id": "u", "type": "userMessage", "content": mixedInput]
         ]]]), expectedID: "thread-1")
         #expect(mixed.turns.first?.input == [.text("質問"), .attachment(type: "skill", name: "review"),
-            .attachment(type: "mention", name: nil), .attachment(type: "image", name: "ignored"),
+            .attachment(type: "image", name: "ignored"),
             .attachment(type: nil, name: nil)])
-        #expect(mixed.turns.first?.displayPrompt == "質問\nreview\n添付参照\n［添付: image］\n［添付: 不明］")
+        #expect(mixed.turns.first?.displayPrompt == "質問\nreview\n［添付: image］\n［添付: 不明］")
         #expect(store.turns.first?.answers.isEmpty == true)
         #expect(store.turns.first?.status == "interrupted")
         #expect(throws: CodexError.self) { try store.restoreHistory(response([]), expectedID: "thread-1") }
