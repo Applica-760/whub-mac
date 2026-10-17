@@ -56,50 +56,14 @@ struct whubApp: App {
         .windowResizability(.contentMinSize)
         .modelContainer(workspaceContainer)
         .commands {
-            CommandGroup(after: .newItem) {
-                Button("新規タブ") {
-                    switch section {
-                    case .terminal: terminalStore.add()
-                    case .browser: browserStore.add()
-                    case .agentBook: agentBookStore.add()
-                    default: break
-                    }
-                }
-                .keyboardShortcut("t", modifiers: .command)
-                .disabled(section != .terminal && section != .browser && section != .agentBook)
-            }
-            FilesCommands()
-            CommandGroup(replacing: .sidebar) {
-                Button("Toggle Full Screen") {
-                    NSApp.sendAction(#selector(NSWindow.toggleFullScreen(_:)), to: nil, from: nil)
-                }
-                .keyboardShortcut("f", modifiers: [.command, .control])
-            }
-            CommandMenu("Navigate") {
-                ForEach(AppView.Section.allCases, id: \.self) { destination in
-                    Button(destination.label) { section = destination }
-                }
-                Divider()
-                AgentBookTabMenu(store: agentBookStore, isActive: section == .agentBook)
-                Divider()
-                Button("Previous Page") { moveSection(by: -1) }
-                    .keyboardShortcut("h", modifiers: [.command, .shift])
-                Button("Next Page") { moveSection(by: 1) }
-                    .keyboardShortcut("l", modifiers: [.command, .shift])
-                FilesNavigationMenu(store: files)
-            }
+            AppCommands(section: $section, files: files, terminalStore: terminalStore,
+                        browserStore: browserStore, agentBookStore: agentBookStore)
         }
 
         Settings {
             SettingsView()
         }
         .modelContainer(workspaceContainer)
-    }
-
-    private func moveSection(by offset: Int) {
-        let sections = AppView.Section.allCases
-        guard let index = sections.firstIndex(of: section) else { return }
-        section = sections[(index + offset + sections.count) % sections.count]
     }
 }
 
@@ -115,8 +79,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = "whubを終了しますか？"
         alert.informativeText = "未保存の編集内容は失われ、実行中のコマンドは中断されます。"
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "キャンセル").keyEquivalent = "\r"
+        let cancelButton = alert.addButton(withTitle: "キャンセル")
         alert.addButton(withTitle: "終了").keyEquivalent = ""
+        alert.window.defaultButtonCell = cancelButton.cell as? NSButtonCell
+        cancelButton.keyEquivalent = "\u{1b}"
+        cancelButton.keyEquivalentModifierMask = []
         guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
         guard let remoteConnections else { return .terminateNow }
         isTerminating = true
