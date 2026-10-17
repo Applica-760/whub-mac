@@ -12,6 +12,29 @@ import WhubClient
 
 @Suite @MainActor
 struct EditorStoreTests {
+    @Test(arguments: ["\n", "\r\n", "\r", "\r\nwith mixed\n"], [false, true])
+    func fileEncodingPreservesLineEndingsAndBOM(ending: String, bom: Bool) {
+        let prefix = bom ? "\u{FEFF}" : ""
+        let original = prefix + "before" + ending
+        let source = "日本語\nnext\n"
+        let expected = prefix + (ending.contains("mixed") ? source : "日本語" + ending + "next" + ending)
+        let savedData = FileEncoding.encode(source, preserving: Data(original.utf8))
+        let savedText = FileEncoding.encode(source, preserving: original)
+        #expect(savedData == Data(expected.utf8))
+        #expect(savedData == Data(savedText.utf8))
+        #expect(FileEncoding.decode(savedData) == (bom ? String(expected.dropFirst()) : expected))
+        if bom {
+            #expect(FileEncoding.encode(prefix + source, preserving: original).utf8.elementsEqual(savedText.utf8))
+        }
+    }
+
+    @Test func fileEncodingAcceptsEmptyUTF8AndRejectsInvalidBytes() {
+        #expect(FileEncoding.decode(Data()) == "")
+        #expect(FileEncoding.decode(Data([0xff])) == nil)
+        #expect(FileEncoding.decode(Data([0xff, 0xfe, 0x61, 0x00])) == nil)
+        #expect(FileEncoding.encode("", preserving: Data("\u{FEFF}before".utf8)) == Data([0xef, 0xbb, 0xbf]))
+    }
+
     @Test func findBarPreservesUnsavedText() async throws {
         let file = FileStore(content: .text("saved"), isEditable: true)
         let source = "日本語 target 😀 target unsaved"

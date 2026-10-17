@@ -262,8 +262,6 @@ struct RemoteViewerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("リモート · \(location.path)")
-                .font(.caption).foregroundStyle(.secondary).padding(8)
             switch store.states[location] {
             case .loading:
                 ProgressView(store.file(for: location) == nil ? "本文を取得中…" : "本文を再取得中…（表示は前回取得分）")

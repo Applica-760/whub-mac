@@ -147,7 +147,7 @@ final class RemoteFileStore: ObservableObject {
             if request.connection?() != sessionID { refresh() }
         }
         let session = request.connection?()
-        let output = Self.output(source: source, original: savedText)
+        let output = FileEncoding.encode(source, preserving: savedText)
         pendingSave = (source, output)
         message = nil
         do {
@@ -183,24 +183,6 @@ final class RemoteFileStore: ObservableObject {
     private enum SaveError: LocalizedError {
         case unconfirmed
         var errorDescription: String? { "保存結果を確認できません。" }
-    }
-
-    private static func output(source: String, original: String) -> String {
-        var output = source
-        let withoutCRLF = original.replacingOccurrences(of: "\r\n", with: "")
-        let lineEnding: String? = if original.contains("\r\n") && !withoutCRLF.contains("\r") && !withoutCRLF.contains("\n") {
-            "\r\n"
-        } else if !original.contains("\n") && original.contains("\r") {
-            "\r"
-        } else if !original.contains("\r") {
-            "\n"
-        } else { nil }
-        if let lineEnding {
-            output = output.replacingOccurrences(of: "\r\n", with: "\n")
-                .replacingOccurrences(of: "\r", with: "\n").replacingOccurrences(of: "\n", with: lineEnding)
-        }
-        if original.hasPrefix("\u{FEFF}"), !output.hasPrefix("\u{FEFF}") { output = "\u{FEFF}" + output }
-        return output
     }
 
     func close() {
