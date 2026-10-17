@@ -7,6 +7,21 @@ struct CodexError: LocalizedError {
 
 @MainActor
 final class CodexClient {
+    struct LineBuffer {
+        private var buffer = Data()
+        private var searchStart = 0
+
+        mutating func append(_ chunk: Data, receive: (Data) throws -> Void) rethrows {
+            buffer.append(chunk)
+            while let newline = buffer[searchStart...].firstIndex(of: 10) {
+                if newline > buffer.startIndex { try receive(Data(buffer[..<newline])) }
+                buffer.removeSubrange(...newline)
+                searchStart = buffer.startIndex
+            }
+            searchStart = buffer.endIndex
+        }
+    }
+
     var onEvent: ((String, [String: Any], Any?) -> Void)?
     var onDisconnect: ((String) -> Void)?
     private var connecting: Task<Void, Error>?
@@ -52,19 +67,14 @@ final class CodexClient {
         readers = [
             Task { [weak self] in
                 do {
-                    var buffer = Data()
+                    var buffer = LineBuffer()
                     for await chunk in Self.chunks(stdout.fileHandleForReading) {
                         guard let self, self.generation == connection else { return }
-                        buffer.append(chunk)
-                        while let newline = buffer.firstIndex(of: 10) {
-                            let line = buffer[..<newline]
-                            if !line.isEmpty {
-                                guard let message = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
-                                    throw CodexError(message: "Codexから不正な応答を受信しました。")
-                                }
-                                self.receive(message)
+                        try buffer.append(chunk) { line in
+                            guard let message = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+                                throw CodexError(message: "Codexから不正な応答を受信しました。")
                             }
-                            buffer.removeSubrange(...newline)
+                            self.receive(message)
                         }
                     }
                     self?.connectionEnded(connection)

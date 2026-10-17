@@ -14,6 +14,48 @@ import WhubCore
 @testable import whub
 
 @Suite @MainActor
+struct CodexReceivingTests {
+    @Test func fragmentedJSONKeepsUnicodeEmptyLinesAndMultipleMessages() throws {
+        let messages: [[String: Any]] = [
+            ["id": 1, "text": String(repeating: "日本語👩‍💻", count: 2000)],
+            ["id": 2, "text": "second"],
+            ["id": 3, "text": "last"]
+        ]
+        var bytes = Data([10])
+        for message in messages {
+            bytes.append(try JSONSerialization.data(withJSONObject: message))
+            bytes.append(contentsOf: [10, 10])
+        }
+        for chunkSize in [1, 127, bytes.count] {
+            var buffer = CodexClient.LineBuffer()
+            var received: [[String: Any]] = []
+            for start in stride(from: 0, to: bytes.count, by: chunkSize) {
+                try buffer.append(Data(bytes[start..<min(start + chunkSize, bytes.count)])) {
+                    received.append(try #require(JSONSerialization.jsonObject(with: $0) as? [String: Any]))
+                }
+            }
+            #expect(received.count == messages.count)
+            for (actual, expected) in zip(received, messages) {
+                #expect(actual["id"] as? Int == expected["id"] as? Int)
+                #expect(actual["text"] as? String == expected["text"] as? String)
+            }
+        }
+    }
+
+    @Test func unterminatedLineWaitsAndMalformedJSONThrows() throws {
+        var buffer = CodexClient.LineBuffer()
+        var received: [Data] = []
+        buffer.append(Data("{\"id\":1}".utf8)) { received.append($0) }
+        #expect(received.isEmpty)
+        buffer.append(Data("\n".utf8)) { received.append($0) }
+        #expect(received == [Data("{\"id\":1}".utf8)])
+        #expect(throws: (any Error).self) {
+            try buffer.append(Data("invalid\n".utf8)) { _ = try JSONSerialization.jsonObject(with: $0) }
+        }
+    }
+}
+
+@Suite @MainActor
 struct CodexSteeringTests {
     private func makeStore(steer: @escaping ([String: Any]) async throws -> [String: Any]) throws -> (ModelContainer, CodexStore) {
         let container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
@@ -960,8 +1002,94 @@ private struct RetainedInputProbe: NSViewRepresentable {
     func updateNSView(_ view: NSTextView, context: Context) {}
 }
 
+@MainActor
+private final class CodexLayoutProbe: NSObject, NSLayoutManagerDelegate {
+    var laidOutContainers: [NSTextContainer] = []
+
+    func layoutManager(_ layoutManager: NSLayoutManager, shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
+                       lineFragmentUsedRect: UnsafeMutablePointer<NSRect>, baselineOffset: UnsafeMutablePointer<CGFloat>,
+                       in textContainer: NSTextContainer, forGlyphRange glyphRange: NSRange) -> Bool {
+        laidOutContainers.append(textContainer)
+        return false
+    }
+}
+
 @Suite @MainActor
 struct CodexReadingTests {
+    @Test func tailUpdateDoesNotLayOutUnchangedFrontPages() throws {
+        let book = CodexBookDocument()
+        let probe = CodexLayoutProbe()
+        book.manager.delegate = probe
+        var turns = (0..<8).map { index in
+            CodexTurn(prompt: "Question \(index)", items: [
+                CodexItem(id: "answer-\(index)", type: "agentMessage", phase: "final_answer",
+                          text: String(repeating: "Paragraph \(index).\n\n", count: 12), status: "completed")
+            ])
+        }
+        let viewport = CGSize(width: 800, height: 450)
+        let surface = CodexBookTextSurface(book: book)
+        surface.colorScheme = .light
+        surface.frame.size = viewport
+        book.update(turns)
+        surface.needsLayout = true
+        surface.layoutSubtreeIfNeeded()
+        try #require(book.ranges.count > 4)
+        let firstContainer = try #require(book.manager.textContainers.first)
+        probe.laidOutContainers.removeAll()
+        turns[7].items[0].text = "Updated final answer."
+        book.update(turns)
+        surface.needsLayout = true
+        surface.layoutSubtreeIfNeeded()
+        #expect(!probe.laidOutContainers.isEmpty)
+        #expect(!probe.laidOutContainers.contains { $0 === firstContainer })
+        let fresh = CodexBookDocument()
+        fresh.update(turns)
+        fresh.prepare(viewport: viewport, colorScheme: .light)
+        #expect(book.ranges == fresh.ranges)
+    }
+
+    @Test func incrementalPaginationMatchesFreshLayoutAcrossEditsAndResize() throws {
+        let book = CodexBookDocument()
+        var turns = (0..<8).map { index in
+            var turn = CodexTurn(prompt: "Question \(index)")
+            turn.items = [CodexItem(id: "answer-\(index)", type: "agentMessage", phase: "final_answer",
+                                   text: String(repeating: "Paragraph \(index). 日本語の本文。\n\n", count: 12), status: "completed")]
+            return turn
+        }
+        var viewport = CGSize(width: 800, height: 450)
+        var scheme = ColorScheme.light
+        book.update(turns)
+        book.prepare(viewport: viewport, colorScheme: scheme)
+        let originalRanges = book.ranges
+        try #require(originalRanges.count > 4)
+
+        for edit in 0..<6 {
+            switch edit {
+            case 0: turns[7].items[0].text = (turns[7].items[0].text ?? "") + "\n\nAppended answer.\n\n```swift\nlet value = 1\n```"
+            case 1: turns[4].items[0].text = "Shortened middle answer."
+            case 2: turns.removeLast(3)
+            case 3: turns.removeAll()
+            case 4:
+                turns = [CodexTurn(prompt: "New conversation")]
+                viewport = CGSize(width: 600, height: 320)
+            default: scheme = .dark
+            }
+            book.update(turns)
+            #expect(book.prepare(viewport: viewport, colorScheme: scheme))
+            let fresh = CodexBookDocument()
+            fresh.update(turns)
+            fresh.prepare(viewport: viewport, colorScheme: scheme)
+            #expect(book.storage.string == fresh.storage.string)
+            #expect(book.ranges == fresh.ranges)
+            #expect(book.codes.map(\.text) == fresh.codes.map(\.text))
+            #expect(book.headers.map(\.frame) == fresh.headers.map(\.frame))
+            #expect(NSMaxRange(try #require(book.ranges.last)) == book.storage.length)
+            #expect(book.manager.textContainers.count == book.ranges.count)
+            #expect(!book.prepare(viewport: viewport, colorScheme: scheme))
+            if edit == 0 { #expect(Array(book.ranges.prefix(3)) == Array(originalRanges.prefix(3))) }
+        }
+    }
+
     @Test func promptCollapseThresholdsCountCharactersAndExplicitLines() {
         #expect(CodexBookDocument.collapsedPrompt(String(repeating: "あ", count: 500)) == nil)
         #expect(CodexBookDocument.collapsedPrompt(String(repeating: "👩‍💻", count: 501)) == String(repeating: "👩‍💻", count: 500) + "…")
