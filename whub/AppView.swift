@@ -44,20 +44,13 @@ struct AppView: View {
         }
     }
 
-    @EnvironmentObject private var files: FilesStore
     @EnvironmentObject private var browser: BrowserStore
     @EnvironmentObject private var agentBook: AgentBookStore
     @Binding var section: Section
 
     var body: some View {
         NavigationSplitView {
-            ExplorerView(onFileSelect: {
-                section = .file
-            }, onOpenInBrowser: { url in
-                browser.open(url)
-                section = .browser
-            }, store: files.explorer)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 640)
+            ExplorerSidebar(onFileSelect: { section = .file }, onOpenInBrowser: openInBrowser)
         } detail: {
             RetainedPageContainer(selection: section) { page in
                 page.content(agentBook: agentBook)
@@ -73,6 +66,11 @@ struct AppView: View {
             FeatureToolbar(selection: $section)
             SettingsToolbar()
         }
+    }
+
+    private func openInBrowser(_ url: URL) {
+        browser.open(url)
+        section = .browser
     }
 }
 
