@@ -63,6 +63,7 @@ struct AppView: View {
         .toolbar {
             AgentBookToolbar { section = .agentBook }
             TimerToolbar()
+            RemoteConnectionToolbar()
             FeatureToolbar(selection: $section)
             SettingsToolbar()
         }
