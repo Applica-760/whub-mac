@@ -94,7 +94,7 @@ final class AgentBookStore: ObservableObject {
             resumeError = "作業や送信が終わってから会話を再開してください。"
             return false
         }
-        if let existing = resumedTab(for: entry, kind: source.store.agentKind) {
+        if let existing = openTab(for: entry, kind: source.store.agentKind) {
             return open(existing, replacing: sourceID)
         }
 
@@ -120,7 +120,9 @@ final class AgentBookStore: ObservableObject {
         pendingResume = nil
         pendingResumeSourceID = nil
         isResuming = false
-        return open(tab, replacing: sourceID)
+        let target = openTab(for: entry, kind: source.store.agentKind) ?? tab
+        if target.id != tab.id { tab.disconnect() }
+        return open(target, replacing: sourceID)
     }
 
     func disconnect() {
@@ -129,9 +131,8 @@ final class AgentBookStore: ObservableObject {
         for tab in tabs { tab.disconnect() }
     }
 
-    private func resumedTab(for entry: AgentHistoryEntry, kind: AgentKind) -> AgentBookTabStore? {
-        // shortcut: 通常送信で始まった会話のID通知をAgentStoreへ追加する際、重複判定の対象を広げる。
-        tabs.first { $0.store.agentKind == kind && $0.store.historyEntry?.id == entry.id }
+    private func openTab(for entry: AgentHistoryEntry, kind: AgentKind) -> AgentBookTabStore? {
+        tabs.first { $0.store.agentKind == kind && $0.store.conversationID == entry.id }
     }
 
     private func open(_ tab: AgentBookTabStore, replacing sourceID: AgentBookTabStore.ID) -> Bool {

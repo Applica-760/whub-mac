@@ -7,6 +7,8 @@ enum AgentKind {
 }
 
 enum AgentEvent {
+    // 接続側が会話を識別できた時点で、実行状態とは独立して通知する。
+    case conversationIDChanged(String)
     case modelOptionChanged(AgentModelOption)
     // 同じIDのOutputは、差分ではなく最新の内容全体を渡す。
     case output(AgentOutput)
@@ -40,6 +42,7 @@ final class AgentStore: ObservableObject, Identifiable {
     let id = UUID()
     @Published var draft: [AgentInput] = []
     @Published private(set) var exchanges: [AgentExchange] = []
+    @Published private(set) var conversationID: String?
     @Published private(set) var historyEntry: AgentHistoryEntry?
     @Published private(set) var isResuming = false
     @Published private(set) var modelOptions: [AgentModelOption] = []
@@ -141,6 +144,7 @@ final class AgentStore: ObservableObject, Identifiable {
                 disconnect()
                 return false
             }
+            conversationID = snapshot.entry.id
             historyEntry = snapshot.entry
             exchanges = snapshot.exchanges
             selectedModelOption = snapshot.selectedModelOption
@@ -325,6 +329,11 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     private func handle(_ event: AgentEvent) {
+        if case .conversationIDChanged(let id) = event {
+            guard !isClosed, !isResuming, !id.isEmpty else { return }
+            conversationID = id
+            return
+        }
         if case .modelOptionChanged(let option) = event {
             guard !isResuming else { return }
             selectedModelOption = option
@@ -332,7 +341,7 @@ final class AgentStore: ObservableObject, Identifiable {
         }
         guard isBusy, let exchangeIndex = activeExchangeIndex else { return }
         switch event {
-        case .modelOptionChanged:
+        case .conversationIDChanged, .modelOptionChanged:
             break
         case .output(let output):
             if case .request(let request) = output, request.outcome != nil {
