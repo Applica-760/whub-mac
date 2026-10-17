@@ -83,9 +83,20 @@ struct AppView: View {
 
             ToolbarSpacer(.fixed, placement: .primaryAction)
 
-            ToolbarItemGroup(placement: .primaryAction) {
+            ToolbarItem(placement: .primaryAction) {
                 TimerToolbarView()
+            }
 
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+
+            ToolbarItem(placement: .primaryAction) {
+                RemoteConnectionToolbarView()
+            }
+            .sharedBackgroundVisibility(.hidden)
+
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+
+            ToolbarItemGroup(placement: .primaryAction) {
                 Picker("ページ", selection: $section) {
                     ForEach(Section.allCases, id: \.self) { section in
                         Label(section.label, systemImage: section.systemImage)

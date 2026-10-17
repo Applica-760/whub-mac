@@ -18,7 +18,7 @@ struct ExplorerMenuViewTests {
             attempts += 1
             throw ConnectionFailure()
         })
-        let menu = ExplorerMenuView.HostMenu(connections: connections)
+        let menu = RemoteConnectionToolbarView.HostMenu(connections: connections)
         #expect(menu.hosts(from: [local, host]).map(\.persistentModelID) == [host.persistentModelID])
         #expect(menu.title(for: host) == "serverを接続")
         await menu.perform(for: host)
@@ -34,7 +34,7 @@ struct ExplorerMenuViewTests {
             try await Task.sleep(for: .seconds(30))
             throw ConnectionFailure()
         })
-        let menu = ExplorerMenuView.HostMenu(connections: connections)
+        let menu = RemoteConnectionToolbarView.HostMenu(connections: connections)
         let connecting = Task { await menu.perform(for: host) }
         defer { connecting.cancel() }
         let deadline = ContinuousClock.now + .seconds(3)
