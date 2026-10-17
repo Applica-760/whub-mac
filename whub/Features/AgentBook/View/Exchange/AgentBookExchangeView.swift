@@ -47,8 +47,10 @@ struct AgentBookExchangeView: View {
                             .offset(x: pageX(control.page) + control.frame.minX, y: control.frame.minY)
                         }
                         ForEach(book.headers.filter { visiblePages.contains($0.page) }) { header in
-                            if let exchange = store.exchanges.first(where: { $0.id == header.id }) {
-                                AgentBookExchangeHeader(exchange: exchange, agentName: agentName, isActive: canInteract)
+                            if let exchange = book.exchange(header.id) {
+                                AgentBookExchangeHeader(exchange: exchange, agentName: agentName, isActive: canInteract,
+                                    isHistoryExpanded: book.isHistoryExpanded(header.id),
+                                    toggleHistory: { book.toggleHistory(header.id) })
                                     .frame(width: header.frame.width, height: header.frame.height)
                                     .offset(x: pageX(header.page) + header.frame.minX, y: header.frame.minY)
                             }
@@ -110,7 +112,8 @@ private struct AgentBookExchangeHeader: View {
     let exchange: AgentExchange
     let agentName: String
     let isActive: Bool
-    @State private var showsHistory = false
+    let isHistoryExpanded: Bool
+    let toggleHistory: () -> Void
 
     var body: some View {
         HStack {
@@ -122,33 +125,15 @@ private struct AgentBookExchangeHeader: View {
                 }
             }
             .frame(width: 16, height: 16)
-            Button("作業履歴", systemImage: "terminal") { showsHistory.toggle() }
+            Button("作業履歴", systemImage: isHistoryExpanded ? "chevron.down" : "chevron.right", action: toggleHistory)
                 .font(.caption).buttonStyle(.plain)
-                .popover(isPresented: $showsHistory) { history }
+                .disabled(!isActive || exchange.history.isEmpty)
             Button("回答をコピー", systemImage: "doc.on.doc") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(exchange.answers.map(\.agentBookMarkdown).joined(separator: "\n\n"), forType: .string)
             }
             .labelStyle(.iconOnly).buttonStyle(.plain)
         }
-        .onChange(of: isActive) { _, active in
-            if !active { showsHistory = false }
-        }
-    }
-
-    private var history: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("作業履歴").font(.headline)
-                if !exchange.history.isEmpty {
-                    Text(exchange.input.agentBookPrompt).font(.callout.weight(.semibold)).lineLimit(2)
-                    ForEach(exchange.history) { output in
-                        AgentBookOutputView(output: output)
-                    }
-                }
-            }.padding(20)
-        }
-        .frame(width: 480, height: 440)
     }
 }
 
@@ -191,11 +176,15 @@ private final class AgentBookDocument: ObservableObject {
         let agentName: String
         let prompt: String
         let images: [UUID]
+        let history: [String]
         let answers: [AgentContent]
+        let status: AgentExecutionStatus
         var isPromptExpanded: Bool
+        var isHistoryExpanded: Bool
     }
 
     private var expandedPrompts = Set<UUID>()
+    private var expandedHistories = Set<UUID>()
     private var pendingPromptID: UUID?
     private var exchanges: [AgentExchange] = []
     private var agentName = ""
@@ -215,14 +204,29 @@ private final class AgentBookDocument: ObservableObject {
     init() { storage.addLayoutManager(manager) }
 
     func update(_ exchanges: [AgentExchange], agentName: String) {
+        let exchanges = exchanges.flatMap { exchange in
+            let messages = [(exchange.id, exchange.input, 0)]
+                + exchange.additionalInputs.map { ($0.id, $0.input, $0.outputIndex) }
+            return messages.enumerated().map { index, message in
+                let end = index + 1 < messages.count ? messages[index + 1].2 : exchange.outputs.count
+                var section = AgentExchange(id: message.0, input: message.1)
+                section.outputs = Array(exchange.outputs[message.2..<end])
+                section.status = index + 1 == messages.count ? exchange.status : .completed
+                return section
+            }
+        }
         expandedPrompts.formIntersection(exchanges.map(\.id))
+        expandedHistories.formIntersection(exchanges.map(\.id))
         let next = exchanges.map {
             Input(id: $0.id, agentName: agentName, prompt: $0.input.agentBookPrompt, images: $0.input.agentBookImages.map(\.id),
-                  answers: $0.answers.flatMap(\.agentBookContent), isPromptExpanded: expandedPrompts.contains($0.id))
+                  history: $0.history.map { output in
+                      output.agentBookTitle + (output.agentBookStatus == .failed ? "（失敗）" : "") + "\n" + output.agentBookText
+                  }, answers: $0.answers.flatMap(\.agentBookContent), status: $0.status,
+                  isPromptExpanded: expandedPrompts.contains($0.id), isHistoryExpanded: expandedHistories.contains($0.id))
         }
+        self.exchanges = exchanges
         guard inputs != next else { return }
         self.agentName = agentName
-        self.exchanges = exchanges
         inputs = next
         revision += 1
     }
@@ -235,6 +239,17 @@ private final class AgentBookDocument: ObservableObject {
     }
 
     func isPromptExpanded(_ id: UUID) -> Bool { expandedPrompts.contains(id) }
+
+    func exchange(_ id: UUID) -> AgentExchange? { exchanges.first { $0.id == id } }
+
+    func isHistoryExpanded(_ id: UUID) -> Bool { expandedHistories.contains(id) }
+
+    func toggleHistory(_ id: UUID) {
+        guard let index = inputs.firstIndex(where: { $0.id == id }), !inputs[index].history.isEmpty else { return }
+        if !expandedHistories.insert(id).inserted { expandedHistories.remove(id) }
+        inputs[index].isHistoryExpanded = expandedHistories.contains(id)
+        revision += 1
+    }
 
     func togglePrompt(_ id: UUID) {
         guard let index = inputs.firstIndex(where: { $0.id == id }), Self.collapsedPrompt(inputs[index].prompt) != nil else { return }
@@ -430,6 +445,14 @@ private final class AgentBookDocument: ObservableObject {
             .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.clear,
             .paragraphStyle: headerStyle, .agentBookHeaderExchangeID: turn.id
         ]))
+        if input.isHistoryExpanded {
+            for history in input.history {
+                output.append(NSAttributedString(string: history + "\n", attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: paragraph
+                ]))
+            }
+        }
         for (answerIndex, source) in input.answers.enumerated() {
             let document = AgentBookRenderedContent(content: source, width: content.width, colorScheme: colorScheme)
             let text = NSMutableAttributedString(attributedString: document.text)

@@ -195,6 +195,7 @@ final class AgentStore: ObservableObject, Identifiable {
         let submittedInput = normalizedInput(input)
         guard !submittedInput.isEmpty else { return false }
         let exchangeID = exchanges[index].id
+        let outputIndex = exchanges[index].outputs.count
         isSendingAdditionalInput = true
         errorMessage = nil
         defer { isSendingAdditionalInput = false }
@@ -202,7 +203,7 @@ final class AgentStore: ObservableObject, Identifiable {
         do {
             try await session.sendAdditionalInput(submittedInput)
             guard !isClosed, let index = exchanges.firstIndex(where: { $0.id == exchangeID }) else { return false }
-            exchanges[index].input.append(contentsOf: submittedInput)
+            exchanges[index].additionalInputs.append(AgentAdditionalInput(input: submittedInput, outputIndex: outputIndex))
             return true
         } catch {
             guard isActiveExchange(exchangeID) else { return false }

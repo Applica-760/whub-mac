@@ -151,21 +151,30 @@ enum CodexAgentMapping {
                 throw CodexError(message: "履歴が不完全か、会話が実行中です。")
             }
             var input: [AgentInput] = []
-            for item in items where item["type"] as? String == "userMessage" {
-                guard let contents = item["content"] as? [[String: Any]] else {
-                    throw CodexError(message: "会話の入力履歴が不正です。")
-                }
-                input += try contents.map { try historyInput($0) }
-            }
+            var additionalInputs: [AgentAdditionalInput] = []
+            var hasInput = false
             var turn = CodexTurn(remoteID: id, prompt: "")
             for item in items {
                 guard item["id"] is String, item["type"] is String else {
                     throw CodexError(message: "会話履歴の項目が不正です。")
                 }
+                if item["type"] as? String == "userMessage" {
+                    guard let contents = item["content"] as? [[String: Any]] else {
+                        throw CodexError(message: "会話の入力履歴が不正です。")
+                    }
+                    let message = try contents.map { try historyInput($0) }
+                    if hasInput {
+                        additionalInputs.append(AgentAdditionalInput(input: message, outputIndex: turn.items.count))
+                    } else {
+                        input = message
+                        hasInput = true
+                    }
+                }
                 turn.updateItem(item, completed: true)
             }
             turn.inferFinalAnswerIfNeeded()
             var exchange = AgentExchange(input: input)
+            exchange.additionalInputs = additionalInputs
             exchange.outputs = turn.items.map { output($0) }
             exchange.status = status(execution)
             return exchange
