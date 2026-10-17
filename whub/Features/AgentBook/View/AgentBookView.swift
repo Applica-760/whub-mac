@@ -2,8 +2,12 @@ import AppKit
 import Combine
 import SwiftUI
 
-struct AgentBookView<Tabs: View, OptionControls: View>: View {
+struct AgentBookView<OptionControls: View>: View {
     @ObservedObject var store: AgentStore
+    let sessions: [AgentStore]
+    let completedSessionIDs: Set<AgentStore.ID>
+    let notificationDates: [AgentStore.ID: Date]
+    let select: (AgentStore.ID) -> Void
     let agentName: String
     let featureActivity: RetainedPageActivity?
     let skillStore: AgentSkillStore
@@ -12,7 +16,6 @@ struct AgentBookView<Tabs: View, OptionControls: View>: View {
     let resume: (AgentHistoryEntry) async -> Bool
     var isResuming = false
     var resumeError: String? = nil
-    @ViewBuilder let tabs: () -> Tabs
     @ViewBuilder let optionControls: () -> OptionControls
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
@@ -50,7 +53,11 @@ struct AgentBookView<Tabs: View, OptionControls: View>: View {
                     .padding(.horizontal, 232)
                 }
                 .overlay(alignment: .bottomLeading) {
-                    tabs()
+                    AgentBookTabButton(
+                        sessions: sessions, selection: store.id,
+                        completedSessionIDs: completedSessionIDs,
+                        notificationDates: notificationDates, select: select
+                    )
                         .frame(width: 232, height: 36)
                         .padding(.leading, 16)
                         .padding(.bottom, 16)
