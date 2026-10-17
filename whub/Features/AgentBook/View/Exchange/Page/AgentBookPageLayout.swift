@@ -293,10 +293,16 @@ final class AgentBookPageLayout: ObservableObject {
             bubble.setWidth(12, type: .absoluteValueType, for: .padding)
             let style = paragraph.mutableCopy() as! NSMutableParagraphStyle
             style.textBlocks = [bubble]
+            style.paragraphSpacing = 0
             let prompt = input.isPromptExpanded ? input.prompt : collapsed ?? input.prompt
-            output.append(NSAttributedString(string: prompt + "\n", attributes: [
+            let text = NSMutableAttributedString(string: prompt + "\n", attributes: [
                 .font: NSFont.systemFont(ofSize: 15), .foregroundColor: NSColor.labelColor, .paragraphStyle: style
-            ]))
+            ])
+            let lastParagraph = (text.string as NSString).paragraphRange(for: NSRange(location: text.length - 1, length: 0))
+            let lastStyle = style.mutableCopy() as! NSMutableParagraphStyle
+            lastStyle.paragraphSpacing = paragraph.paragraphSpacing
+            text.addAttribute(.paragraphStyle, value: lastStyle, range: lastParagraph)
+            output.append(text)
         }
         for image in turn.input.agentBookImages {
             let attachment = NSTextAttachment()
