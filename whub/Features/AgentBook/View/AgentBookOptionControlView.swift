@@ -4,6 +4,7 @@ struct AgentBookOptionControlView: View {
     static let inputInset: CGFloat = 270
 
     @ObservedObject var store: AgentStore
+    let canChangeKind: Bool
     let changeKind: (AgentKind) -> Void
     @Environment(\.isRetainedPageActive) private var isActive
 
@@ -27,12 +28,12 @@ struct AgentBookOptionControlView: View {
         HStack(spacing: 6) {
             Menu {
                 Button {
-                    if canChange && store.agentKind != .codex { changeKind(.codex) }
+                    if isActive && canChangeKind && store.agentKind != .codex { changeKind(.codex) }
                 } label: {
                     Label("Codex", image: "AgentCodex")
                 }
                 Button {
-                    if canChange && store.agentKind != .claudeCode { changeKind(.claudeCode) }
+                    if isActive && canChangeKind && store.agentKind != .claudeCode { changeKind(.claudeCode) }
                 } label: {
                     Label("Claude Code", image: "AgentClaudeCode")
                 }
@@ -48,7 +49,7 @@ struct AgentBookOptionControlView: View {
             .menuIndicator(.hidden)
             .frame(width: 32, height: 32)
             .glassEffect(.regular, in: .circle)
-            .disabled(!canChange)
+            .disabled(!isActive || !canChangeKind)
             .accessibilityLabel("接続先を選択")
             .help(store.agentKind == .codex ? "Codex" : "Claude Code")
 
