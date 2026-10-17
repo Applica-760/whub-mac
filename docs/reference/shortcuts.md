@@ -30,7 +30,7 @@ TerminalとBrowserは最後の1タブを閉じられない。Terminalでコマ�
 
 File・Terminal・Browserのタブは同じ列内でドラッグして並べ替えられる。左右端では自動スクロールする。選択は維持し、Fileのプレビュータブは並べ替え確定時に通常タブへ昇格する。順序は起動中のみ保持する。タブの中クリックでも閉じられる。
 
-実装：[whubApp.swift](../../whub/whubApp.swift)、[TabBarContainer.swift](../../whub/Components/TabBarContainer.swift)、[EditorTabBarView.swift](../../whub/Features/Files/View/Editor/EditorTabBarView.swift)、[TerminalView.swift](../../whub/Features/Terminal/TerminalView.swift)、[BrowserView.swift](../../whub/Features/Browser/BrowserView.swift)、[CodexView.swift](../../whub/Features/Codex/View/CodexView.swift)
+実装：[whubApp.swift](../../whub/whubApp.swift)、[TabBarContainer.swift](../../whub/Components/TabBarContainer.swift)、[EditorTabBarView.swift](../../whub/Features/Files/View/Editor/EditorTabBarView.swift)、[TerminalView.swift](../../whub/Features/Terminal/TerminalView.swift)、[BrowserView.swift](../../whub/Features/Browser/BrowserView.swift)、[AgentBookView.swift](../../whub/Features/AgentBook/View/AgentBookView.swift)、[AgentBookTabButton.swift](../../whub/Features/AgentBook/View/Controls/AgentBookTabButton.swift)
 
 ## AgentBookの入力・承認
 
@@ -44,7 +44,7 @@ File・Terminal・Browserのタブは同じ列内でドラッグして並べ替�
 
 通常のEnterは改行する。入力欄の `/` でコマンド、`$` でスキルの候補を表示する。承認キーは修飾キーなしで使用し、日本語変換中は作用しない。
 
-実装：[CodexInputView.swift](../../whub/Features/Codex/View/Commands/CodexInputView.swift)、[CodexBookFocus.swift](../../whub/Features/Codex/View/Layout/CodexBookFocus.swift)
+実装：[AgentBookInputView.swift](../../whub/Features/AgentBook/View/Controls/AgentBookInputView.swift)、[AgentBookResponseView.swift](../../whub/Features/AgentBook/View/Exchange/AgentBookResponseView.swift)
 
 ## AgentBookの本文
 
@@ -59,7 +59,7 @@ File・Terminal・Browserのタブは同じ列内でドラッグして並べ替�
 
 H・L・Space・Escは修飾キーなしで使用する。先頭・末尾では循環しない。入力欄では通常の文字入力・カーソル移動として扱い、入力欄内の/は既存のコマンド補完に使う。日本語変換中・ダイアログ表示中は本文操作を行わない。Enter/Escによる既存の承認操作は変更しない。
 
-実装：[CodexBookFocus.swift](../../whub/Features/Codex/View/Layout/CodexBookFocus.swift)、[CodexBookTextView.swift](../../whub/Features/Codex/View/Layout/CodexBookTextView.swift)
+実装：[AgentBookExchangeView.swift](../../whub/Features/AgentBook/View/Exchange/AgentBookExchangeView.swift)、[AgentBookInputView.swift](../../whub/Features/AgentBook/View/Controls/AgentBookInputView.swift)、[AgentBookTextView.swift](../../whub/Features/AgentBook/View/Exchange/Page/AgentBookTextView.swift)
 
 ## ファイル編集
 

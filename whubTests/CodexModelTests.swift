@@ -1,308 +1,213 @@
 import AppKit
 import Foundation
-import SwiftData
 import Testing
-import WhubCore
 @testable import whub
 
 @Suite @MainActor
-struct CodexModelTests {
+struct CodexAgentModelTests {
     private func model(_ name: String = "new-model") -> [String: Any] {
-        ["id": name, "model": name, "displayName": name, "defaultReasoningEffort": "medium",
-         "supportedReasoningEfforts": [["reasoningEffort": "medium"], ["reasoningEffort": "high"]]]
+        ["id": "catalog-" + name, "model": name, "displayName": "Friendly " + name,
+         "description": "Model description", "defaultReasoningEffort": "medium",
+         "supportedReasoningEfforts": [["reasoningEffort": "medium"],
+                                       ["reasoningEffort": "high", "description": "More reasoning"]]]
     }
 
-    private func container() throws -> ModelContainer {
-        try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
-                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    private func session(_ request: @escaping (String, [String: Any], String) async throws -> [String: Any]) async throws -> CodexAgentSession {
+        let session = CodexAgentSession(request: request)
+        try await session.connect(directory: FileManager.default.currentDirectoryPath)
+        return session
     }
 
-    private func thread() -> [String: Any] {
-        ["thread": ["id": "thread-1", "turns": [[String: Any]]()], "cwd": "/project",
-         "model": "old-model", "reasoningEffort": "medium"]
-    }
-
-    @Test func onlyWholeModelCommandOpensPicker() {
-        #expect(CodexInputView.isModelInput(" /model \n"))
-        #expect(!CodexInputView.isModelInput("/model explain"))
-        #expect(!CodexInputView.isModelInput("explain /model"))
-    }
-
-    @Test func validatesCatalogAndPreservesServerIdentifiers() throws {
+    @Test func catalogUsesCommonOptionsAndPreservesBothIdentifiers() throws {
         var entry = model()
-        entry["displayName"] = "Friendly name"
         entry["inputModalities"] = ["text"]
-        let parsed = try CodexModel(entry)
+        let parsed = try CodexAgentModel(entry)
+        #expect(parsed.id == "catalog-new-model")
         #expect(!parsed.supportsImages)
-        #expect(parsed.parameters(threadID: "t", effort: "high")["model"] as? String == "new-model")
-        #expect(try CodexModel(model()).supportsImages)
-        entry["defaultReasoningEffort"] = "unsupported"
-        #expect(throws: CodexError.self) { try CodexModel(entry) }
-        #expect(throws: CodexError.self) { try CodexModel([:]) }
+        #expect(parsed.options.map(\.modelID) == ["new-model", "new-model"])
+        #expect(parsed.options.map(\.description) == ["Model description", "More reasoning"])
+        #expect(parsed.options.map(\.isDefaultEffort) == [true, false])
+        #expect(parsed.options[1].id == CodexAgentJSON.pretty(["catalog-new-model", "high"]))
+        #expect(try CodexAgentModel(model()).supportsImages)
     }
 
-    @Test func loadsPagesFiltersHiddenAndDeduplicates() async {
-        var calls = 0
-        let commands = CodexCommandsStore { method, params, _ in
+    @Test func emptyEffortListUsesDefaultAndMalformedCatalogIsRejected() throws {
+        var entry = model()
+        entry["supportedReasoningEfforts"] = [[String: Any]]()
+        #expect(try CodexAgentModel(entry).options.map(\.effort) == ["medium"])
+        #expect(throws: CodexAgentError.self) { try CodexAgentModel([:]) }
+        for efforts in [[ ["reasoningEffort": "high"] ],
+                        [["reasoningEffort": "medium"], ["reasoningEffort": "medium"]],
+                        [["reasoningEffort": ""]]] {
+            entry["supportedReasoningEfforts"] = efforts
+            #expect(throws: CodexAgentError.self) { try CodexAgentModel(entry) }
+        }
+    }
+
+    @Test func loadsPagesFiltersHiddenAndDeduplicatesWithoutStartingThread() async throws {
+        var calls: [String] = []
+        let session = try await session { method, params, directory in
+            calls.append(method)
+            #expect(directory == FileManager.default.currentDirectoryPath)
+            if method == "config/read" { return ["config": ["model": "b", "model_reasoning_effort": "high"]] }
             #expect(method == "model/list")
             #expect(params["includeHidden"] as? Bool == false)
-            calls += 1
-            if calls == 1 { return ["data": [model("a")], "nextCursor": "next"] }
+            if params["cursor"] == nil { return ["data": [model("a")], "nextCursor": "next"] }
             #expect(params["cursor"] as? String == "next")
             var hidden = model("hidden")
             hidden["hidden"] = true
             return ["data": [model("a"), hidden, model("b")]]
         }
-        await commands.loadModels(directory: "/project")
-        #expect(commands.models.map(\.id) == ["a", "b"])
-        #expect(commands.modelError == nil)
-        #expect(!commands.isLoadingModels)
-    }
-
-    @Test func repeatedCursorFailsWithoutPartialCatalog() async {
-        let commands = CodexCommandsStore { _, _, _ in ["data": [model()], "nextCursor": "same"] }
-        await commands.loadModels(directory: "/project")
-        #expect(commands.models.isEmpty)
-        #expect(commands.modelError != nil)
-        #expect(!commands.isLoadingModels)
-    }
-
-    @Test func modelControlsReadConfiguredSelectionWithoutCreatingThread() async {
-        var calls: [String] = []
-        let commands = CodexCommandsStore { method, params, directory in
-            calls.append(method)
-            #expect(directory == "/project")
-            if method == "model/list" { return ["data": [model()]] }
-            #expect(method == "config/read")
-            #expect(params["cwd"] as? String == "/project")
-            return ["config": ["model": "new-model", "model_reasoning_effort": "high"]]
+        defer { session.disconnect() }
+        var events = session.events.makeAsyncIterator()
+        let options = try await session.loadModelOptions()
+        #expect(options.map(\.modelID) == ["a", "a", "b", "b"])
+        guard case .modelOptionChanged(let selection)? = await events.next() else {
+            Issue.record("Configured selection was not published"); return
         }
-        await commands.loadModelControls(directory: "/project")
-        #expect(calls == ["model/list", "config/read"])
-        #expect(commands.configuredModel == "new-model")
-        #expect(commands.configuredEffort == "high")
-        #expect(commands.modelError == nil)
+        #expect(selection.modelID == "b" && selection.effort == "high")
+        #expect(calls == ["model/list", "model/list", "config/read"])
     }
 
-    @Test func modelControlsUseServerDefaultsWhenConfigOmitsSelection() async {
-        let commands = CodexCommandsStore { method, _, _ in
+    @Test func repeatedCursorFailsWithoutReturningPartialCatalog() async throws {
+        let session = try await session { _, _, _ in ["data": [model()], "nextCursor": "same"] }
+        defer { session.disconnect() }
+        await #expect(throws: CodexAgentError.self) { try await session.loadModelOptions() }
+    }
+
+    @Test func configuredSelectionFallsBackToServerDefaults() async throws {
+        let session = try await session { method, _, _ in
             if method == "config/read" { return ["config": [:]] }
             var entry = model()
             entry["isDefault"] = true
             return ["data": [model("other"), entry]]
         }
-        await commands.loadModelControls(directory: "/project")
-        #expect(commands.configuredModel == "new-model")
-        #expect(commands.configuredEffort == "medium")
-        commands.invalidate()
-        #expect(commands.configuredModel == nil)
-        #expect(commands.configuredEffort == nil)
-    }
-
-    @Test func invalidatedConfigReadCannotRestoreOldSelection() async {
-        var continuation: CheckedContinuation<[String: Any], Never>?
-        let commands = CodexCommandsStore { method, _, _ in
-            if method == "model/list" { return ["data": [model()]] }
-            return await withCheckedContinuation { continuation = $0 }
+        defer { session.disconnect() }
+        var events = session.events.makeAsyncIterator()
+        _ = try await session.loadModelOptions()
+        guard case .modelOptionChanged(let option)? = await events.next() else {
+            Issue.record("Default selection missing"); return
         }
-        let task = Task { await commands.loadModelControls(directory: "/project") }
-        while continuation == nil { await Task.yield() }
-        commands.invalidate()
-        continuation?.resume(returning: ["config": ["model": "new-model"]])
-        await task.value
-        #expect(commands.configuredModel == nil)
-        #expect(commands.configuredEffort == nil)
+        #expect(option.modelID == "new-model" && option.effort == "medium")
     }
 
-    @Test func invalidatedLoadCannotRestoreStaleChoices() async {
-        var continuation: CheckedContinuation<[String: Any], Never>?
-        let commands = CodexCommandsStore { _, _, _ in
-            await withCheckedContinuation { continuation = $0 }
-        }
-        let task = Task { await commands.loadModels(directory: "/project") }
-        while continuation == nil { await Task.yield() }
-        commands.invalidate()
-        continuation?.resume(returning: ["data": [model()]])
-        await task.value
-        #expect(commands.models.isEmpty)
-        #expect(!commands.isLoadingModels)
-    }
-
-    @Test func updatesExistingThreadWithoutStartingInferenceOrWritingDefaults() async throws {
-        let context = try container()
+    @Test func selectedOptionIsResolvedFromCatalogBeforeRPC() async throws {
         var calls: [String] = []
-        let session = CodexStore(context: context.mainContext) { method, params, _ in
+        var applied: [String: Any] = [:]
+        let session = try await session { method, params, _ in
             calls.append(method)
-            #expect(params["threadId"] as? String == "thread-1")
-            #expect(params["model"] as? String == "new-model")
-            #expect(params["effort"] as? String == "high")
-            return [:]
-        }
-        try session.restoreHistory(thread(), expectedID: "thread-1")
-        try await session.changeModel(CodexModel(model()), effort: "high")
-        #expect(calls == ["thread/settings/update"])
-        #expect(session.model == "new-model")
-        #expect(session.settings["effort"] as? String == "high")
-        #expect(!session.isChangingModel)
-    }
-
-    @Test func failedUpdateRetainsCurrentSettingsAndDraft() async throws {
-        let context = try container()
-        let session = CodexStore(context: context.mainContext) { _, _, _ in throw CodexError(message: "unsupported") }
-        try session.restoreHistory(thread(), expectedID: "thread-1")
-        session.draft = "/model"
-        #expect(await session.commands.applyModel(try CodexModel(model()), effort: "high", session: session) == false)
-        #expect(session.model == "old-model")
-        #expect(session.settings["effort"] as? String == "medium")
-        #expect(session.commands.modelError == "unsupported")
-        #expect(session.draft == "/model")
-        #expect(session.turns.isEmpty)
-    }
-
-    @Test func modelControlPreservesSupportedEffortAndFallsBackToModelDefault() async throws {
-        let context = try container()
-        var appliedEfforts: [String] = []
-        let session = CodexStore(context: context.mainContext) { method, params, _ in
-            #expect(method == "thread/settings/update")
-            appliedEfforts.append(params["effort"] as? String ?? "")
-            return [:]
-        }
-        try session.restoreHistory(thread(), expectedID: "thread-1")
-        session.draft = "unfinished prompt"
-        #expect(await session.commands.selectModel(try CodexModel(model()), session: session))
-        #expect(session.settings["effort"] as? String == "medium")
-        var entry = model("another-model")
-        entry["defaultReasoningEffort"] = "high"
-        entry["supportedReasoningEfforts"] = [["reasoningEffort": "high"]]
-        #expect(await session.commands.selectModel(try CodexModel(entry), session: session))
-        #expect(appliedEfforts == ["medium", "high"])
-        #expect(session.model == "another-model")
-        #expect(session.draft == "unfinished prompt")
-    }
-
-    @Test func reconnectRestoresSelectionAndNewConversationClearsIt() async throws {
-        let context = try container()
-        var calls: [String] = []
-        let session = CodexStore(context: context.mainContext) { method, params, _ in
-            calls.append(method)
-            if method == "thread/resume" {
-                #expect(params["model"] as? String == "old-model")
-                #expect((params["config"] as? [String: String])?["model_reasoning_effort"] == "medium")
-                return thread()
+            switch method {
+            case "model/list": return ["data": [model()]]
+            case "config/read": return ["config": ["model": "new-model"]]
+            case "thread/start": return ["thread": ["id": "thread-1"]]
+            case "thread/settings/update": applied = params; return [:]
+            default: throw CodexAgentError(message: method)
             }
-            return [:]
         }
-        try session.restoreHistory(thread(), expectedID: "thread-1")
-        session.disconnect()
-        try await session.changeModel(CodexModel(model()), effort: "high")
-        #expect(calls == ["thread/resume", "thread/settings/update"])
-        session.reset()
-        #expect(session.threadID == nil)
-        #expect(session.settings.isEmpty)
-        #expect(session.model == "Codexの既存設定")
+        defer { session.disconnect() }
+        let options = try await session.loadModelOptions()
+        let forged = AgentModelOption(id: options[1].id, modelID: "forged", displayName: "forged",
+                                      description: "", effort: "forged", isDefaultEffort: false)
+        try await session.changeModel(forged)
+        #expect(calls == ["model/list", "config/read", "thread/start", "thread/settings/update"])
+        #expect(applied["threadId"] as? String == "thread-1")
+        #expect(applied["model"] as? String == "new-model")
+        #expect(applied["effort"] as? String == "high")
+        let missing = AgentModelOption(id: "missing", modelID: "new-model", displayName: "", description: "",
+                                      effort: "high", isDefaultEffort: false)
+        await #expect(throws: CodexAgentError.self) { try await session.changeModel(missing) }
+        #expect(calls.count == 4)
     }
 
-    @Test func notificationsUpdateIdleSessionAndIgnoreOtherThreads() throws {
-        let context = try container()
-        let session = CodexStore(context: context.mainContext)
-        try session.restoreHistory(thread(), expectedID: "thread-1")
-        session.receive("thread/settings/updated", params: ["threadId": "other", "threadSettings": ["model": "wrong"]], requestID: nil)
-        #expect(session.model == "old-model")
-        session.receive("thread/settings/updated", params: ["threadId": "thread-1", "threadSettings": ["model": "server-model", "effort": "high"]], requestID: nil)
-        #expect(session.model == "server-model")
-        session.receive("thread/tokenUsage/updated", params: ["threadId": "thread-1", "tokenUsage": ["modelContextWindow": 1000]], requestID: nil)
-        #expect(session.tokenUsage?["modelContextWindow"] as? Int == 1000)
-    }
-
-    @Test func firstSelectionCreatesThreadAndPreventsConcurrentChanges() async throws {
-        let context = try container()
-        var continuation: CheckedContinuation<[String: Any], Never>?
+    @Test func changingModelOnResumedConversationDoesNotStartInference() async throws {
         var calls: [String] = []
-        let session = CodexStore(context: context.mainContext) { method, _, _ in
+        let session = try await session { method, _, _ in
             calls.append(method)
-            if method == "thread/start" { return thread() }
-            return await withCheckedContinuation { continuation = $0 }
-        }
-        session.draft = "draft"
-        let choice = try CodexModel(model())
-        let task = Task { try await session.changeModel(choice, effort: "high") }
-        while continuation == nil { await Task.yield() }
-        #expect(session.isChangingModel)
-        #expect(!session.canSend)
-        session.reset()
-        #expect(session.threadID == "thread-1")
-        do {
-            try await session.changeModel(choice, effort: "medium")
-            Issue.record("Concurrent update was accepted")
-        } catch {}
-        continuation?.resume(returning: [:])
-        try await task.value
-        #expect(calls == ["thread/start", "thread/settings/update"])
-        #expect(session.model == "new-model")
-        #expect(session.draft == "draft")
-    }
-
-    @Test func closedSessionIgnoresLateModelUpdate() async throws {
-        let context = try container()
-        var continuation: CheckedContinuation<[String: Any], Never>?
-        let session = CodexStore(context: context.mainContext) { _, _, _ in
-            await withCheckedContinuation { continuation = $0 }
-        }
-        try session.restoreHistory(thread(), expectedID: "thread-1")
-        let choice = try CodexModel(model())
-        let task = Task { try await session.changeModel(choice, effort: "high") }
-        while continuation == nil { await Task.yield() }
-        session.disconnect()
-        continuation?.resume(returning: [:])
-        do {
-            try await task.value
-            Issue.record("Closed session accepted a late update")
-        } catch {}
-        #expect(session.model == "old-model")
-        #expect(session.turns.isEmpty)
-    }
-
-    @Test func unsupportedImagesStayInDraftWithoutSending() async throws {
-        let context = try container()
-        var calls = 0
-        let session = CodexStore(context: context.mainContext) { _, _, _ in
-            calls += 1
-            return [:]
-        }
-        var response = thread()
-        response["cwd"] = FileManager.default.currentDirectoryPath
-        try session.restoreHistory(response, expectedID: "thread-1")
-        var entry = model("old-model")
-        entry["inputModalities"] = ["text"]
-        session.commands.models = [try CodexModel(entry)]
-        let image = NSImage(size: NSSize(width: 2, height: 2), flipped: false) { rect in
-            NSColor.red.setFill()
-            rect.fill()
-            return true
-        }
-        session.addImages([image])
-        #expect(session.draftImages.count == 1)
-        session.draft = "describe"
-        await session.send()
-        #expect(calls == 0)
-        #expect(session.draft == "describe")
-        #expect(session.draftImages.count == 1)
-        #expect(session.errorMessage != nil)
-    }
-
-    @Test func extractedSkillsAndResumeListsKeepExistingFiltering() async throws {
-        let commands = CodexCommandsStore { method, _, _ in
-            if method == "skills/list" {
-                return ["data": [["skills": [
-                    ["name": "visible", "path": "/skill", "enabled": true],
-                    ["name": "hidden", "path": "/hidden", "enabled": false]
-                ]]]]
+            switch method {
+            case "model/list": return ["data": [model()]]
+            case "config/read": return ["config": ["model": "new-model"]]
+            case "thread/read": return ["thread": ["id": "thread-1"]]
+            case "thread/resume": return ["thread": ["id": "thread-1", "turns": [[String: Any]]()],
+                                          "cwd": FileManager.default.currentDirectoryPath, "model": "old-model", "reasoningEffort": "medium"]
+            case "thread/settings/update": return [:]
+            default: throw CodexAgentError(message: method)
             }
-            return ["data": [["id": "thread-1", "cwd": "/project", "updatedAt": 1.0, "preview": "hello"]]]
         }
-        await commands.loadSkills(directory: "/project")
-        await commands.loadRecentThreads(directory: "/project")
-        #expect(commands.skills.map(\.name) == ["visible"])
-        #expect(commands.recentThreads.map(\.displayTitle) == ["hello"])
+        defer { session.disconnect() }
+        let options = try await session.loadModelOptions()
+        _ = try await session.resume(testHistoryEntry())
+        try await session.changeModel(options[1])
+        #expect(calls == ["model/list", "config/read", "thread/read", "thread/resume", "thread/settings/update"])
+    }
+
+    @Test func disconnectedSessionRejectsLateCatalogResult() async throws {
+        var reply: CheckedContinuation<[String: Any], Never>?
+        let session = try await session { _, _, _ in await withCheckedContinuation { reply = $0 } }
+        let loading = Task { try await session.loadModelOptions() }
+        #expect(await testEventually { reply != nil })
+        session.disconnect()
+        reply?.resume(returning: ["data": [model()]])
+        do { _ = try await loading.value; Issue.record("Late catalog accepted") } catch {}
+    }
+
+    @Test func storeKeepsSelectionAndDraftWhenModelUpdateFails() async {
+        let backend = TestAgentSession()
+        let old = AgentModelOption(id: "old", modelID: "old-model", displayName: "Old", description: "", effort: "medium", isDefaultEffort: true)
+        let next = AgentModelOption(id: "new", modelID: "new-model", displayName: "New", description: "", effort: "high", isDefaultEffort: true)
+        let store = AgentStore(kind: .codex, session: backend)
+        defer { store.disconnect() }
+        await store.connect(directory: "/project")
+        backend.emit(.modelOptionChanged(old))
+        #expect(await testEventually { store.selectedModelOption?.id == "old" })
+        store.draft = [.text("unfinished prompt")]
+        backend.changeModelAction = { _ in throw CodexAgentError(message: "unsupported") }
+        await store.changeModel(next)
+        #expect(store.selectedModelOption?.id == "old")
+        #expect(store.draft == [.text("unfinished prompt")])
+        #expect(store.errorMessage == "unsupported")
+        #expect(!store.isChangingModel)
+    }
+
+    @Test func storeBlocksConcurrentModelChangesAndIgnoresLateResponse() async {
+        let backend = TestAgentSession()
+        var reply: CheckedContinuation<Void, Never>?
+        backend.changeModelAction = { _ in await withCheckedContinuation { reply = $0 } }
+        let store = AgentStore(kind: .codex, session: backend)
+        await store.connect(directory: "/project")
+        let option = AgentModelOption(id: "new", modelID: "new", displayName: "New", description: "", effort: "high", isDefaultEffort: true)
+        let changing = Task { await store.changeModel(option) }
+        #expect(await testEventually { reply != nil })
+        #expect(store.isChangingModel && !store.canSend)
+        await store.changeModel(option)
+        #expect(backend.changedOptions.count == 1)
+        store.disconnect()
+        backend.emit(.modelOptionChanged(option))
+        reply?.resume()
+        await changing.value
+        #expect(store.selectedModelOption == nil)
+    }
+
+    @Test func unsupportedImagesAreNotSentAndRemainInDraft() async throws {
+        var sends = 0
+        let session = try await session { method, _, _ in
+            if method == "model/list" {
+                var entry = model()
+                entry["inputModalities"] = ["text"]
+                return ["data": [entry]]
+            }
+            if method == "config/read" { return ["config": ["model": "new-model"]] }
+            sends += 1
+            throw CodexAgentError(message: "Unexpected RPC")
+        }
+        let store = AgentStore(kind: .codex, session: session)
+        defer { store.disconnect() }
+        await store.connect(directory: FileManager.default.currentDirectoryPath)
+        await store.loadModelOptions()
+        let image = AgentImageAttachment(image: try testImage())
+        store.draft = [.text("describe"), .image(image)]
+        await store.send(store.draft)
+        #expect(sends == 0)
+        #expect(store.draft == [.text("describe"), .image(image)])
+        #expect(!store.isBusy && store.errorMessage != nil)
     }
 }
