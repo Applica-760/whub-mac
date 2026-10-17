@@ -1,6 +1,36 @@
 import Combine
 import Foundation
 
+enum AgentBookTabPurpose: String, CaseIterable, Identifiable {
+    case featureDevelopment
+    case debugging
+    case personalDevelopment
+    case internship
+    case research
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .featureDevelopment: "機能追加"
+        case .debugging: "デバッグ"
+        case .personalDevelopment: "個人開発"
+        case .internship: "インターン"
+        case .research: "研究"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .featureDevelopment: "hammer"
+        case .debugging: "ladybug"
+        case .personalDevelopment: "laptopcomputer"
+        case .internship: "briefcase"
+        case .research: "graduationcap"
+        }
+    }
+}
+
 @MainActor
 final class AgentBookTabStore: ObservableObject, Identifiable {
     nonisolated let id: AgentStore.ID
@@ -9,6 +39,7 @@ final class AgentBookTabStore: ObservableObject, Identifiable {
     let historyStore: AgentHistoryStore
     @Published private(set) var hasCompleted = false
     @Published private(set) var notificationDate: Date?
+    @Published var purpose: AgentBookTabPurpose?
     var onNotification: ((String) -> Void)?
 
     private var observation: AnyCancellable?
