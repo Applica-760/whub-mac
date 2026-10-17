@@ -44,7 +44,7 @@ public struct WhubClient: Sendable {
         guard data == Data("pong".utf8) else { throw WhubClientError.invalidResponse }
     }
 
-    func request(_ path: String, query: [URLQueryItem] = []) async throws -> Data {
+    func request(_ path: String, query: [URLQueryItem] = [], body: Data? = nil) async throws -> Data {
         try Task.checkCancellation()
         guard var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
             throw WhubClientError.invalidURL
@@ -56,7 +56,9 @@ public struct WhubClient: Sendable {
         }
         guard let url = components.url else { throw WhubClientError.invalidURL }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-        request.httpMethod = "GET"
+        request.httpMethod = body == nil ? "GET" : "PUT"
+        request.httpBody = body
+        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         let (data, response) = try await session.data(for: request)
         try Task.checkCancellation()
         guard let response = response as? HTTPURLResponse else { throw WhubClientError.invalidResponse }
