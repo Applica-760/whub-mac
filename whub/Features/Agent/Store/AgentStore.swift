@@ -4,6 +4,14 @@ import Foundation
 enum AgentKind {
     case codex
     case claudeCode
+
+    @MainActor
+    func makeSession() -> (any AgentSession)? {
+        switch self {
+        case .codex: CodexAgentSession()
+        case .claudeCode: nil
+        }
+    }
 }
 
 enum AgentEvent {
@@ -61,13 +69,13 @@ final class AgentStore: ObservableObject, Identifiable {
     @Published private(set) var isClosed = false
     @Published private(set) var errorMessage: String?
 
-    var agentKind: AgentKind { session.kind }
+    let agentKind: AgentKind
 
     var canSend: Bool {
-        isConnected && !isBusy && !isChangingModel && !isResuming
+        !isClosed && (isConnected || session == nil) && !isBusy && !isChangingModel && !isResuming
     }
 
-    private let session: any AgentSession
+    private let session: (any AgentSession)?
     private var eventTask: Task<Void, Never>?
     private var pendingInput: [AgentInput]?
 
@@ -88,8 +96,10 @@ final class AgentStore: ObservableObject, Identifiable {
         }
     }
 
-    init(session: any AgentSession) {
+    init(kind: AgentKind, session: (any AgentSession)?) {
+        agentKind = kind
         self.session = session
+        guard let session else { return }
         let events = session.events
         eventTask = Task { [weak self] in
             for await event in events {
@@ -106,7 +116,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func connect(directory: String) async {
-        guard !isClosed, !isConnecting, !isConnected else { return }
+        guard let session, !isClosed, !isConnecting, !isConnected else { return }
         isConnecting = true
         errorMessage = nil
         defer { isConnecting = false }
@@ -126,7 +136,7 @@ final class AgentStore: ObservableObject, Identifiable {
 
     @discardableResult
     func resume(_ entry: AgentHistoryEntry) async -> Bool {
-        guard !isClosed, !isConnected, !isConnecting, !isResuming,
+        guard let session, !isClosed, !isConnected, !isConnecting, !isResuming,
               historyEntry == nil, exchanges.isEmpty else { return false }
         isResuming = true
         errorMessage = nil
@@ -161,6 +171,10 @@ final class AgentStore: ObservableObject, Identifiable {
         guard canSend else { return }
         let submittedInput = normalizedInput(input)
         guard !submittedInput.isEmpty else { return }
+        guard let session else {
+            errorMessage = "選択したKindへの接続はまだ実装されていません。"
+            return
+        }
         pendingInput = submittedInput
         draft = []
         exchanges.append(AgentExchange(input: submittedInput))
@@ -176,7 +190,7 @@ final class AgentStore: ObservableObject, Identifiable {
 
     @discardableResult
     func sendAdditionalInput(_ input: [AgentInput]) async -> Bool {
-        guard isConnected, isBusy, !isStopping, !isSendingAdditionalInput,
+        guard let session, isConnected, isBusy, !isStopping, !isSendingAdditionalInput,
               let index = activeExchangeIndex else { return false }
         let submittedInput = normalizedInput(input)
         guard !submittedInput.isEmpty else { return false }
@@ -206,7 +220,7 @@ final class AgentStore: ObservableObject, Identifiable {
             recordCommandResult(.stop, content: [.text("停止を要求しました。")])
             return
         }
-        guard isConnected, isBusy, !isStopping,
+        guard let session, isConnected, isBusy, !isStopping,
               let index = activeExchangeIndex else { return }
         let exchangeID = exchanges[index].id
         isStopping = true
@@ -227,7 +241,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func loadModelOptions() async {
-        guard isConnected, !isResuming, !isLoadingModelOptions else { return }
+        guard let session, isConnected, !isResuming, !isLoadingModelOptions else { return }
         isLoadingModelOptions = true
         modelOptionsError = nil
         errorMessage = nil
@@ -245,7 +259,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func loadStatus(recordResult: Bool = false) async {
-        guard isConnected, !isResuming, !isLoadingStatus else { return }
+        guard let session, isConnected, !isResuming, !isLoadingStatus else { return }
         isLoadingStatus = true
         errorMessage = nil
         defer { isLoadingStatus = false }
@@ -273,7 +287,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func changeModel(_ option: AgentModelOption) async {
-        guard isConnected, !isBusy, !isChangingModel, !isResuming else { return }
+        guard let session, isConnected, !isBusy, !isChangingModel, !isResuming else { return }
         isChangingModel = true
         errorMessage = nil
         defer { isChangingModel = false }
@@ -287,7 +301,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func respond(to requestID: String, with response: AgentResponse) async {
-        guard isConnected, !respondingRequestIDs.contains(requestID),
+        guard let session, isConnected, !respondingRequestIDs.contains(requestID),
               let index = activeExchangeIndex,
               let request = exchanges[index].pendingRequests.first(where: { $0.id == requestID }) else { return }
         switch (request.kind, response) {
@@ -324,7 +338,7 @@ final class AgentStore: ObservableObject, Identifiable {
         isConnected = false
         isConnecting = false
         eventTask?.cancel()
-        session.disconnect()
+        session?.disconnect()
         if isBusy { fail("接続を終了しました。") }
     }
 

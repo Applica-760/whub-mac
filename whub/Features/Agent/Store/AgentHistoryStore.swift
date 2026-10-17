@@ -8,15 +8,15 @@ final class AgentHistoryStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
-    private let session: any AgentSession
+    private let session: (any AgentSession)?
 
     // 接続の開始・終了はAgentStoreが担当する。
-    init(session: any AgentSession) {
+    init(session: (any AgentSession)?) {
         self.session = session
     }
 
     func load(more: Bool = false) async {
-        guard !isLoading, !more || nextCursor != nil else { return }
+        guard let session, !isLoading, !more || nextCursor != nil else { return }
         let cursor = more ? nextCursor : nil
         isLoading = true
         errorMessage = nil

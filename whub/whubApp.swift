@@ -9,10 +9,10 @@ struct whubApp: App {
     @StateObject private var files = FilesStore()
     @StateObject private var terminalStore: TerminalStore
     @StateObject private var browserStore = BrowserStore()
-    @StateObject private var codexStore: CodexTabsStore
+    @StateObject private var agentBookStore: AgentBookStore
     @StateObject private var remoteConnections: RemoteConnectionStore
     @StateObject private var remoteServers: RemoteServerStore
-    @State private var section = AppView.Section.file
+    @State private var section = AppView.Section.agentBook
     @FocusedValue(\.explorerPulldownSelection) private var explorerPulldownSelection
     private let workspaceContainer: ModelContainer
 
@@ -25,7 +25,7 @@ struct whubApp: App {
             let container = try Container.make()
             workspaceContainer = container
             _terminalStore = StateObject(wrappedValue: TerminalStore(context: container.mainContext))
-            _codexStore = StateObject(wrappedValue: CodexTabsStore(context: container.mainContext))
+            _agentBookStore = StateObject(wrappedValue: AgentBookStore(context: container.mainContext))
         } catch {
             fatalError("Unable to open workspace store: \(error)")
         }
@@ -40,7 +40,7 @@ struct whubApp: App {
                 .environmentObject(files.git)
                 .environmentObject(terminalStore)
                 .environmentObject(browserStore)
-                .environmentObject(codexStore)
+                .environmentObject(agentBookStore)
                 .environmentObject(remoteConnections)
                 .environmentObject(remoteServers)
                 .onAppear {
@@ -48,7 +48,7 @@ struct whubApp: App {
                     appDelegate.remoteServers = remoteServers
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-                    codexStore.disconnect()
+                    agentBookStore.disconnect()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                     files.checkForExternalChanges()
@@ -62,12 +62,12 @@ struct whubApp: App {
                     switch section {
                     case .terminal: terminalStore.add()
                     case .browser: browserStore.add()
-                    case .codex: codexStore.add()
+                    case .agentBook: agentBookStore.add()
                     default: break
                     }
                 }
                 .keyboardShortcut("t", modifiers: .command)
-                .disabled(section != .terminal && section != .browser && section != .codex)
+                .disabled(section != .terminal && section != .browser && section != .agentBook)
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") {
@@ -98,11 +98,12 @@ struct whubApp: App {
                 Divider()
                 ForEach(1...9, id: \.self) { number in
                     Button("AgentBook \(number)") {
-                        guard section == .codex, codexStore.sessions.indices.contains(number - 1) else { return }
-                        codexStore.select(codexStore.sessions[number - 1].id)
+                        guard agentBookTabIDs.indices.contains(number - 1) else { return }
+                        let id = agentBookTabIDs[number - 1]
+                        agentBookStore.select(id)
                     }
                     .keyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: .command)
-                    .disabled(section != .codex || !codexStore.sessions.indices.contains(number - 1))
+                    .disabled(!agentBookTabIDs.indices.contains(number - 1))
                 }
                 Divider()
                 Button("Previous Page") { moveSection(by: -1) }
@@ -124,6 +125,10 @@ struct whubApp: App {
             SettingsView()
         }
         .modelContainer(workspaceContainer)
+    }
+
+    private var agentBookTabIDs: [UUID] {
+        section == .agentBook ? agentBookStore.tabs.map(\.id) : []
     }
 
     private func moveSection(by offset: Int) {
