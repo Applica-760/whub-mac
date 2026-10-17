@@ -1,5 +1,7 @@
 import AppKit
 import Combine
+import SwiftData
+import WhubCore
 
 @MainActor
 final class AgentBookStore: ObservableObject {
@@ -8,15 +10,17 @@ final class AgentBookStore: ObservableObject {
     @Published private(set) var isResuming = false
     @Published private(set) var resumeError: String?
 
+    private let context: ModelContext
     private let makeSession: (AgentKind) -> any AgentSession
     private let notify: (String) -> Void
     private var observations: [AgentBookTabStore.ID: AnyCancellable] = [:]
     private var pendingResume: AgentBookTabStore?
     private var pendingResumeSourceID: AgentBookTabStore.ID?
 
-    init(kind: AgentKind = .codex,
+    init(context: ModelContext, kind: AgentKind = .codex,
          makeSession: @escaping (AgentKind) -> any AgentSession,
          notify: @escaping (String) -> Void = { NSSound(named: $0)?.play() }) {
+        self.context = context
         self.makeSession = makeSession
         self.notify = notify
         let tab = AgentBookTabStore(session: makeSession(kind))
@@ -37,6 +41,15 @@ final class AgentBookStore: ObservableObject {
         Dictionary(uniqueKeysWithValues: tabs.compactMap { tab in
             tab.notificationDate.map { (tab.id, $0) }
         })
+    }
+
+    func connect(_ id: AgentBookTabStore.ID) async {
+        guard let tab = tabs.first(where: { $0.id == id }),
+              !tab.store.isClosed, !tab.store.isConnected else { return }
+        let directory = tab.store.historyEntry?.directory
+            ?? (try? HostStore(context: context).fetchHosts().first { $0 is LocalHost }?.basePath)
+            ?? NSHomeDirectory()
+        await tab.store.connect(directory: directory)
     }
 
     func add() {
