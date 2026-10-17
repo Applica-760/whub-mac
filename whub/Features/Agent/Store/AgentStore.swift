@@ -4,9 +4,19 @@ import Foundation
 enum AgentKind {
     case codex
     case claudeCode
+
+    @MainActor
+    func makeSession() -> (any AgentSession)? {
+        switch self {
+        case .codex: CodexAgentSession()
+        case .claudeCode: nil
+        }
+    }
 }
 
 enum AgentEvent {
+    // 接続側が会話を識別できた時点で、実行状態とは独立して通知する。
+    case conversationIDChanged(String)
     case modelOptionChanged(AgentModelOption)
     // 同じIDのOutputは、差分ではなく最新の内容全体を渡す。
     case output(AgentOutput)
@@ -40,6 +50,7 @@ final class AgentStore: ObservableObject, Identifiable {
     let id = UUID()
     @Published var draft: [AgentInput] = []
     @Published private(set) var exchanges: [AgentExchange] = []
+    @Published private(set) var conversationID: String?
     @Published private(set) var historyEntry: AgentHistoryEntry?
     @Published private(set) var isResuming = false
     @Published private(set) var modelOptions: [AgentModelOption] = []
@@ -58,13 +69,13 @@ final class AgentStore: ObservableObject, Identifiable {
     @Published private(set) var isClosed = false
     @Published private(set) var errorMessage: String?
 
-    var agentKind: AgentKind { session.kind }
+    let agentKind: AgentKind
 
     var canSend: Bool {
-        isConnected && !isBusy && !isChangingModel && !isResuming
+        !isClosed && (isConnected || session == nil) && !isBusy && !isChangingModel && !isResuming
     }
 
-    private let session: any AgentSession
+    private let session: (any AgentSession)?
     private var eventTask: Task<Void, Never>?
     private var pendingInput: [AgentInput]?
 
@@ -85,8 +96,10 @@ final class AgentStore: ObservableObject, Identifiable {
         }
     }
 
-    init(session: any AgentSession) {
+    init(kind: AgentKind, session: (any AgentSession)?) {
+        agentKind = kind
         self.session = session
+        guard let session else { return }
         let events = session.events
         eventTask = Task { [weak self] in
             for await event in events {
@@ -103,7 +116,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func connect(directory: String) async {
-        guard !isClosed, !isConnecting, !isConnected else { return }
+        guard let session, !isClosed, !isConnecting, !isConnected else { return }
         isConnecting = true
         errorMessage = nil
         defer { isConnecting = false }
@@ -123,7 +136,7 @@ final class AgentStore: ObservableObject, Identifiable {
 
     @discardableResult
     func resume(_ entry: AgentHistoryEntry) async -> Bool {
-        guard !isClosed, !isConnected, !isConnecting, !isResuming,
+        guard let session, !isClosed, !isConnected, !isConnecting, !isResuming,
               historyEntry == nil, exchanges.isEmpty else { return false }
         isResuming = true
         errorMessage = nil
@@ -141,6 +154,7 @@ final class AgentStore: ObservableObject, Identifiable {
                 disconnect()
                 return false
             }
+            conversationID = snapshot.entry.id
             historyEntry = snapshot.entry
             exchanges = snapshot.exchanges
             selectedModelOption = snapshot.selectedModelOption
@@ -157,6 +171,10 @@ final class AgentStore: ObservableObject, Identifiable {
         guard canSend else { return }
         let submittedInput = normalizedInput(input)
         guard !submittedInput.isEmpty else { return }
+        guard let session else {
+            errorMessage = "選択したKindへの接続はまだ実装されていません。"
+            return
+        }
         pendingInput = submittedInput
         draft = []
         exchanges.append(AgentExchange(input: submittedInput))
@@ -172,11 +190,12 @@ final class AgentStore: ObservableObject, Identifiable {
 
     @discardableResult
     func sendAdditionalInput(_ input: [AgentInput]) async -> Bool {
-        guard isConnected, isBusy, !isStopping, !isSendingAdditionalInput,
+        guard let session, isConnected, isBusy, !isStopping, !isSendingAdditionalInput,
               let index = activeExchangeIndex else { return false }
         let submittedInput = normalizedInput(input)
         guard !submittedInput.isEmpty else { return false }
         let exchangeID = exchanges[index].id
+        let outputIndex = exchanges[index].outputs.count
         isSendingAdditionalInput = true
         errorMessage = nil
         defer { isSendingAdditionalInput = false }
@@ -184,7 +203,7 @@ final class AgentStore: ObservableObject, Identifiable {
         do {
             try await session.sendAdditionalInput(submittedInput)
             guard !isClosed, let index = exchanges.firstIndex(where: { $0.id == exchangeID }) else { return false }
-            exchanges[index].input.append(contentsOf: submittedInput)
+            exchanges[index].additionalInputs.append(AgentAdditionalInput(input: submittedInput, outputIndex: outputIndex))
             return true
         } catch {
             guard isActiveExchange(exchangeID) else { return false }
@@ -202,7 +221,7 @@ final class AgentStore: ObservableObject, Identifiable {
             recordCommandResult(.stop, content: [.text("停止を要求しました。")])
             return
         }
-        guard isConnected, isBusy, !isStopping,
+        guard let session, isConnected, isBusy, !isStopping,
               let index = activeExchangeIndex else { return }
         let exchangeID = exchanges[index].id
         isStopping = true
@@ -223,7 +242,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func loadModelOptions() async {
-        guard isConnected, !isResuming, !isLoadingModelOptions else { return }
+        guard let session, isConnected, !isResuming, !isLoadingModelOptions else { return }
         isLoadingModelOptions = true
         modelOptionsError = nil
         errorMessage = nil
@@ -241,7 +260,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func loadStatus(recordResult: Bool = false) async {
-        guard isConnected, !isResuming, !isLoadingStatus else { return }
+        guard let session, isConnected, !isResuming, !isLoadingStatus else { return }
         isLoadingStatus = true
         errorMessage = nil
         defer { isLoadingStatus = false }
@@ -269,7 +288,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func changeModel(_ option: AgentModelOption) async {
-        guard isConnected, !isBusy, !isChangingModel, !isResuming else { return }
+        guard let session, isConnected, !isBusy, !isChangingModel, !isResuming else { return }
         isChangingModel = true
         errorMessage = nil
         defer { isChangingModel = false }
@@ -283,7 +302,7 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func respond(to requestID: String, with response: AgentResponse) async {
-        guard isConnected, !respondingRequestIDs.contains(requestID),
+        guard let session, isConnected, !respondingRequestIDs.contains(requestID),
               let index = activeExchangeIndex,
               let request = exchanges[index].pendingRequests.first(where: { $0.id == requestID }) else { return }
         switch (request.kind, response) {
@@ -320,11 +339,16 @@ final class AgentStore: ObservableObject, Identifiable {
         isConnected = false
         isConnecting = false
         eventTask?.cancel()
-        session.disconnect()
+        session?.disconnect()
         if isBusy { fail("接続を終了しました。") }
     }
 
     private func handle(_ event: AgentEvent) {
+        if case .conversationIDChanged(let id) = event {
+            guard !isClosed, !isResuming, !id.isEmpty else { return }
+            conversationID = id
+            return
+        }
         if case .modelOptionChanged(let option) = event {
             guard !isResuming else { return }
             selectedModelOption = option
@@ -332,7 +356,7 @@ final class AgentStore: ObservableObject, Identifiable {
         }
         guard isBusy, let exchangeIndex = activeExchangeIndex else { return }
         switch event {
-        case .modelOptionChanged:
+        case .conversationIDChanged, .modelOptionChanged:
             break
         case .output(let output):
             if case .request(let request) = output, request.outcome != nil {

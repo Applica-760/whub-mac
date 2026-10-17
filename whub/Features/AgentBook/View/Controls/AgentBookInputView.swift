@@ -283,7 +283,7 @@ struct AgentBookInputView: View {
     }
 
     private func sendInput() {
-        guard store.isConnected, !store.isResuming, !store.isChangingModel, !isOpeningHistory,
+        guard store.canSend || store.isBusy, !store.isResuming, !store.isChangingModel, !isOpeningHistory,
               !store.isStopping, !store.isSendingAdditionalInput else { return }
         Task {
             let draft = store.draft

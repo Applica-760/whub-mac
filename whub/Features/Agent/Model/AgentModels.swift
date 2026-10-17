@@ -6,6 +6,7 @@ import Foundation
 struct AgentExchange: Identifiable {
     let id: UUID
     var input: [AgentInput]
+    var additionalInputs: [AgentAdditionalInput] = []
     var outputs: [AgentOutput] = []
     var status: AgentExecutionStatus = .running
 
@@ -22,6 +23,12 @@ struct AgentExchange: Identifiable {
         self.id = id
         self.input = input
     }
+}
+
+struct AgentAdditionalInput: Identifiable {
+    let id = UUID()
+    let input: [AgentInput]
+    let outputIndex: Int
 }
 
 // MARK: - Input

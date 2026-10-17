@@ -154,3 +154,19 @@ struct ExplorerMenuView: View {
         setPresented(false)
     }
 }
+
+struct FilesNavigationMenu: View {
+    @ObservedObject var store: FilesStore
+    @FocusedValue(\.explorerPulldownSelection) private var explorerPulldownSelection
+
+    var body: some View {
+        Button("Reload Files") { store.refresh() }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+        Button("Previous Project or Worktree") { explorerPulldownSelection?.move(by: -1) }
+            .keyboardShortcut("k", modifiers: [.command, .shift])
+            .disabled(explorerPulldownSelection == nil)
+        Button("Next Project or Worktree") { explorerPulldownSelection?.move(by: 1) }
+            .keyboardShortcut("j", modifiers: [.command, .shift])
+            .disabled(explorerPulldownSelection == nil)
+    }
+}

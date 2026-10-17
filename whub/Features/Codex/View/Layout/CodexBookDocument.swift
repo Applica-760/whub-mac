@@ -129,8 +129,8 @@ final class CodexBookDocument: ObservableObject {
         appearance = colorScheme
         let content = CGSize(width: max(1, size.width - 2 * CodexBookLayout.pageInset),
                              height: max(1, size.height - 2 * CodexBookLayout.pageInset))
-        updateDocument(content: content, colorScheme: colorScheme, rebuild: changedSize)
-        let failure = paginate(content: content)
+        let changedAt = updateDocument(content: content, colorScheme: colorScheme, rebuild: changedSize)
+        let failure = paginate(content: content, changedAt: changedAt, rebuild: changedSize)
         updateControlFrames(content: content)
         var nextSpread = min(spread, max(0, (ranges.count - 1) / 2))
         if initial { nextSpread = max(0, (ranges.count - 1) / 2) }
@@ -144,38 +144,49 @@ final class CodexBookDocument: ObservableObject {
         return true
     }
 
-    private func updateDocument(content: CGSize, colorScheme: ColorScheme, rebuild: Bool) {
-        let output = NSMutableAttributedString(string: "")
-        var nextRendered: [RenderedTurn] = []
-        var nextRanges: [(UUID, NSRange)] = []
+    private func updateDocument(content: CGSize, colorScheme: ColorScheme, rebuild: Bool) -> Int {
         var firstChanged = 0
-        for (index, input) in inputs.enumerated() {
+        if !rebuild {
+            while firstChanged < min(inputs.count, rendered.count), rendered[firstChanged].input == inputs[firstChanged] {
+                firstChanged += 1
+            }
+        }
+        let prefix = firstChanged < turnRanges.count ? turnRanges[firstChanged].1.location : storage.length
+        let output = NSMutableAttributedString(string: "")
+        var nextRendered = Array(rendered.prefix(firstChanged))
+        var nextRanges = Array(turnRanges.prefix(firstChanged))
+        for index in firstChanged..<inputs.count {
+            let input = inputs[index]
             let cached = !rebuild && rendered.indices.contains(index) && rendered[index].input == input
             let part = cached ? rendered[index].text : render(turns[index], input: input, content: content, colorScheme: colorScheme)
-            if cached && firstChanged == index { firstChanged += 1 }
-            nextRanges.append((input.id, NSRange(location: output.length, length: part.length)))
+            nextRanges.append((input.id, NSRange(location: prefix + output.length, length: part.length)))
             output.append(part)
             nextRendered.append(RenderedTurn(input: input, text: part))
         }
-        let prefix = rendered.prefix(firstChanged).reduce(0) { $0 + $1.text.length }
         storage.replaceCharacters(in: NSRange(location: prefix, length: storage.length - prefix),
-                                  with: output.attributedSubstring(from: NSRange(location: prefix, length: output.length - prefix)))
+                                  with: output)
         rendered = nextRendered
         turnRanges = nextRanges
         renderedRevision = revision
-        codes = []
-        storage.enumerateAttribute(.codexBookCodeSource, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+        codes.removeAll { NSMaxRange($0.range) > prefix }
+        storage.enumerateAttribute(.codexBookCodeSource, in: NSRange(location: prefix, length: storage.length - prefix)) { value, range, _ in
             guard let text = value as? String,
                   let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment,
                   let id = storage.attribute(.codexNativeCodeID, at: range.location, effectiveRange: nil) as? String else { return }
             codes.append(Code(id: id, range: range, text: text, size: attachment.bounds.size))
         }
+        return prefix
     }
 
-    private func paginate(content: CGSize) -> String? {
-        for container in manager.textContainers { container.containerSize = content }
-        ranges = []
-        var end = 0
+    private func paginate(content: CGSize, changedAt: Int, rebuild: Bool) -> String? {
+        if rebuild {
+            for container in manager.textContainers where container.containerSize != content { container.containerSize = content }
+        }
+        // TextKit may invalidate a paragraph before the edited characters.
+        let invalidatedAt = min(changedAt, manager.firstUnlaidCharacterIndex())
+        let firstPage = rebuild ? 0 : ranges.firstIndex { NSMaxRange($0) >= invalidatedAt } ?? max(0, ranges.count - 1)
+        ranges = Array(ranges.prefix(firstPage))
+        var end = firstPage == 0 ? 0 : NSMaxRange(manager.glyphRange(for: manager.textContainers[firstPage - 1]))
         var failure: String?
         repeat {
             let index = ranges.count

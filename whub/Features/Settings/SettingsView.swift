@@ -26,3 +26,18 @@ struct SettingsView: View {
         .onExitCommand { dismissWindow() }
     }
 }
+
+struct SettingsToolbar: ToolbarContent {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                openSettings()
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .labelStyle(.iconOnly)
+        }
+    }
+}
