@@ -190,20 +190,25 @@ private extension AgentKind {
     }
 }
 
-struct AgentBookToolbarView: View {
-    @ObservedObject var store: AgentBookStore
+struct AgentBookToolbar: ToolbarContent {
+    @EnvironmentObject private var store: AgentBookStore
     let activate: () -> Void
 
-    var body: some View {
-        AgentBookTabButton(
-            sessions: store.tabs.map { $0.store }, selection: store.selectedTabID,
-            completedSessionIDs: store.completedTabIDs, notificationDates: store.notificationDates
-        ) { id in
-            store.select(id)
-            activate()
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            AgentBookTabButton(
+                sessions: store.tabs.map { $0.store }, selection: store.selectedTabID,
+                completedSessionIDs: store.completedTabIDs, notificationDates: store.notificationDates
+            ) { id in
+                store.select(id)
+                activate()
+            }
+            .frame(width: 232, height: 36)
+            .padding(.horizontal, 6)
+            .glassEffect(.regular, in: .capsule)
         }
-        .frame(width: 232, height: 36)
-        .padding(.horizontal, 6)
-        .glassEffect(.regular, in: .capsule)
+        .sharedBackgroundVisibility(.hidden)
+
+        ToolbarSpacer(.fixed, placement: .primaryAction)
     }
 }

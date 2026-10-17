@@ -48,7 +48,6 @@ struct AppView: View {
     @EnvironmentObject private var browser: BrowserStore
     @EnvironmentObject private var agentBook: AgentBookStore
     @Binding var section: Section
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         NavigationSplitView {
@@ -69,46 +68,27 @@ struct AppView: View {
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 1000, minHeight: 550)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                AgentBookToolbarView(store: agentBook) {
-                    section = .agentBook
+            AgentBookToolbar { section = .agentBook }
+            TimerToolbar()
+            FeatureToolbar(selection: $section)
+            SettingsToolbar()
+        }
+    }
+}
+
+private struct FeatureToolbar: ToolbarContent {
+    @Binding var selection: AppView.Section
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Picker("ページ", selection: $selection) {
+                ForEach(AppView.Section.allCases, id: \.self) { section in
+                    Label(section.label, systemImage: section.systemImage)
+                        .tag(section)
                 }
             }
-            .sharedBackgroundVisibility(.hidden)
-
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-
-            ToolbarItem(placement: .primaryAction) {
-                TimerToolbarView()
-            }
-
-            ToolbarItem(placement: .primaryAction) {
-                featurePicker
-            }
-
-            ToolbarItem(placement: .primaryAction) {
-                settingsButton
-            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
         }
-    }
-
-    private var featurePicker: some View {
-        Picker("ページ", selection: $section) {
-            ForEach(Section.allCases, id: \.self) { section in
-                Label(section.label, systemImage: section.systemImage)
-                    .tag(section)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-    }
-
-    private var settingsButton: some View {
-        Button {
-            openSettings()
-        } label: {
-            Label("Settings", systemImage: "gearshape")
-        }
-        .labelStyle(.iconOnly)
     }
 }

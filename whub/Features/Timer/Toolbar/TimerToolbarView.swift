@@ -1,10 +1,12 @@
 import SwiftUI
 
-struct TimerToolbarView: View {
-    var body: some View {
-        HStack(spacing: 6) {
-            TimerToolbarControlsView()
-            ActivityTimelineBarView()
+struct TimerToolbar: ToolbarContent {
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            HStack(spacing: 6) {
+                TimerToolbarControlsView()
+                ActivityTimelineBarView()
+            }
         }
     }
 }
