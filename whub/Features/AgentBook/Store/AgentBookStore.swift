@@ -59,6 +59,24 @@ final class AgentBookStore: ObservableObject {
         select(tab.id)
     }
 
+    func canChangeKind(in id: AgentBookTabStore.ID) -> Bool {
+        pendingResumeSourceID != id && tabs.first(where: { $0.id == id })?.canChangeKind == true
+    }
+
+    @discardableResult
+    func changeKind(_ kind: AgentKind, in id: AgentBookTabStore.ID) -> Bool {
+        guard canChangeKind(in: id),
+              let index = tabs.firstIndex(where: { $0.id == id }),
+              tabs[index].store.agentKind != kind else { return false }
+        let replacement = AgentBookTabStore(session: makeSession(kind))
+        replacement.store.draft = tabs[index].store.draft
+        close(tabs[index])
+        tabs[index] = replacement
+        observe(replacement)
+        if selectedTabID == id { select(replacement.id) }
+        return true
+    }
+
     func select(_ id: AgentBookTabStore.ID) {
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         selectedTabID = id

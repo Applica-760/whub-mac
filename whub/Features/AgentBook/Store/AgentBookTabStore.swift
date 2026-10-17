@@ -27,6 +27,11 @@ final class AgentBookTabStore: ObservableObject, Identifiable {
             && !store.isResuming && !store.isChangingModel && store.respondingRequestIDs.isEmpty
     }
 
+    var canChangeKind: Bool {
+        canReplace && !store.isClosed && store.conversationID == nil
+            && store.historyEntry == nil && store.exchanges.isEmpty
+    }
+
     func markRead() {
         hasCompleted = false
     }
