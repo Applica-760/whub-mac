@@ -81,7 +81,7 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
             page.isRichText = true
             page.isVerticallyResizable = false
             page.isHorizontallyResizable = false
-            page.textContainerInset = NSSize(width: CodexBookLayout.pageInset, height: CodexBookLayout.pageInset)
+            page.textContainerInset = NSSize(width: AgentBookPageStyle.pageInset, height: AgentBookPageStyle.pageInset)
             page.drawsBackground = false
             page.autoresizingMask = []
             addSubview(page)
@@ -96,7 +96,7 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
         for (index, page) in pages.enumerated() {
             page.isHidden = !(firstPage..<firstPage + 2).contains(index)
             if !page.isHidden {
-                page.frame = NSRect(x: CGFloat(index - firstPage) * (book.pageSize.width + CodexBookLayout.pageGap), y: 0,
+                page.frame = NSRect(x: CGFloat(index - firstPage) * (book.pageSize.width + AgentBookPageStyle.pageGap), y: 0,
                                     width: book.pageSize.width, height: book.pageSize.height)
             }
         }
@@ -150,8 +150,8 @@ private final class AgentBookNativeTextView: NSTextView {
         var text = ""
         for value in selectedRanges {
             storage.enumerateAttributes(in: value.rangeValue) { attributes, range, _ in
-                text += attributes[.codexFormulaSource] as? String
-                    ?? attributes[.codexBookCodeSource] as? String
+                text += attributes[.agentBookFormulaSource] as? String
+                    ?? attributes[.agentBookCodeSource] as? String
                     ?? (storage.string as NSString).substring(with: range)
             }
         }
@@ -174,7 +174,7 @@ private struct AgentBookCodeBlock: View {
                 }
                 .labelStyle(.iconOnly).buttonStyle(.plain)
                 .help("コードをコピー")
-                .padding(CodexBookLayout.codeInset)
+                .padding(AgentBookCodeStyle.codeInset)
             }
     }
 }
@@ -193,10 +193,10 @@ private struct AgentBookCodeScroll: NSViewRepresentable {
         text.isEditable = false
         text.isSelectable = true
         text.isRichText = false
-        text.font = CodexBookLayout.codeFont
+        text.font = AgentBookCodeStyle.codeFont
         text.textColor = .labelColor
         text.drawsBackground = false
-        text.textContainerInset = NSSize(width: CodexBookLayout.codeInset, height: CodexBookLayout.codeInset)
+        text.textContainerInset = NSSize(width: AgentBookCodeStyle.codeInset, height: AgentBookCodeStyle.codeInset)
         text.textContainer?.lineFragmentPadding = 0
         text.textContainer?.widthTracksTextView = false
         text.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
@@ -222,7 +222,7 @@ private struct AgentBookCodeScroll: NSViewRepresentable {
         guard let layout = text.layoutManager, let container = text.textContainer else { return }
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
-        text.frame.size = NSSize(width: ceil(used.width) + 2 * CodexBookLayout.codeInset, height: ceil(used.height) + 2 * CodexBookLayout.codeInset)
+        text.frame.size = NSSize(width: ceil(used.width) + 2 * AgentBookCodeStyle.codeInset, height: ceil(used.height) + 2 * AgentBookCodeStyle.codeInset)
         assert(text.string == code, "Horizontal scrolling must not insert line breaks into the source")
     }
 }

@@ -65,7 +65,7 @@ struct AgentBookTabView: View {
                 }
                 .overlay(alignment: .topTrailing) {
                     if let error = store.errorMessage {
-                        CodexErrorView(message: error)
+                        AgentBookErrorView(message: error)
                             .padding(12)
                     }
                 }
@@ -108,4 +108,25 @@ struct AgentBookTabView: View {
         Task { await store.respond(to: request.id, with: response) }
     }
 
+}
+
+private struct AgentBookErrorView: View {
+    let message: String
+
+    var body: some View {
+        DisclosureGroup {
+            ScrollView {
+                Text(message).textSelection(.enabled).font(.callout)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 160)
+        } label: {
+            Label(String(message.prefix(160)), systemImage: "exclamationmark.triangle")
+                .lineLimit(2)
+        }
+        .foregroundStyle(.red)
+        .padding(12)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
+        .frame(maxWidth: 420)
+    }
 }

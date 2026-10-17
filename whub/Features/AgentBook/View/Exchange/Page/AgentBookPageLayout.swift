@@ -2,6 +2,11 @@ import AppKit
 import Combine
 import SwiftUI
 
+enum AgentBookPageStyle {
+    static let pageInset: CGFloat = 28
+    static let pageGap: CGFloat = 32
+}
+
 @MainActor
 final class AgentBookPageLayout: ObservableObject {
     @Published private(set) var revision = 0
@@ -145,15 +150,15 @@ final class AgentBookPageLayout: ObservableObject {
     func prepare(viewport: CGSize, colorScheme: ColorScheme) -> Bool {
         guard viewport.width.isFinite, viewport.height.isFinite,
               viewport.width > 112, viewport.height > 112 else { return false }
-        let size = CGSize(width: floor((viewport.width - CodexBookLayout.pageGap) / 2), height: floor(viewport.height))
+        let size = CGSize(width: floor((viewport.width - AgentBookPageStyle.pageGap) / 2), height: floor(viewport.height))
         guard renderedRevision != revision || pageSize != size || appearance != colorScheme else { return false }
         let reading = ranges.indices.contains(spread * 2) ? anchor(at: ranges[spread * 2].location) : nil
         let initial = rendered.isEmpty && !inputs.isEmpty
         let changedSize = pageSize != size || appearance != colorScheme
         pageSize = size
         appearance = colorScheme
-        let content = CGSize(width: max(1, size.width - 2 * CodexBookLayout.pageInset),
-                             height: max(1, size.height - 2 * CodexBookLayout.pageInset))
+        let content = CGSize(width: max(1, size.width - 2 * AgentBookPageStyle.pageInset),
+                             height: max(1, size.height - 2 * AgentBookPageStyle.pageInset))
         updateDocument(content: content, colorScheme: colorScheme, rebuild: changedSize)
         let failure = paginate(content: content)
         updateControlFrames(content: content)
@@ -189,7 +194,7 @@ final class AgentBookPageLayout: ObservableObject {
         exchangeRanges = nextRanges
         renderedRevision = revision
         codes = []
-        storage.enumerateAttribute(.codexBookCodeSource, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+        storage.enumerateAttribute(.agentBookCodeSource, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
             guard let text = value as? String,
                   let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment,
                   let id = storage.attribute(.agentBookCodeID, at: range.location, effectiveRange: nil) as? String else { return }
@@ -230,7 +235,7 @@ final class AgentBookPageLayout: ObservableObject {
 
     private func updateControlFrames(content: CGSize) {
         contentBottoms = manager.textContainers.map {
-            min(pageSize.height - 16, CodexBookLayout.pageInset + manager.usedRect(for: $0).maxY)
+            min(pageSize.height - 16, AgentBookPageStyle.pageInset + manager.usedRect(for: $0).maxY)
         }
         headers = controlFrames(for: .agentBookHeaderExchangeID, content: content)
         promptControls = controlFrames(for: .agentBookPromptExchangeID, content: content)
@@ -244,7 +249,7 @@ final class AgentBookPageLayout: ObservableObject {
             let glyph = manager.glyphIndexForCharacter(at: range.location)
             let line = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
             controls.append(Header(id: id, page: page,
-                                  frame: CGRect(x: CodexBookLayout.pageInset, y: CodexBookLayout.pageInset + line.minY, width: content.width, height: 20)))
+                                  frame: CGRect(x: AgentBookPageStyle.pageInset, y: AgentBookPageStyle.pageInset + line.minY, width: content.width, height: 20)))
         }
         return controls
     }
@@ -321,8 +326,8 @@ final class AgentBookPageLayout: ObservableObject {
         for (answerIndex, source) in input.answers.enumerated() {
             let document = AgentBookRenderedContent(content: source, width: content.width, colorScheme: colorScheme)
             let text = NSMutableAttributedString(attributedString: document.text)
-            let lineHeight = CodexBookLayout.codeLineHeight
-            let linesPerPage = max(1, Int((content.height - 2 * CodexBookLayout.codeInset - 16) / lineHeight))
+            let lineHeight = AgentBookCodeStyle.codeLineHeight
+            let linesPerPage = max(1, Int((content.height - 2 * AgentBookCodeStyle.codeInset - 16) / lineHeight))
             for (codeIndex, code) in document.codes.enumerated().reversed() {
                 let lines = code.text.components(separatedBy: "\n")
                 let replacement = NSMutableAttributedString(string: "")
@@ -331,10 +336,10 @@ final class AgentBookPageLayout: ObservableObject {
                     let chunk = lines[start..<end].joined(separator: "\n") + (end < lines.count ? "\n" : "")
                     let attachment = NSTextAttachment()
                     attachment.bounds = CGRect(x: 0, y: 0, width: code.size.width,
-                                               height: CGFloat(end - start) * lineHeight + 2 * CodexBookLayout.codeInset)
+                                               height: CGFloat(end - start) * lineHeight + 2 * AgentBookCodeStyle.codeInset)
                     attachment.attachmentCell = AgentBookCodeCell()
                     let part = NSMutableAttributedString(attachment: attachment)
-                    part.addAttributes([.codexBookCodeSource: chunk,
+                    part.addAttributes([.agentBookCodeSource: chunk,
                                         .agentBookCodeID: "\(turn.id)/\(answerIndex)/\(codeIndex)/\(start)"],
                                        range: NSRange(location: 0, length: 1))
                     replacement.append(part)
@@ -347,7 +352,7 @@ final class AgentBookPageLayout: ObservableObject {
             }
             text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
                 guard let attachment = value as? NSTextAttachment,
-                      text.attribute(.codexBookCodeSource, at: range.location, effectiveRange: nil) == nil else { return }
+                      text.attribute(.agentBookCodeSource, at: range.location, effectiveRange: nil) == nil else { return }
                 let size = attachment.bounds.size
                 let scale = min(1, min(content.width / max(1, size.width), (content.height - 24) / max(1, size.height)))
                 if scale < 1 {
@@ -380,7 +385,7 @@ private final class AgentBookLayoutManager: NSLayoutManager {
     override func fillBackgroundRectArray(_ rectArray: UnsafePointer<NSRect>, count rectCount: Int,
                                           forCharacterRange charRange: NSRange, color: NSColor) {
         guard let storage = textStorage, charRange.location < storage.length,
-              let background = storage.attribute(.codexInlineCodeBackground, at: charRange.location,
+              let background = storage.attribute(.agentBookInlineCodeBackground, at: charRange.location,
                                                  effectiveRange: nil) as? NSColor,
               background == color else {
             super.fillBackgroundRectArray(rectArray, count: rectCount, forCharacterRange: charRange, color: color)
@@ -401,16 +406,16 @@ private extension NSAttributedString.Key {
 
 private struct AgentBookRenderedContent {
     let text: NSAttributedString
-    let codes: [CodexMarkdownDocument.Code]
+    let codes: [AgentBookMarkdownDocument.Code]
 
     init(content: AgentContent, width: CGFloat, colorScheme: ColorScheme) {
         switch content {
         case .markdown(let source):
-            let document = CodexMarkdownDocument(source: source, width: width, colorScheme: colorScheme)
+            let document = AgentBookMarkdownDocument(source: source, width: width, colorScheme: colorScheme)
             text = document.text
             codes = document.codes
         case .code:
-            let document = CodexMarkdownDocument(source: content.agentBookMarkdown, width: width, colorScheme: colorScheme)
+            let document = AgentBookMarkdownDocument(source: content.agentBookMarkdown, width: width, colorScheme: colorScheme)
             text = document.text
             codes = document.codes
         case .text(let source):
