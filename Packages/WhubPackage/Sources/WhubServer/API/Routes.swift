@@ -12,7 +12,13 @@ func makeRouter(files: FilesAPI, manager: ManagerAPI) -> Router<BasicRequestCont
     router.put("files/write") { request, _ -> Response in
         await files.writeText(request)
     }
-    router.post("manager/updates") { request, _ in await manager.handle(request, action: .start) }
+    router.post("manager/updates") { request, _ in await manager.handle(request, action: .start(.update)) }
+    router.post("manager/fetch") { request, _ in await manager.handle(request, action: .start(.fetch)) }
+    router.get("manager/commits") { request, _ in await manager.handle(request, action: .commits) }
+    router.post("manager/builds") { request, _ in await manager.handle(request, action: .start(.build)) }
+    router.get("manager/builds") { request, _ in await manager.handle(request, action: .builds) }
+    router.post("manager/apply") { request, _ in await manager.handle(request, action: .start(.apply)) }
+    router.post("manager/restart") { request, _ in await manager.handle(request, action: .start(.restart)) }
     router.get("manager/updates") { request, _ in await manager.handle(request, action: .history) }
     router.get("manager/updates/:id") { request, context in
         await manager.handle(request, action: .update(context.parameters.get("id") ?? ""))

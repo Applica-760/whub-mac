@@ -1,6 +1,6 @@
 # WhubServerのリリース
 
-`WhubServer`内の`Services/Manager/Releases/ServerReleases`が、ビルドからdev／prodの切り替え、失敗時の旧版復元までを実行する。HTTPのManager APIが更新を受け付け、同じ実行ファイルを別プロセスで起動して更新を完遂する。常駐Serverのsystemd初回登録は別途必要。
+`WhubServer`内の`Services/Manager/ServerManager`が、取得・ビルド・適用などの操作を進行する。Git操作は`ServerSource`、コンパイルと成果物の作成は`ServerBuild`、成果物の保管・dev／prodの切り替え・再起動・失敗時の旧版復元は`ServerReleases`、要求・状態・履歴・ログ・ロックの保存は`ServerOperationStore`が担当する。5ファイルとも`Services/Manager/`直下に置く。HTTPのManager APIが更新を受け付け、同じ実行ファイルを別プロセスで起動して更新を完遂する。常駐Serverのsystemd初回登録は別途必要。
 
 初めて接続するときは「呼び出す前の準備」と「HTTPから更新する」を読む。中断や失敗が起きた場合は「履歴を確認する」「中断後は手動で復旧する」を参照する。
 
@@ -11,7 +11,7 @@ Linux上でSwift・Git・systemd userサービスを使えることが前提。�
 - ソースはcleanなGit checkoutとし、`origin`を設定する。Buildはdetached checkoutへ切り替え、元ブランチには戻さない。更新中はソースを編集しない。
 - 保存先はソースcheckoutの外に置き、dev／prodの全更新で同じ絶対パスを使う。同じcheckoutを使う別のBuildも並行実行しない。
 - dev／prodそれぞれのsystemd userサービスを事前に登録し、`ExecStart`に各環境の`current/whub-server`の絶対パスを指定する。シェルやラッパーを介さず、Server自身をMainPIDとして管理する。
-- サービスごとに`WHUB_SERVER_HOST`・`WHUB_SERVER_PORT`を設定する。ポートは環境間で分ける。渡すhealth URLは、そのサービスの`/ping`を直接指す。
+- Serverは`127.0.0.1`または`::1`だけで待ち受ける。それ以外の`WHUB_SERVER_HOST`では起動を拒否する。`WHUB_SERVER_PORT`は環境間で分け、health URLも同じloopbackアドレスの`/ping`を指定する。Macからは既存のSSH接続のポート転送を使う。
 - systemdの起動・停止タイムアウトは有限値にする。更新プロセスは`systemd-run --user`で独立した一時サービスとして起動する。常駐Serverと同じサービスには属さない。ログアウト後・OS再起動後の常駐設定は後続作業。
 - systemd 254以降を使う。起動引数の環境変数展開を無効にする`--expand-environment=no`を使用する（[systemdの公式文書](https://github.com/systemd/systemd/blob/v254/man/systemd-run.xml)）。
 
@@ -19,7 +19,7 @@ Files APIの閲覧ルートはMacが保持し、`/files/list`・`/files/read`の
 
 ## Manager APIを有効にする
 
-通常のHTTP起動は`whub-server`のまま。次の環境変数をServerのサービスへ設定する。Files APIとManager APIは両方とも必須。必要な設定が未指定・不完全な場合や短いトークンの場合は起動を拒否する。
+通常のHTTP起動は`whub-server`のまま。次の環境変数をServerのサービスへ設定する。Files APIとManager APIは両方とも必須。必要な設定が未指定・不完全な場合は起動を拒否する。
 
 | 環境変数 | 値 |
 | --- | --- |
@@ -29,23 +29,55 @@ Files APIの閲覧ルートはMacが保持し、`/files/list`・`/files/read`の
 | `WHUB_MANAGER_SWIFT` | Swift実行ファイルの絶対パス |
 | `WHUB_MANAGER_SERVICE` | このServerを管理するsystemd userサービス名 |
 | `WHUB_MANAGER_HEALTH_URL` | このServerの`/ping`へ直接接続するURL |
-| `WHUB_MANAGER_TOKEN` | 空白を含まない32文字以上のASCIIトークン。環境ごとに別の値を使う |
 
-トークンはManager APIの全操作で`Authorization: Bearer <token>`として送る。トークンをソースや更新要求ファイルへ保存しない。環境変数を設定したServerが現在の環境とサービス・ポートを正しく指していることを確認する。
+Manager APIのトークン認証は使用しない。接続はSSHで認証し、ServerのHTTPポートは外部へ公開しない。同じLinuxホスト内のプロセスからはHTTPへアクセスできる。
+
+既存環境の移行では、Serverのサービス設定を`WHUB_SERVER_HOST=127.0.0.1`、health URLを`http://127.0.0.1:<port>/ping`へ変更し、`WHUB_MANAGER_TOKEN`を削除する。MacのHost設定のDev／Prod URLも`http://127.0.0.1:<port>`へ変更する。このURLはSSH接続先のLinux上のアドレスを指し、Mac自身のServerへ直接接続するものではない。旧Serverはトークン認証が必要なため、新しいMacの管理画面を使う前にServerの更新が必要。
 
 ## HTTPから更新する
 
 | メソッド・パス | 結果 |
 | --- | --- |
-| `POST /manager/updates` | 更新を受け付け、202と更新ID・Locationを返す |
+| `POST /manager/fetch` | devのリモート情報を取得する。checkoutや稼働版は変えない |
+| `GET /manager/commits` | この環境の最新の成功したFetchで保存したコミット一覧を返す |
+| `POST /manager/builds` | ビルド成果物を保存する。稼働版は変えない |
+| `GET /manager/builds` | この環境の成功したBuildのうち、利用可能な成果物を返す |
+| `POST /manager/apply` | 選択済みのビルド成果物へ切り替える |
+| `POST /manager/restart` | 現在のcurrentを再起動する |
+| `POST /manager/updates` | 従来の取得・ビルド・適用を一括で実行する |
 | `GET /manager/updates` | この環境の更新履歴を開始日時順に返す |
 | `GET /manager/updates/<id>` | 更新1件の状態・結果・エラーを返す |
 | `GET /manager/updates/<id>/log?offset=0` | 指定位置から最大1 MiBのログと`nextOffset`を返す |
 | `GET /manager/status` | 稼働版、current・previous、同環境の更新情報と共通ロックの有無を返す |
 
-POSTは`Content-Type: application/json`、本文は4 KiB以下とする。devでは`{"ref":"refs/remotes/origin/feature/example"}`のようにrefを指定する。prodでは`{}`を送り、必ずfetchした`refs/remotes/origin/main`のcommitをビルドする。ref以外のフィールド、任意の環境・パス・サービス名・コマンドは受け付けない。
+すべてのPOSTは202と操作ID・Location（`/manager/updates/<id>`）を返す。履歴・状態・ログもこの操作IDで取得する。
 
-更新はdev／prodを含めて一度に1件だけ実行する。受付時に共通ロックを確保し、要求と`queued`状態を保存する。更新中の追加要求は待たせず409で拒否する。認証失敗は401、不正入力は400、対象なし・別環境の更新IDは404、起動確認の失敗は503を返す。エラー本文は`{"error":{"code":"...","message":"..."}}`形式。履歴・結果・ログの応答は最大8 MiBで、超過時は413を返す。
+POSTは`Content-Type: application/json`、本文は4 KiB以下とする。各フィールドの値は文字列とし、表にないフィールドや任意の環境・パス・サービス名・コマンドは受け付けない。
+
+| 操作 | devの本文 | prodの本文 |
+| --- | --- | --- |
+| Fetch | `{}` | 受付不可。Build時に取得する |
+| Build | `{"commit":"<完全なcommit SHA>"}` | `{}`。fetch後の最新`origin/main`を自動選択 |
+| Apply | `{"buildID":"<build ID>"}` | `{"buildID":"<build ID>"}` |
+| Restart | `{}` | `{}` |
+| 従来の一括更新 | `{"ref":"refs/remotes/origin/feature/example"}`など | `{}`または`{"ref":"refs/remotes/origin/main"}` |
+
+devはFetch → コミット選択 → Build → 成果物選択 → Applyの順に操作する。devのBuildは追加のfetchを行わず、指定された完全なSHAのコミットをビルドする。prodはBuild → 成果物選択 → Applyとし、Build後にmainが進んでもApplyは選択した成果物をそのまま適用する。Applyできるのは同じ環境で分離したBuildが成功した成果物だけ。一括更新は従来どおり取得・ビルド・適用まで実行する。
+
+### HTTP処理の役割
+
+`Routes.swift`はパスを`ManagerAPI.Action`へ対応づける。更新操作は`.start(ServerOperation)`、参照操作は履歴・ログ・状態などのActionで表す。
+
+- `handle`：クエリの検証、Actionの振り分け、エラーのHTTP応答への変換。クエリを受け付けるのはログの`offset`だけ。
+- `acceptOperation`：操作ごとの許可フィールドを決め、要求を読み取って`ServerManager.start`へ渡し、202とLocationを返す。
+- `readValidatedJSONFields`：Content-Type・本文サイズ・文字列フィールド・許可フィールドを検証し、辞書を返す。必須値・環境制約・commitや成果物の妥当性はServiceが検証する。
+- `makeJSONResponse`：JSON化と日時のミリ秒表現、8 MiBの応答上限、Content-Type・no-storeを設定する。
+
+既存のFiles APIはパス制約や書き込み条件が異なるため、このManager専用処理と共通化しない。`/ping`は従来どおりプレーンテキストの`pong`を返す。
+
+### 受付後の確認
+
+更新はdev／prodを含めて一度に1件だけ実行する。受付時に共通ロックを確保し、要求と`queued`状態を保存する。更新中の追加要求は待たせず409で拒否する。不正入力は400、対象なし・別環境の更新IDは404、操作プロセスの起動を確認できなかった場合は503を返す。受付後のビルド・起動確認の失敗は操作の状態へ記録する。エラー本文は`{"error":{"code":"...","message":"..."}}`形式。履歴・結果・ログの応答は最大8 MiBで、超過時は413を返す。
 
 受付後はLocationのURLを問い合わせる。Server切り替え時は短い接続断が発生するため、再接続後も同じ更新IDを使う。202は受付を意味し、更新完了を意味しない。応答を受信できなかった場合は、再要求する前に履歴を確認する。
 
@@ -84,7 +116,8 @@ POSTは`Content-Type: application/json`、本文は4 KiB以下とする。devで
 │       └── previous → <root>/releases/<old-build-id>
 ├── updates/<update-id>/
 │   ├── state.json
-│   ├── request.json             # Server設定とref。トークンは含めない
+│   ├── request.json             # Server設定・操作種別・ref・build ID
+│   ├── commits.json             # Fetch成功時のコミット一覧
 │   ├── runner                   # 更新中だけ保持する実行ファイルのコピー
 │   └── build.log
 └── update.lock/                 # 更新IDとworkerの実行予約。中断時は残る
@@ -92,13 +125,15 @@ POSTは`Content-Type: application/json`、本文は4 KiB以下とする。devで
 
 Buildの出力先には`updates/<update-id>/artifact`を渡し、成功した成果物を`releases/<build-id>`へ移す。ビルド失敗時は現行Serverを維持する。配置済みの成果物は上書き・自動削除しない。
 
-ビルド成功後、旧`current`を`previous`へ記録し、`current`のシンボリックリンクをatomicに置き換える。その後に`systemctl --user restart`を実行する。起動確認ではMainPIDの`/proc/<pid>/exe`と対象実行ファイルを照合し、`/ping`がHTTP 200と`pong`を返すことを確認する。約1秒間隔で最大30回試行する。HTTP待機時間とsystemdの処理時間は別にかかる。
+Applyまたは一括更新のビルド成功後、旧`current`を`previous`へ記録し、`current`のシンボリックリンクをatomicに置き換える。その後に`systemctl --user restart`を実行する。起動確認ではMainPIDの`/proc/<pid>/exe`と対象実行ファイルを照合し、`/ping`がHTTP 200と`pong`を返すことを確認する。約1秒間隔で最大30回試行する。HTTP待機時間とsystemdの処理時間は別にかかる。
+
+同じ成果物へのApplyは再起動せず、previousも変更しない。Restartはcurrent・previousを変更せず再起動・起動確認を行う。
 
 切り替え後に失敗した場合は旧`current`へ戻し、旧Serverを再起動・確認する。初回導入では旧版がないため、`current`を取り除いて対象サービスを停止する。失敗した新成果物も調査用に残す。
 
 ## 履歴を確認する
 
-`try releases.history()`で保存済みの更新履歴を開始日時順に取得する。dev／prodは各記録の`environment`で区別する。`state.json`には次の情報を保存する。日時はUnix時刻のミリ秒。
+`try manager.history()`で保存済みの更新履歴を開始日時順に取得する。dev／prodは各記録の`environment`で区別する。`state.json`には次の情報を保存する。日時はUnix時刻のミリ秒。
 
 | フィールド | 意味 |
 | --- | --- |
@@ -107,16 +142,20 @@ Buildの出力先には`updates/<update-id>/artifact`を渡し、成功した成
 | `activeBuild` | 処理の結果、稼働を確認できたbuild ID。更新前の値は既存currentから引き継ぐ。切り替え中や復旧失敗時は不明 |
 | `status` | 下表の処理状態 |
 | `error`・`errorCode` | 失敗理由と識別用コード。復旧も失敗した場合は両方の理由を記録 |
-| `ref` | ビルドに指定したref。commitは各成果物の`build.json`で確認 |
+| `operation` | `update`・`fetch`・`build`・`apply`・`restart`。旧記録で省略されている場合は`update`として扱う |
+| `ref` | ビルドに指定したrefまたはcommit SHA。Fetch・Apply・Restartでは空文字列 |
+| `commit` | Buildで確定した、またはApplyで選択した成果物のcommit SHA |
 
 | status | 意味 |
 | --- | --- |
 | `queued` | 受付済み。更新プロセスの実行待ち |
 | `launch_failed` | 更新プロセスの起動を確認できなかった。ロックは要確認 |
-| `building` | ビルド中 |
+| `fetching` | Fetchによるリモート情報の取得中 |
+| `building` | ビルド中。prodの取得も含む |
 | `switching` | 成果物を保管済み。切り替え・起動確認中 |
+| `restarting` | 現在のcurrentを再起動・起動確認中 |
 | `rolling_back` | 旧版への復元処理中 |
-| `succeeded` | 新版の起動確認が成功 |
+| `succeeded` | 指定操作が成功。Build単独では成果物の保存までで、稼働版は変わらない |
 | `failed` | 更新失敗。切り替え前なら現行維持、初回導入の切り替え後なら停止済み |
 | `rolled_back` | 更新失敗後、旧版の起動確認が成功 |
 | `recovery_failed` | 更新も復旧も失敗。実際の稼働状態は要確認 |

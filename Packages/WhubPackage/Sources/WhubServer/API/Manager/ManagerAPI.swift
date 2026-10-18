@@ -2,50 +2,39 @@ import Foundation
 import Hummingbird
 
 struct ManagerAPI: Sendable {
-    let releases: ServerReleases
+    let manager: ServerManager
     let configuration: ManagerConfiguration
-    let token: String
     let executable: URL
     // Capture at startup: current may already point to another build during an update.
     let running: BuildArtifact?
 
     enum Action: Sendable {
-        case start, history, update(String), log(String), status
+        case start(ServerOperation)
+        case history, update(String), log(String), status, commits, builds
     }
 
     func handle(_ request: Request, action: Action) async -> Response {
         do {
-            guard authorized(request.headers[.authorization]) else { throw ManagerAPIError.unauthorized }
             switch action {
-            case .start:
-                guard request.uri.query == nil,
-                      request.headers[.contentType]?.split(separator: ";").first?.lowercased() == "application/json" else {
-                    throw ManagerAPIError.invalidRequest
-                }
-                let ref: String?
-                do {
-                    let buffer = try await request.body.collect(upTo: 4096)
-                    guard let object = try JSONSerialization.jsonObject(with: Data(buffer.readableBytesView)) as? [String: Any],
-                          object.keys.allSatisfy({ $0 == "ref" }),
-                          object["ref"] == nil || object["ref"] is String else { throw ManagerAPIError.invalidRequest }
-                    ref = object["ref"] as? String
-                } catch { throw ManagerAPIError.invalidRequest }
-                let update = try await Task.detached {
-                    try releases.start(configuration: configuration, ref: ref, executable: executable)
-                }.value
-                var response = try json(update, status: .accepted)
-                response.headers[.location] = "/manager/updates/\(update.id)"
-                return response
+            case .log: break
+            default:
+                guard request.uri.query == nil else { throw ManagerAPIError.invalidRequest }
+            }
+            switch action {
+            case .start(let operation):
+                return try await acceptOperation(request, operation: operation)
+            case .commits:
+                return try makeJSONResponse(try await Task.detached { try manager.commits(environment: configuration.environment) }.value)
+            case .builds:
+                return try makeJSONResponse(try await Task.detached { try manager.builds(environment: configuration.environment) }.value)
             case .history:
-                guard request.uri.query == nil else { throw ManagerAPIError.invalidRequest }
                 let updates = try await Task.detached {
-                    try releases.history(environment: configuration.environment)
+                    try manager.history(environment: configuration.environment)
                 }.value
-                return try json(updates)
+                return try makeJSONResponse(updates)
             case .update(let id):
-                guard request.uri.query == nil else { throw ManagerAPIError.invalidRequest }
-                let update = try await Task.detached { try releases.readUpdate(id: id, environment: configuration.environment) }.value
-                return try json(update)
+                let update = try await Task.detached { try manager.readUpdate(id: id, environment: configuration.environment) }.value
+                return try makeJSONResponse(update)
             case .log(let id):
                 let offset: UInt64
                 if let query = request.uri.query {
@@ -57,36 +46,57 @@ struct ManagerAPI: Sendable {
                     offset = value
                 } else { offset = 0 }
                 let log = try await Task.detached {
-                    try releases.log(id: id, environment: configuration.environment, offset: offset)
+                    try manager.log(id: id, environment: configuration.environment, offset: offset)
                 }.value
-                return try json(log)
+                return try makeJSONResponse(log)
             case .status:
-                guard request.uri.query == nil else { throw ManagerAPIError.invalidRequest }
                 let status = try await Task.detached {
-                    try releases.status(environment: configuration.environment, running: running)
+                    try manager.status(environment: configuration.environment, running: running)
                 }.value
-                return try json(status)
+                return try makeJSONResponse(status)
             }
         } catch let error as ManagerAPIError {
             return error.response
         } catch let error as ReleaseError {
+            return ManagerAPIError(error).response
+        } catch let error as BuildError {
             return ManagerAPIError(error).response
         } catch {
             return ManagerAPIError.operationFailed.response
         }
     }
 
-    private func authorized(_ header: String?) -> Bool {
-        guard !token.isEmpty, let header, header.hasPrefix("Bearer ") else { return false }
-        let supplied = Array(header.dropFirst(7).utf8)
-        let expected = Array(token.utf8)
-        guard supplied.count == expected.count else { return false }
-        var difference: UInt8 = 0
-        for index in expected.indices { difference |= supplied[index] ^ expected[index] }
-        return difference == 0
+    private func acceptOperation(_ request: Request, operation: ServerOperation) async throws -> Response {
+        let allowedFields: Set<String>
+        switch operation {
+        case .update: allowedFields = ["ref"]
+        case .fetch, .restart: allowedFields = []
+        case .build: allowedFields = ["commit"]
+        case .apply: allowedFields = ["buildID"]
+        }
+        let fields = try await readValidatedJSONFields(request, allowedFields: allowedFields)
+        let update = try await Task.detached {
+            try manager.start(configuration: configuration, ref: fields["ref"] ?? fields["commit"],
+                               executable: executable, operation: operation, buildID: fields["buildID"])
+        }.value
+        var response = try makeJSONResponse(update, status: .accepted)
+        response.headers[.location] = "/manager/updates/\(update.id)"
+        return response
     }
 
-    private func json<Value: Encodable>(_ value: Value, status: HTTPResponse.Status = .ok) throws -> Response {
+    private func readValidatedJSONFields(_ request: Request, allowedFields: Set<String>) async throws -> [String: String] {
+        guard request.headers[.contentType]?.split(separator: ";").first?.lowercased() == "application/json" else {
+            throw ManagerAPIError.invalidRequest
+        }
+        do {
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let values = try JSONSerialization.jsonObject(with: Data(buffer.readableBytesView)) as? [String: String],
+                  Set(values.keys).isSubset(of: allowedFields) else { throw ManagerAPIError.invalidRequest }
+            return values
+        } catch { throw ManagerAPIError.invalidRequest }
+    }
+
+    private func makeJSONResponse<Value: Encodable>(_ value: Value, status: HTTPResponse.Status = .ok) throws -> Response {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .millisecondsSince1970
         let data = try encoder.encode(value)

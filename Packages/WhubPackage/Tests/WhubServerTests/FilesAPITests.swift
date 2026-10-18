@@ -25,8 +25,8 @@ private final class FilesFixture: Sendable {
         }
         let configuration = ManagerConfiguration(environment: .dev, source: directory, swift: "/usr/bin/swift",
                                                  service: "fixture", healthURL: URL(string: "http://127.0.0.1/ping")!)
-        let manager = ManagerAPI(releases: ServerReleases(root: directory.appendingPathComponent("manager")),
-                                 configuration: configuration, token: String(repeating: "x", count: 32),
+        let manager = ManagerAPI(manager: ServerManager(root: directory.appendingPathComponent("manager")),
+                                 configuration: configuration,
                                  executable: directory, running: nil)
         app = Application(router: makeRouter(files: FilesAPI(), manager: manager))
     }

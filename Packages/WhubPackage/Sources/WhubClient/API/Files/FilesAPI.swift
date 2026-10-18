@@ -28,7 +28,7 @@ public struct FilesAPI: Sendable {
         guard !path.isEmpty else { throw WhubClientError.invalidPath }
         struct Reply: Decodable { let text: String }
         let body = try JSONEncoder().encode(["expectedText": expectedText, "text": text])
-        let data = try await client.request("files/write", query: query(root: root, path: path), body: body)
+        let data = try await client.request("files/write", method: "PUT", query: query(root: root, path: path), body: body)
         return try client.decode(Reply.self, from: data).text
     }
 
