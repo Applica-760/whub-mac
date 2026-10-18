@@ -8,6 +8,7 @@
 Files/
 ├── README.md
 ├── Model/
+│   ├── EditorTab.swift            // ファイルタブ・差分タブを表す
 │   ├── FileLocation.swift         // ローカル・リモートのファイル位置を表す
 │   └── ExplorerItem.swift         // ツリーに表示する項目を表す
 ├── Store/

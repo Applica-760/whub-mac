@@ -2,11 +2,6 @@ import AppKit
 import SwiftUI
 import WhubCore
 
-nonisolated enum EditorTab: Hashable, Sendable {
-    case file(FileLocation)
-    case diff(URL)
-}
-
 struct EditorTabBarView: View {
     @EnvironmentObject private var store: EditorStore
     @EnvironmentObject private var gitStore: GitStore
