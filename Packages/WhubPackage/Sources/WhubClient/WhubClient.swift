@@ -27,6 +27,8 @@ public struct WhubClient: Sendable {
 
     public var files: FilesAPI { FilesAPI(client: self) }
 
+    public func manager(token: String) -> ManagerAPI { ManagerAPI(client: self, token: token) }
+
     public init(baseURL: URL, session: URLSession = .shared) throws {
         guard let components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
               let scheme = components.scheme, ["http", "https"].contains(scheme.lowercased()),
@@ -44,7 +46,8 @@ public struct WhubClient: Sendable {
         guard data == Data("pong".utf8) else { throw WhubClientError.invalidResponse }
     }
 
-    func request(_ path: String, query: [URLQueryItem] = [], body: Data? = nil) async throws -> Data {
+    func request(_ path: String, method: String = "GET", query: [URLQueryItem] = [],
+                 body: Data? = nil, token: String? = nil, expectedStatus: Int = 200) async throws -> Data {
         try Task.checkCancellation()
         guard var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
             throw WhubClientError.invalidURL
@@ -56,14 +59,15 @@ public struct WhubClient: Sendable {
         }
         guard let url = components.url else { throw WhubClientError.invalidURL }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-        request.httpMethod = body == nil ? "GET" : "PUT"
+        request.httpMethod = method
         request.httpBody = body
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         let (data, response) = try await session.data(for: request)
         try Task.checkCancellation()
         guard let response = response as? HTTPURLResponse else { throw WhubClientError.invalidResponse }
         guard data.count <= 8 * 1_048_576 else { throw WhubClientError.responseTooLarge }
-        guard response.statusCode == 200 else {
+        guard response.statusCode == expectedStatus else {
             struct Reply: Decodable {
                 struct Detail: Decodable { let code: String; let message: String }
                 let error: Detail
@@ -75,7 +79,9 @@ public struct WhubClient: Sendable {
     }
 
     func decode<Value: Decodable>(_ type: Value.Type, from data: Data) throws -> Value {
-        do { return try JSONDecoder().decode(type, from: data) }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .millisecondsSince1970
+        do { return try decoder.decode(type, from: data) }
         catch { throw WhubClientError.invalidResponse }
     }
 }
