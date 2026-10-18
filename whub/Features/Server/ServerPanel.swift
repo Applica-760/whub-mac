@@ -8,28 +8,28 @@ struct ServerPanel: View {
     private var state: ServerPanelState { store.state(environment) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(environment.rawValue).font(.subheadline.bold())
             Text(store.host?.url(for: environment) ?? "URL未設定")
-                .font(.caption2.monospaced())
+                .font(.callout.monospaced())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(store.host?.url(for: environment) ?? "URL未設定")
                 .textSelection(.enabled)
-            Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 6) {
+            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 10) {
                 GridRow {
                     Text("状態")
                     Text(state.checkedAt == nil ? "未確認" : "最終確認：応答あり")
                         .foregroundStyle(.secondary)
                     Button("再起動") { confirmation = .restart }
-                        .frame(width: 48)
+                        .frame(width: 60, alignment: .leading)
                         .disabled(state.checkedAt == nil)
                 }
                 GridRow {
                     Text("稼働")
                     Text(state.running?.label ?? "未取得")
-                        .font(.caption2.monospaced())
+                        .font(.callout.monospaced())
                         .lineLimit(1)
                         .textSelection(.enabled)
                     Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
@@ -58,7 +58,7 @@ struct ServerPanel: View {
                             ForEach(state.commits) { commit in Text(commit.label).tag(commit.id) }
                         }
                         .labelsHidden()
-                        .frame(minWidth: 0, maxWidth: .infinity)
+                        .frame(width: 180, alignment: .leading)
                     } else {
                         Text("最新main（自動）").foregroundStyle(.secondary)
                     }
@@ -72,25 +72,14 @@ struct ServerPanel: View {
                         ForEach(state.builds) { build in Text(build.label).tag(build.id) }
                     }
                     .labelsHidden()
-                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .frame(width: 180, alignment: .leading)
                     Button("Apply") { confirmation = .apply }
-                        .frame(width: 48)
+                        .frame(width: 60, alignment: .leading)
                         .disabled(state.selectedBuild.isEmpty || state.checkedAt == nil)
                 }
             }
             .buttonStyle(.bordered)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(store.isBusy || store.host == nil)
-            HStack(spacing: 4) {
-                Text("確認")
-                if let checkedAt = state.checkedAt {
-                    Text(checkedAt, format: .dateTime.hour().minute().second())
-                } else {
-                    Text("未取得 · 上のリロードで確認")
-                }
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .confirmationDialog(
@@ -115,7 +104,7 @@ struct ServerPanel: View {
         Button(action.rawValue) {
             Task { await store.run(action, environment: environment) }
         }
-        .frame(width: 48)
+        .frame(width: 60, alignment: .leading)
     }
 
     private func selection(_ field: WritableKeyPath<ServerPanelState, String>) -> Binding<String> {

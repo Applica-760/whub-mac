@@ -4,7 +4,7 @@ struct ServerLogView: View {
     @ObservedObject var store: ServerStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("ログ").font(.subheadline.bold())
                 Spacer()
@@ -17,7 +17,7 @@ struct ServerLogView: View {
                 .disabled(store.isBusy)
             }
             ScrollView {
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: 8) {
                     if store.visibleLogs.isEmpty {
                         Text("操作結果・エラーをここに表示します。")
                             .foregroundStyle(.secondary)
@@ -30,20 +30,20 @@ struct ServerLogView: View {
                         }
                     }
                 }
-                .font(.caption2.monospaced())
+                .font(.callout.monospaced())
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 142)
+            .frame(height: 180)
             HStack(spacing: 5) {
                 if let activity = store.activity {
-                    ProgressView().controlSize(.mini)
+                    ProgressView().controlSize(.small)
                     Text(activity)
                 } else {
                     Text("Mock · 実通信なし")
                 }
             }
-            .font(.caption2)
+            .font(.callout)
             .foregroundStyle(.secondary)
         }
     }

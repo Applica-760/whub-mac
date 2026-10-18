@@ -84,6 +84,7 @@ final class ServerStore: ObservableObject {
     var isBusy: Bool { activity != nil }
     var host: ServerHost? { hosts.first { $0.id == hostID } }
     var visibleLogs: [ServerLogEntry] { logs.filter { $0.hostID == hostID } }
+    var checkedAt: Date? { ServerEnvironment.allCases.compactMap { state($0).checkedAt }.max() }
 
     init(backend: any ServerBackend, hosts: [ServerHost]) {
         self.backend = backend

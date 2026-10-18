@@ -7,17 +7,22 @@ struct ServerWidget: View {
 
     var body: some View {
         WidgetFrame {
-            HStack(alignment: .top, spacing: 12) {
-                ServerPanel(store: store, environment: .dev)
-                Divider()
-                ServerPanel(store: store, environment: .prod)
-                Divider()
-                ServerLogView(store: store)
-                    .frame(minWidth: 0, maxWidth: .infinity)
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 16) {
+                    ServerPanel(store: store, environment: .dev)
+                        .frame(width: 320)
+                    Divider()
+                    ServerPanel(store: store, environment: .prod)
+                        .frame(width: 320)
+                    Divider()
+                    ServerLogView(store: store)
+                        .frame(width: 320)
+                }
+                .frame(height: 240, alignment: .top)
+                .padding(14)
             }
-            .font(.caption)
-            .controlSize(.mini)
-            .padding(10)
+            .font(.body)
+            .controlSize(.small)
         } header: {
             HStack(spacing: 8) {
                 Label("Server", systemImage: "server.rack")
@@ -44,8 +49,19 @@ struct ServerWidget: View {
                 .help("Dev・Prodをリロード")
                 .accessibilityLabel("Dev・Prodをリロード")
                 .disabled(store.isBusy)
+                Group {
+                    if let checkedAt = store.checkedAt {
+                        Text("状態取得 \(checkedAt.formatted(date: .omitted, time: .standard))")
+                    } else {
+                        Text("状態未取得")
+                    }
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
                 Spacer()
             }
         }
+        .frame(maxWidth: 1090)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
