@@ -8,7 +8,6 @@ struct AgentBookOutputView: View {
         DisclosureGroup {
             ScrollView(.horizontal) {
                 VStack(alignment: .leading, spacing: 8) {
-                    if case .toolUse = output { Text(output.agentBookTitle).bold() }
                     Text(output.agentBookText.isEmpty ? "出力なし" : output.agentBookText)
                 }
                 .font(.system(size: 12, design: .monospaced))
