@@ -27,7 +27,7 @@ public struct WhubClient: Sendable {
 
     public var files: FilesAPI { FilesAPI(client: self) }
 
-    public func manager(token: String) -> ManagerAPI { ManagerAPI(client: self, token: token) }
+    public var manager: ManagerAPI { ManagerAPI(client: self) }
 
     public init(baseURL: URL, session: URLSession = .shared) throws {
         guard let components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
@@ -47,7 +47,7 @@ public struct WhubClient: Sendable {
     }
 
     func request(_ path: String, method: String = "GET", query: [URLQueryItem] = [],
-                 body: Data? = nil, token: String? = nil, expectedStatus: Int = 200) async throws -> Data {
+                 body: Data? = nil, expectedStatus: Int = 200) async throws -> Data {
         try Task.checkCancellation()
         guard var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
             throw WhubClientError.invalidURL
@@ -61,7 +61,6 @@ public struct WhubClient: Sendable {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
         request.httpMethod = method
         request.httpBody = body
-        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         let (data, response) = try await session.data(for: request)
         try Task.checkCancellation()

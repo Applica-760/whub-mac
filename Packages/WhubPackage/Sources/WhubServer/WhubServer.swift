@@ -6,7 +6,7 @@ enum ConfigurationError: Error, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .invalidAddress: "WHUB_SERVER_HOST must not be empty."
+        case .invalidAddress: "WHUB_SERVER_HOST must be 127.0.0.1 or ::1. Connect through SSH forwarding."
         case .invalidPort: "WHUB_SERVER_PORT must be an integer between 1 and 65535."
         }
     }
@@ -28,7 +28,7 @@ struct WhubServer {
         }
         let environment = ProcessInfo.processInfo.environment
         let host = environment["WHUB_SERVER_HOST"] ?? "127.0.0.1"
-        guard !host.isEmpty else { throw ConfigurationError.invalidAddress }
+        guard ["127.0.0.1", "::1"].contains(host) else { throw ConfigurationError.invalidAddress }
         guard let port = Int(environment["WHUB_SERVER_PORT"] ?? "8080"), (1...65535).contains(port) else {
             throw ConfigurationError.invalidPort
         }
@@ -44,17 +44,15 @@ struct WhubServer {
 
     static func managerAPI(_ values: [String: String]) throws -> ManagerAPI {
         let keys = ["WHUB_SERVER_ENVIRONMENT", "WHUB_MANAGER_ROOT", "WHUB_MANAGER_SOURCE", "WHUB_MANAGER_SWIFT",
-                    "WHUB_MANAGER_SERVICE", "WHUB_MANAGER_HEALTH_URL", "WHUB_MANAGER_TOKEN"]
+                    "WHUB_MANAGER_SERVICE", "WHUB_MANAGER_HEALTH_URL"]
         guard keys.allSatisfy({ values[$0]?.isEmpty == false }),
               let environment = ServerEnvironment(rawValue: values["WHUB_SERVER_ENVIRONMENT"]!),
               ["WHUB_MANAGER_ROOT", "WHUB_MANAGER_SOURCE", "WHUB_MANAGER_SWIFT"].allSatisfy({ values[$0]!.hasPrefix("/") }),
               let healthURL = URL(string: values["WHUB_MANAGER_HEALTH_URL"]!),
               ["http", "https"].contains(healthURL.scheme), healthURL.host != nil,
               let service = values["WHUB_MANAGER_SERVICE"], !service.hasPrefix("-"),
-              service.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.@".contains($0)) }),
-              let token = values["WHUB_MANAGER_TOKEN"], token.utf8.count >= 32,
-              token.allSatisfy({ $0.isASCII && !$0.isWhitespace && !$0.isNewline }) else {
-            throw ReleaseError("invalid_configuration", "Manager requires all WHUB_MANAGER_* settings, dev/prod environment, absolute paths and a token of at least 32 ASCII characters.")
+              service.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.@".contains($0)) }) else {
+            throw ReleaseError("invalid_configuration", "Manager requires all WHUB_MANAGER_* settings, dev/prod environment and absolute paths.")
         }
         let configuration = ManagerConfiguration(environment: environment,
                                                  source: URL(fileURLWithPath: values["WHUB_MANAGER_SOURCE"]!),
@@ -69,6 +67,6 @@ struct WhubServer {
         let metadata = executable.resolvingSymlinksInPath().deletingLastPathComponent().appendingPathComponent("build.json")
         let running = try? JSONDecoder().decode(BuildArtifact.self, from: Data(contentsOf: metadata))
         return ManagerAPI(manager: ServerManager(root: URL(fileURLWithPath: values["WHUB_MANAGER_ROOT"]!)),
-                          configuration: configuration, token: token, executable: executable, running: running)
+                          configuration: configuration, executable: executable, running: running)
     }
 }

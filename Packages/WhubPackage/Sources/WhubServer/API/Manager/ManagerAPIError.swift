@@ -2,7 +2,6 @@ import Foundation
 import Hummingbird
 
 enum ManagerAPIError: String, Error {
-    case unauthorized
     case invalidRequest = "invalid_request"
     case invalidRef = "invalid_ref"
     case invalidCommit = "invalid_commit"
@@ -27,8 +26,6 @@ enum ManagerAPIError: String, Error {
         let status: HTTPResponse.Status
         let message: String
         switch self {
-        case .unauthorized:
-            status = .unauthorized; message = "Manager APIの認証が必要です。"
         case .invalidRequest:
             status = .badRequest; message = "リクエストが不正です。操作に対応したフィールドだけを含む4 KiB以下のJSONを指定してください。"
         case .invalidRef:
@@ -53,9 +50,8 @@ enum ManagerAPIError: String, Error {
             status = .internalServerError; message = "Managerの処理に失敗しました。"
         }
         let data = try! JSONEncoder().encode(["error": ["code": rawValue, "message": message]])
-        var response = Response(status: status, headers: [.contentType: "application/json", .cacheControl: "no-store"],
+        let response = Response(status: status, headers: [.contentType: "application/json", .cacheControl: "no-store"],
                                 body: .init(byteBuffer: .init(bytes: data)))
-        if self == .unauthorized { response.headers[.wwwAuthenticate] = "Bearer" }
         return response
     }
 }

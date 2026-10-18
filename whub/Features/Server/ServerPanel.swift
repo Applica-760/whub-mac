@@ -1,4 +1,6 @@
 import SwiftUI
+import WhubClient
+import WhubCore
 
 struct ServerPanel: View {
     private enum Row: String, CaseIterable {
@@ -52,13 +54,13 @@ struct ServerPanel: View {
                 let environment = confirmation.environment
                 let state = store.state(environment)
                 let build = state.builds.first { $0.id == state.selectedBuild }
-                Text("\(store.host?.name ?? "") / \(environment.rawValue)\n\(store.host?.url(for: environment) ?? "")\n\(confirmation.action == .apply ? build?.label ?? "" : state.running?.label ?? "")\nMock：サンプルデータだけが変化します。")
+                Text("\(store.host?.name ?? "") / \(environment.rawValue)\n\(store.host.flatMap { environment.url(for: $0) } ?? "")\n\(confirmation.action == .apply ? build?.label ?? "" : state.running?.label ?? "")")
             }
         }
     }
 
     private func url(_ environment: ServerEnvironment) -> some View {
-        let url = store.host?.url(for: environment) ?? "URL未設定"
+        let url = store.host.flatMap { environment.url(for: $0) } ?? "URL未設定"
         return Text(url)
             .font(.callout.monospaced())
             .foregroundStyle(.secondary)
@@ -73,7 +75,7 @@ struct ServerPanel: View {
         let state = store.state(environment)
         switch row {
         case .status:
-            Text(state.checkedAt == nil ? "未確認" : "最終確認：応答あり")
+            Text(state.error != nil ? "取得・操作失敗" : state.checkedAt == nil ? "未確認" : state.locked ? "操作ロック中" : "最終確認：応答あり")
                 .foregroundStyle(.secondary)
         case .running:
             Text(state.running?.label ?? "未取得")
@@ -85,7 +87,7 @@ struct ServerPanel: View {
                 if let date = state.fetchedAt {
                     Text(date, format: .dateTime.hour().minute().second())
                 } else {
-                    Text(environment == .dev ? "未取得" : "Build時にFetch")
+                    Text(environment == .dev ? (state.commits.isEmpty ? "未取得" : "取得済み") : "Build時にFetch")
                 }
             }
             .foregroundStyle(.secondary)
@@ -93,7 +95,7 @@ struct ServerPanel: View {
             if environment == .dev {
                 Picker("Dev commit", selection: selection(\.selectedCommit, environment)) {
                     Text("選択").tag("")
-                    ForEach(state.commits) { commit in Text(commit.label).tag(commit.id) }
+                    ForEach(state.commits, id: \.id) { commit in Text(commit.label).tag(commit.id) }
                 }
                 .labelsHidden()
             } else {
@@ -102,7 +104,7 @@ struct ServerPanel: View {
         case .build:
             Picker("\(environment.rawValue) ビルド", selection: selection(\.selectedBuild, environment)) {
                 Text(state.builds.isEmpty ? "ビルドなし" : "選択").tag("")
-                ForEach(state.builds) { build in Text(build.label).tag(build.id) }
+                ForEach(state.builds, id: \.id) { build in Text(build.label).tag(build.id) }
             }
             .labelsHidden()
         }
@@ -113,15 +115,15 @@ struct ServerPanel: View {
         switch row {
         case .status:
             Button("再起動") { confirmation = (.restart, environment) }
-                .disabled(state.checkedAt == nil)
+                .disabled(state.running == nil || state.locked)
         case .fetch where environment == .dev:
-            actionButton(.fetch, environment)
+            actionButton(.fetch, environment).disabled(state.locked)
         case .commit:
             actionButton(.build, environment)
-                .disabled(environment == .dev && state.selectedCommit.isEmpty)
+                .disabled(state.locked || (environment == .dev && state.selectedCommit.isEmpty))
         case .build:
             Button("Apply") { confirmation = (.apply, environment) }
-                .disabled(state.selectedBuild.isEmpty || state.checkedAt == nil)
+                .disabled(state.selectedBuild.isEmpty || state.checkedAt == nil || state.locked)
         default:
             Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
         }

@@ -8,13 +8,6 @@ struct ServerLogView: View {
             HStack {
                 Text("ログ").font(.title3.bold())
                 Spacer()
-                Menu("Mockエラー") {
-                    Button("認証エラー") { sampleError("unauthorized：Manager APIの認証が必要です。") }
-                    Button("ビルド失敗") { sampleError("build_failed：ビルドに失敗しました。ログを確認してください。") }
-                    Button("接続失敗") { sampleError("接続できません。状態不明。停止時は手動復旧してください。") }
-                }
-                .fixedSize()
-                .disabled(store.isBusy)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
@@ -25,7 +18,7 @@ struct ServerLogView: View {
                     ForEach(store.visibleLogs.reversed()) { entry in
                         HStack(alignment: .top, spacing: 4) {
                             if entry.isError { Image(systemName: "exclamationmark.triangle") }
-                            Text("\(entry.date.formatted(date: .omitted, time: .standard)) \(entry.environment?.rawValue ?? "Mock") · \(entry.message)")
+                            Text("\(entry.date.formatted(date: .omitted, time: .standard)) \(entry.environment.rawValue) · \(entry.message)")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -48,7 +41,7 @@ struct ServerLogView: View {
                     ProgressView().controlSize(.small)
                     Text(activity)
                 } else {
-                    Text("Mock · 実通信なし")
+                    Text("待機中")
                 }
             }
             .font(.callout)
@@ -56,7 +49,4 @@ struct ServerLogView: View {
         }
     }
 
-    private func sampleError(_ message: String) {
-        store.append(message, hostID: store.hostID, isError: true)
-    }
 }

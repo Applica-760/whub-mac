@@ -11,7 +11,7 @@ Linux上でSwift・Git・systemd userサービスを使えることが前提。�
 - ソースはcleanなGit checkoutとし、`origin`を設定する。Buildはdetached checkoutへ切り替え、元ブランチには戻さない。更新中はソースを編集しない。
 - 保存先はソースcheckoutの外に置き、dev／prodの全更新で同じ絶対パスを使う。同じcheckoutを使う別のBuildも並行実行しない。
 - dev／prodそれぞれのsystemd userサービスを事前に登録し、`ExecStart`に各環境の`current/whub-server`の絶対パスを指定する。シェルやラッパーを介さず、Server自身をMainPIDとして管理する。
-- サービスごとに`WHUB_SERVER_HOST`・`WHUB_SERVER_PORT`を設定する。ポートは環境間で分ける。渡すhealth URLは、そのサービスの`/ping`を直接指す。
+- Serverは`127.0.0.1`または`::1`だけで待ち受ける。それ以外の`WHUB_SERVER_HOST`では起動を拒否する。`WHUB_SERVER_PORT`は環境間で分け、health URLも同じloopbackアドレスの`/ping`を指定する。Macからは既存のSSH接続のポート転送を使う。
 - systemdの起動・停止タイムアウトは有限値にする。更新プロセスは`systemd-run --user`で独立した一時サービスとして起動する。常駐Serverと同じサービスには属さない。ログアウト後・OS再起動後の常駐設定は後続作業。
 - systemd 254以降を使う。起動引数の環境変数展開を無効にする`--expand-environment=no`を使用する（[systemdの公式文書](https://github.com/systemd/systemd/blob/v254/man/systemd-run.xml)）。
 
@@ -19,7 +19,7 @@ Files APIの閲覧ルートはMacが保持し、`/files/list`・`/files/read`の
 
 ## Manager APIを有効にする
 
-通常のHTTP起動は`whub-server`のまま。次の環境変数をServerのサービスへ設定する。Files APIとManager APIは両方とも必須。必要な設定が未指定・不完全な場合や短いトークンの場合は起動を拒否する。
+通常のHTTP起動は`whub-server`のまま。次の環境変数をServerのサービスへ設定する。Files APIとManager APIは両方とも必須。必要な設定が未指定・不完全な場合は起動を拒否する。
 
 | 環境変数 | 値 |
 | --- | --- |
@@ -29,9 +29,10 @@ Files APIの閲覧ルートはMacが保持し、`/files/list`・`/files/read`の
 | `WHUB_MANAGER_SWIFT` | Swift実行ファイルの絶対パス |
 | `WHUB_MANAGER_SERVICE` | このServerを管理するsystemd userサービス名 |
 | `WHUB_MANAGER_HEALTH_URL` | このServerの`/ping`へ直接接続するURL |
-| `WHUB_MANAGER_TOKEN` | 空白を含まない32文字以上のASCIIトークン。環境ごとに別の値を使う |
 
-トークンはManager APIの全操作で`Authorization: Bearer <token>`として送る。トークンをソースや更新要求ファイルへ保存しない。環境変数を設定したServerが現在の環境とサービス・ポートを正しく指していることを確認する。
+Manager APIのトークン認証は使用しない。接続はSSHで認証し、ServerのHTTPポートは外部へ公開しない。同じLinuxホスト内のプロセスからはHTTPへアクセスできる。
+
+既存環境の移行では、Serverのサービス設定を`WHUB_SERVER_HOST=127.0.0.1`、health URLを`http://127.0.0.1:<port>/ping`へ変更し、`WHUB_MANAGER_TOKEN`を削除する。MacのHost設定のDev／Prod URLも`http://127.0.0.1:<port>`へ変更する。このURLはSSH接続先のLinux上のアドレスを指し、Mac自身のServerへ直接接続するものではない。旧Serverはトークン認証が必要なため、新しいMacの管理画面を使う前にServerの更新が必要。
 
 ## HTTPから更新する
 
@@ -67,17 +68,16 @@ devはFetch → コミット選択 → Build → 成果物選択 → Applyの順
 
 `Routes.swift`はパスを`ManagerAPI.Action`へ対応づける。更新操作は`.start(ServerOperation)`、参照操作は履歴・ログ・状態などのActionで表す。
 
-- `handle`：Bearer認証、クエリの検証、Actionの振り分け、エラーのHTTP応答への変換。クエリを受け付けるのはログの`offset`だけ。
+- `handle`：クエリの検証、Actionの振り分け、エラーのHTTP応答への変換。クエリを受け付けるのはログの`offset`だけ。
 - `acceptOperation`：操作ごとの許可フィールドを決め、要求を読み取って`ServerManager.start`へ渡し、202とLocationを返す。
 - `readValidatedJSONFields`：Content-Type・本文サイズ・文字列フィールド・許可フィールドを検証し、辞書を返す。必須値・環境制約・commitや成果物の妥当性はServiceが検証する。
-- `hasValidBearerToken`：Bearerトークンの一致を判定する。
 - `makeJSONResponse`：JSON化と日時のミリ秒表現、8 MiBの応答上限、Content-Type・no-storeを設定する。
 
 既存のFiles APIはパス制約や書き込み条件が異なるため、このManager専用処理と共通化しない。`/ping`は従来どおりプレーンテキストの`pong`を返す。
 
 ### 受付後の確認
 
-更新はdev／prodを含めて一度に1件だけ実行する。受付時に共通ロックを確保し、要求と`queued`状態を保存する。更新中の追加要求は待たせず409で拒否する。認証失敗は401、不正入力は400、対象なし・別環境の更新IDは404、操作プロセスの起動を確認できなかった場合は503を返す。受付後のビルド・起動確認の失敗は操作の状態へ記録する。エラー本文は`{"error":{"code":"...","message":"..."}}`形式。履歴・結果・ログの応答は最大8 MiBで、超過時は413を返す。
+更新はdev／prodを含めて一度に1件だけ実行する。受付時に共通ロックを確保し、要求と`queued`状態を保存する。更新中の追加要求は待たせず409で拒否する。不正入力は400、対象なし・別環境の更新IDは404、操作プロセスの起動を確認できなかった場合は503を返す。受付後のビルド・起動確認の失敗は操作の状態へ記録する。エラー本文は`{"error":{"code":"...","message":"..."}}`形式。履歴・結果・ログの応答は最大8 MiBで、超過時は413を返す。
 
 受付後はLocationのURLを問い合わせる。Server切り替え時は短い接続断が発生するため、再接続後も同じ更新IDを使う。202は受付を意味し、更新完了を意味しない。応答を受信できなかった場合は、再要求する前に履歴を確認する。
 
@@ -116,7 +116,7 @@ devはFetch → コミット選択 → Build → 成果物選択 → Applyの順
 │       └── previous → <root>/releases/<old-build-id>
 ├── updates/<update-id>/
 │   ├── state.json
-│   ├── request.json             # Server設定・操作種別・ref・build ID。トークンは含めない
+│   ├── request.json             # Server設定・操作種別・ref・build ID
 │   ├── commits.json             # Fetch成功時のコミット一覧
 │   ├── runner                   # 更新中だけ保持する実行ファイルのコピー
 │   └── build.log

@@ -44,7 +44,6 @@ public struct ManagerAPI: Sendable {
     }
 
     let client: WhubClient
-    let token: String
 
     public func status() async throws -> Status {
         try await read(Status.self, "manager/status")
@@ -87,13 +86,13 @@ public struct ManagerAPI: Sendable {
     }
 
     private func read<Value: Decodable>(_ type: Value.Type, _ path: String, query: [URLQueryItem] = []) async throws -> Value {
-        let data = try await client.request(path, query: query, token: token)
+        let data = try await client.request(path, query: query)
         return try client.decode(type, from: data)
     }
 
     private func start(_ path: String, fields: [String: String] = [:]) async throws -> Update {
         let body = try JSONEncoder().encode(fields)
-        let data = try await client.request(path, method: "POST", body: body, token: token, expectedStatus: 202)
+        let data = try await client.request(path, method: "POST", body: body, expectedStatus: 202)
         return try client.decode(Update.self, from: data)
     }
 }

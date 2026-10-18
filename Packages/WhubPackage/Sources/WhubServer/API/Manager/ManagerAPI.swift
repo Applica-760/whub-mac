@@ -4,7 +4,6 @@ import Hummingbird
 struct ManagerAPI: Sendable {
     let manager: ServerManager
     let configuration: ManagerConfiguration
-    let token: String
     let executable: URL
     // Capture at startup: current may already point to another build during an update.
     let running: BuildArtifact?
@@ -16,7 +15,6 @@ struct ManagerAPI: Sendable {
 
     func handle(_ request: Request, action: Action) async -> Response {
         do {
-            guard hasValidBearerToken(request.headers[.authorization]) else { throw ManagerAPIError.unauthorized }
             switch action {
             case .log: break
             default:
@@ -96,16 +94,6 @@ struct ManagerAPI: Sendable {
                   Set(values.keys).isSubset(of: allowedFields) else { throw ManagerAPIError.invalidRequest }
             return values
         } catch { throw ManagerAPIError.invalidRequest }
-    }
-
-    private func hasValidBearerToken(_ header: String?) -> Bool {
-        guard !token.isEmpty, let header, header.hasPrefix("Bearer ") else { return false }
-        let supplied = Array(header.dropFirst(7).utf8)
-        let expected = Array(token.utf8)
-        guard supplied.count == expected.count else { return false }
-        var difference: UInt8 = 0
-        for index in expected.indices { difference |= supplied[index] ^ expected[index] }
-        return difference == 0
     }
 
     private func makeJSONResponse<Value: Encodable>(_ value: Value, status: HTTPResponse.Status = .ok) throws -> Response {
