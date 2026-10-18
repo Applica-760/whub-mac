@@ -1,0 +1,61 @@
+# AgentBook
+
+[Agent](../Agent/README.md) の会話を、タブと本の見開きで表示する。タブの構成・通知・入力操作・読書位置を担当する。
+
+## 構成と責務
+
+主要な境界に関係するファイルを示す。`…` は省略部分。
+
+```text
+AgentBook/
+├── README.md
+├── Store/
+│   ├── AgentBookStore.swift       // タブ一覧・選択・再開処理を保持し、タブの置換を調整
+│   └── AgentBookTabStore.swift    // Agent側の3つのStoreと、用途・完了通知・通知日時を保持
+└── View/
+    ├── AgentBookView.swift        // タブごとのViewを保持し、切り替え・閉じる確認を担当
+    ├── AgentBookTabView.swift     // 1タブの本文・入力・操作部を組み合わせ、接続を開始
+    ├── Controls/
+    │   ├── AgentBookInputView.swift
+    │   │                          // 入力・候補選択・コマンド操作と、入力／読書フォーカスを担当
+    │   ├── AgentBookNavigationView.swift
+    │   │                          // 見開きの移動操作を担当
+    │   └── …                     // タブ選択・モデル／エージェント選択のUI
+    └── Exchange/
+        ├── AgentBookExchangeView.swift
+        │                          // 会話の変更をページ配置へ渡し、ヘッダー・承認UIを重ねる
+        ├── AgentBookOutputView.swift
+        │                          // 作業履歴の表示と、Agent出力の表示用変換を担当
+        ├── AgentBookResponseView.swift
+        │                          // 承認・質問の回答UIとショートカットを担当
+        └── Page/
+            ├── AgentBookPageLayout.swift
+            │                      // 表示文書・ページ範囲・見開き位置・操作部品の座標を保持
+            ├── AgentBookTextView.swift
+            │                      // AppKitのページ・コード表示を配置し、選択・コピーを担当
+            └── Markdown/
+                ├── AgentBookMarkdownDocument.swift
+                │                  // Markdownの段落・表・コードを表示用の属性付き文字列へ変換
+                └── AgentBookMathRenderer.swift
+                                   // 数式の元ソースを保持し、数式画像・本文装飾を生成
+```
+
+## タブの状態と会話の状態を分ける
+
+`AgentBookTabStore` は `AgentStore`・`AgentHistoryStore`・`AgentSkillStore` を保持する。会話本文・下書き・接続／実行状態はAgent側、用途・完了通知・通知日時はタブ側に置く。履歴やスキルの一覧をView内に別途保持しない。
+
+`AgentBookStore.resume` は再開先を別のタブとして準備し、成功後に元のタブを置き換える。同じエージェント種別・会話IDのタブが開いていれば再利用する。再開失敗時に元の会話を失わないため、Viewから先に元タブを消さない。
+
+## ページ配置は会話データから作る表示状態
+
+`AgentBookExchangeView` が `AgentBookPageLayout` を保持する。Markdownの見た目は `AgentBookMarkdownDocument`、ページへの配置は `AgentBookPageLayout`、実際のAppKit Viewの配置は `AgentBookTextSurface`（AgentBookTextView.swift内）が担当する。改ページや折りたたみの変更で `AgentStore.exchanges` を加工しない。
+
+コードは横スクロール用の別Viewで描画し、本文には配置用の添付部品を入れている。現状はページ1枚分の行数でコードを先に分割するため、ページの残り高さに合わせた途中分割はしていない。コードや数式のコピーには、表示文字列や画像ではなく保持した元ソースを使う。
+
+## 変更時に守る境界
+
+- タブの追加・削除・会話の新規作成・再開・エージェント種別の変更は `AgentBookStore` を通す。最後のタブを閉じても1つ残し、選択IDが実在する状態を保つ。
+- タブ切り替えには共通の [RetainedPageContainer](../../Components/RetainedPageContainer.swift) を使う。非表示になっただけで会話を切断しない。非表示タブ・Featureの承認操作やキー入力は無効にする。
+- 接続先の作業ディレクトリは `AgentBookStore.connect` で決める。履歴のディレクトリ、Local HostのBase Path、ホームの順に使う。Viewや入力欄で別の決定処理を作らない。
+- 本文更新はExchangeViewで間引き、再表示時に最新の会話を渡す。ページ配置を変える際は、未変更の先頭部分の再利用と、リサイズ・更新時の読書位置／選択範囲の復元を維持する。
+- タブ操作とページ内操作は別に扱う。ページ移動は読書フォーカス、送信は入力フォーカスとの関係を確認し、非表示の画面がショートカットを受け取らないようにする。境界を変えたら、このREADMEも更新する。
