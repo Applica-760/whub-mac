@@ -28,17 +28,150 @@ private func updateDecoder() -> JSONDecoder {
     let app = Application(router: makeRouter(files: FilesAPI(), manager: api))
     try await app.test(.router) { client in
         let id = UUID().uuidString
-        for uri in ["/manager/status", "/manager/updates", "/manager/updates/\(id)", "/manager/updates/\(id)/log"] {
+        for uri in ["/manager/status", "/manager/commits", "/manager/builds", "/manager/updates", "/manager/updates/\(id)", "/manager/updates/\(id)/log"] {
             let response = try await client.execute(uri: uri, method: .get)
             #expect(response.status == .unauthorized)
             #expect(response.headers[.wwwAuthenticate] == "Bearer")
         }
-        let response = try await client.execute(uri: "/manager/updates", method: .post)
-        #expect(response.status == .unauthorized)
+        for uri in ["/manager/updates", "/manager/fetch", "/manager/builds", "/manager/apply", "/manager/restart"] {
+            let response = try await client.execute(uri: uri, method: .post)
+            #expect(response.status == .unauthorized)
+        }
         let wrong = try await client.execute(uri: "/manager/status", method: .get, headers: [.authorization: "Bearer wrong"])
         #expect(wrong.status == .unauthorized)
         #expect(try api.releases.history().isEmpty)
     }
+}
+
+@Test func managerNewRoutesExposeSeparateOperationsArtifactsAndCommitSnapshot() async throws {
+    let fixture = try BuildFixture()
+    let api = managerAPI(fixture)
+    let commit = try fixture.git(["rev-parse", "HEAD"])
+    let app = Application(router: makeRouter(files: FilesAPI(), manager: api))
+    let headers: HTTPFields = [.authorization: "Bearer \(managerToken)", .contentType: "application/json"]
+    try await app.test(.router) { client in
+        var buildID = ""
+        for action in [ServerOperation.fetch, .build, .apply, .restart] {
+            let path = action == .build ? "builds" : action.rawValue
+            let body: String
+            switch action {
+            case .build: body = "{\"commit\":\"\(commit)\"}"
+            case .apply: body = "{\"buildID\":\"\(buildID)\"}"
+            default: body = "{}"
+            }
+            let response = try await client.execute(uri: "/manager/\(path)", method: .post, headers: headers,
+                                                    body: .init(string: body))
+            #expect(response.status == .accepted)
+            let queued = try updateDecoder().decode(ServerUpdate.self, from: Data(response.body.readableBytesView))
+            #expect(queued.operation == action)
+            #expect(response.headers[.location] == "/manager/updates/\(queued.id)")
+            let completed = try await api.releases.perform(id: queued.id)
+            #expect(completed.status == "succeeded")
+            if action == .fetch {
+                let commits = try await client.execute(uri: "/manager/commits", method: .get, headers: headers)
+                #expect(commits.status == .ok)
+                let values = try updateDecoder().decode([ServerCommit].self, from: Data(commits.body.readableBytesView))
+                #expect(values.map(\.id) == [commit])
+                #expect(values[0].committedAt.timeIntervalSince1970 > 0)
+            }
+            if action == .build {
+                buildID = try #require(completed.targetBuild)
+                #expect(!FileManager.default.fileExists(atPath: api.releases.root.appendingPathComponent("environments/dev/current").path))
+                let builds = try await client.execute(uri: "/manager/builds", method: .get, headers: headers)
+                #expect(builds.status == .ok)
+                let values = try updateDecoder().decode([BuildArtifact].self, from: Data(builds.body.readableBytesView))
+                #expect(values.map(\.id) == [buildID])
+            }
+            if action == .apply || action == .restart { #expect(completed.activeBuild == buildID) }
+            let detail = try await client.execute(uri: "/manager/updates/\(queued.id)", method: .get, headers: headers)
+            #expect(try updateDecoder().decode(ServerUpdate.self, from: Data(detail.body.readableBytesView)).status == "succeeded")
+            let log = try await client.execute(uri: "/manager/updates/\(queued.id)/log?offset=0", method: .get, headers: headers)
+            #expect(log.status == .ok)
+        }
+    }
+}
+
+@Test func managerNewRoutesRejectWrongFieldsAndProdCommitSelection() async throws {
+    let fixture = try BuildFixture()
+    let headers: HTTPFields = [.authorization: "Bearer \(managerToken)", .contentType: "application/json"]
+    let dev = managerAPI(fixture)
+    try await Application(router: makeRouter(files: FilesAPI(), manager: dev)).test(.router) { client in
+        for (path, body) in [
+            ("builds", "{}"), ("builds", #"{"commit":"main"}"#), ("builds", #"{"commit":null}"#),
+            ("builds", #"{"ref":"main"}"#), ("builds", #"{"commit":42}"#),
+            ("apply", "{}"), ("apply", #"{"buildID":"../outside"}"#),
+            ("fetch", #"{"commit":"main"}"#), ("restart", #"{"service":"other"}"#),
+            ("fetch", "[]"), ("fetch", String(repeating: "x", count: 4097)),
+        ] {
+            let response = try await client.execute(uri: "/manager/\(path)", method: .post, headers: headers,
+                                                    body: .init(string: body))
+            #expect(response.status == .badRequest)
+        }
+        let restart = try await client.execute(uri: "/manager/restart", method: .post, headers: headers, body: .init(string: "{}"))
+        #expect(restart.status == .notFound)
+        for path in ["fetch", "builds", "apply", "restart"] {
+            let response = try await client.execute(uri: "/manager/\(path)?extra=1", method: .post, headers: headers,
+                                                    body: .init(string: "{}"))
+            #expect(response.status == .badRequest)
+        }
+    }
+    let prod = managerAPI(fixture, environment: .prod)
+    try await Application(router: makeRouter(files: FilesAPI(), manager: prod)).test(.router) { client in
+        for path in ["fetch", "builds"] {
+            let response = try await client.execute(uri: "/manager/\(path)", method: .post, headers: headers,
+                                                    body: .init(string: #"{"commit":"main"}"#))
+            #expect(response.status == .badRequest)
+        }
+        let commits = try await client.execute(uri: "/manager/commits", method: .get, headers: headers)
+        #expect(commits.status == .badRequest)
+        let response = try await client.execute(uri: "/manager/builds", method: .post, headers: headers, body: .init(string: "{}"))
+        #expect(response.status == .accepted)
+        let queued = try updateDecoder().decode(ServerUpdate.self, from: Data(response.body.readableBytesView))
+        #expect(try await prod.releases.perform(id: queued.id).status == "succeeded")
+    }
+}
+
+@Test func managerRejectsChangedArtifactMetadataBeforeApply() async throws {
+    let fixture = try BuildFixture()
+    let api = managerAPI(fixture)
+    let commit = try fixture.git(["rev-parse", "HEAD"])
+    let queued = try api.releases.start(configuration: api.configuration, ref: commit, executable: fixture.swift, operation: .build)
+    let built = try await api.releases.perform(id: queued.id)
+    let id = try #require(built.targetBuild)
+    let metadata = api.releases.root.appendingPathComponent("releases/\(id)/build.json")
+    try JSONEncoder().encode(BuildArtifact(id: id, commit: "changed")).write(to: metadata, options: .atomic)
+    try await Application(router: makeRouter(files: FilesAPI(), manager: api)).test(.router) { client in
+        let response = try await client.execute(uri: "/manager/apply", method: .post,
+            headers: [.authorization: "Bearer \(managerToken)", .contentType: "application/json"],
+            body: .init(string: "{\"buildID\":\"\(id)\"}"))
+        #expect(response.status == .conflict)
+        #expect(!FileManager.default.fileExists(atPath: api.releases.root.appendingPathComponent("update.lock").path))
+    }
+}
+
+@Test func newFetchAndBuildRunInCopiedWorkerWithoutHTTPConfiguration() throws {
+    let fixture = try BuildFixture()
+    let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let executable = package.appendingPathComponent(".build/debug/whub-server")
+    let api = managerAPI(fixture, executable: executable) { root, id, runner in
+        let process = Process()
+        process.executableURL = runner
+        process.arguments = ["update", root.path, id]
+        process.environment = ["PATH": "/usr/bin:/bin", "HOME": NSHomeDirectory()]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+    }
+    let commit = try fixture.git(["rev-parse", "HEAD"])
+    for action in [ServerOperation.fetch, .build] {
+        let queued = try api.releases.start(configuration: api.configuration, ref: action == .build ? commit : nil,
+                                           executable: executable, operation: action)
+        #expect(try api.releases.readUpdate(id: queued.id).status == "succeeded")
+    }
+    #expect(try api.releases.builds(environment: .dev).count == 1)
+    #expect(!fixture.fm.fileExists(atPath: api.releases.root.appendingPathComponent("environments/dev/current").path))
 }
 
 @Test func managerAcceptsPersistedUpdateAndExposesResultHistoryAndLogs() async throws {

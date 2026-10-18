@@ -11,31 +11,38 @@ struct ManagerAPI: Sendable {
 
     enum Action: Sendable {
         case start, history, update(String), log(String), status
+        case fetch, commits, build, builds, apply, restart
     }
 
     func handle(_ request: Request, action: Action) async -> Response {
         do {
             guard authorized(request.headers[.authorization]) else { throw ManagerAPIError.unauthorized }
             switch action {
-            case .start:
-                guard request.uri.query == nil,
-                      request.headers[.contentType]?.split(separator: ";").first?.lowercased() == "application/json" else {
-                    throw ManagerAPIError.invalidRequest
+            case .start, .fetch, .build, .apply, .restart:
+                let operation: ServerOperation
+                let allowed: Set<String>
+                switch action {
+                case .start: operation = .update; allowed = ["ref"]
+                case .fetch: operation = .fetch; allowed = []
+                case .build: operation = .build; allowed = ["commit"]
+                case .apply: operation = .apply; allowed = ["buildID"]
+                case .restart: operation = .restart; allowed = []
+                default: throw ManagerAPIError.invalidRequest
                 }
-                let ref: String?
-                do {
-                    let buffer = try await request.body.collect(upTo: 4096)
-                    guard let object = try JSONSerialization.jsonObject(with: Data(buffer.readableBytesView)) as? [String: Any],
-                          object.keys.allSatisfy({ $0 == "ref" }),
-                          object["ref"] == nil || object["ref"] is String else { throw ManagerAPIError.invalidRequest }
-                    ref = object["ref"] as? String
-                } catch { throw ManagerAPIError.invalidRequest }
+                let values = try await parameters(request, allowed: allowed)
                 let update = try await Task.detached {
-                    try releases.start(configuration: configuration, ref: ref, executable: executable)
+                    try releases.start(configuration: configuration, ref: values["ref"] ?? values["commit"],
+                                       executable: executable, operation: operation, buildID: values["buildID"])
                 }.value
                 var response = try json(update, status: .accepted)
                 response.headers[.location] = "/manager/updates/\(update.id)"
                 return response
+            case .commits:
+                guard request.uri.query == nil else { throw ManagerAPIError.invalidRequest }
+                return try json(try await Task.detached { try releases.commits(environment: configuration.environment) }.value)
+            case .builds:
+                guard request.uri.query == nil else { throw ManagerAPIError.invalidRequest }
+                return try json(try await Task.detached { try releases.builds(environment: configuration.environment) }.value)
             case .history:
                 guard request.uri.query == nil else { throw ManagerAPIError.invalidRequest }
                 let updates = try await Task.detached {
@@ -71,9 +78,24 @@ struct ManagerAPI: Sendable {
             return error.response
         } catch let error as ReleaseError {
             return ManagerAPIError(error).response
+        } catch let error as BuildError {
+            return ManagerAPIError(error).response
         } catch {
             return ManagerAPIError.operationFailed.response
         }
+    }
+
+    private func parameters(_ request: Request, allowed: Set<String>) async throws -> [String: String] {
+        guard request.uri.query == nil,
+              request.headers[.contentType]?.split(separator: ";").first?.lowercased() == "application/json" else {
+            throw ManagerAPIError.invalidRequest
+        }
+        do {
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let values = try JSONSerialization.jsonObject(with: Data(buffer.readableBytesView)) as? [String: String],
+                  Set(values.keys).isSubset(of: allowed) else { throw ManagerAPIError.invalidRequest }
+            return values
+        } catch { throw ManagerAPIError.invalidRequest }
     }
 
     private func authorized(_ header: String?) -> Bool {

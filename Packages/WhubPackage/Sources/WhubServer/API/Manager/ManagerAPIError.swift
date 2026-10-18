@@ -5,6 +5,8 @@ enum ManagerAPIError: String, Error {
     case unauthorized
     case invalidRequest = "invalid_request"
     case invalidRef = "invalid_ref"
+    case invalidCommit = "invalid_commit"
+    case invalidBuild = "invalid_build"
     case invalidID = "invalid_id"
     case invalidOffset = "invalid_offset"
     case notFound = "not_found"
@@ -17,6 +19,10 @@ enum ManagerAPIError: String, Error {
         self = Self(rawValue: error.code) ?? .operationFailed
     }
 
+    init(_ error: BuildError) {
+        self = Self(rawValue: error.code) ?? .operationFailed
+    }
+
     var response: Response {
         let status: HTTPResponse.Status
         let message: String
@@ -24,9 +30,13 @@ enum ManagerAPIError: String, Error {
         case .unauthorized:
             status = .unauthorized; message = "Manager APIの認証が必要です。"
         case .invalidRequest:
-            status = .badRequest; message = "リクエストが不正です。更新開始はrefだけを含む4 KiB以下のJSONを指定してください。"
+            status = .badRequest; message = "リクエストが不正です。操作に対応したフィールドだけを含む4 KiB以下のJSONを指定してください。"
         case .invalidRef:
             status = .badRequest; message = "devは有効なrefの指定が必要です。prodはorigin/main固定です。"
+        case .invalidCommit:
+            status = .badRequest; message = "DevのBuildには完全なcommit IDを指定してください。"
+        case .invalidBuild:
+            status = .conflict; message = "ビルド成果物と保存情報が一致しません。履歴と成果物を確認してください。"
         case .invalidID:
             status = .badRequest; message = "更新IDが不正です。"
         case .invalidOffset:
