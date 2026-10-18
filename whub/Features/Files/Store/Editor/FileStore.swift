@@ -17,6 +17,11 @@ final class FileStore: ObservableObject {
     let textStorage: NSTextStorage
     let undoManager = UndoManager()
     let editorViews = CodeEditorViews()
+    struct EditorPosition {
+        var selectedRanges: [NSRange]
+        var scrollOrigin: NSPoint
+    }
+    var editorPositions: [String: EditorPosition] = [:]
     var onContentChange: (() -> Void)?
     var saveAction: (() -> Void)?
     var canSave: (() -> Bool)?

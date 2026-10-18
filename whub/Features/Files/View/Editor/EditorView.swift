@@ -1,11 +1,15 @@
+import Combine
 import SwiftUI
 import WhubCore
 
 struct EditorView: View {
     @State private var tabFocus = TabPaneFocus()
+    @State private var wasActive = false
+    @Environment(\.isRetainedPageActive) private var isActive
+    @Environment(\.retainedPageActivity) private var activity
     @EnvironmentObject private var store: EditorStore
     @EnvironmentObject private var files: FilesStore
-    @SceneStorage("fileEditorID") private var editorID = UUID().uuidString
+    @State private var editorID = UUID().uuidString
 
     var body: some View {
         WidgetFrame {
@@ -30,6 +34,31 @@ struct EditorView: View {
             }
         }
         .background(TabPaneFocusView(focus: tabFocus))
+        .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) { active in
+            guard active != wasActive else { return }
+            wasActive = active
+            if active { restoreEditorFocus() }
+            else { currentEditor?.savePosition() }
+        }
+    }
+
+    private var currentEditor: CodeTextView? {
+        guard case let .file(location) = store.selectedTab else { return nil }
+        return store.file(for: location)?.editorViews.views[editorID]?.documentView as? CodeTextView
+    }
+
+    private func restoreEditorFocus() {
+        guard activity?.isActive.value ?? isActive, let editor = currentEditor,
+              editor.fileStore?.editorPositions[editorID] != nil, let window = editor.window else { return }
+        let tab = store.selectedTab
+        let responder = window.firstResponder
+        DispatchQueue.main.async {
+            guard activity?.isActive.value != false, store.selectedTab == tab,
+                  window.isKeyWindow, window.attachedSheet == nil,
+                  window.firstResponder === responder || window.firstResponder === window || window.firstResponder == nil,
+                  editor.window === window, !editor.isHiddenOrHasHiddenAncestor else { return }
+            if window.makeFirstResponder(editor) { editor.restorePosition() }
+        }
     }
 }
 

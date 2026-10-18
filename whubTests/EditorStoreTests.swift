@@ -12,6 +12,120 @@ import WhubClient
 
 @Suite @MainActor
 struct EditorStoreTests {
+    @Test func fileEditorRestoresFocusAndPositionAfterFeatureSwitch() async throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("focus.txt")
+        try Data((0..<100).map { "line \($0) 日本語😀\n" }.joined().utf8).write(to: url)
+        let files = FilesStore()
+        let store = files.activeEditor
+        let location = FileLocation.local(url)
+        store.local.load(location)
+        store.open(.file(location))
+        let file = try #require(store.file(for: location))
+        let window = EditorFocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 450),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let container = try #require(window.contentView)
+        let coordinator = RetainedPageContainer<Int, AnyView>.Coordinator()
+        let otherFile = FileStore(source: "AgentBook substitute")
+        var selectedPage = 1
+        let root: (Int, RetainedPageActivity) -> AnyView = { page, activity in
+            let content = page == 1
+                ? AnyView(EditorView().environmentObject(store).environmentObject(files).environmentObject(files.git))
+                : AnyView(CodeEditorView(state: otherFile, editorID: "other", onEdit: {},
+                                         source: otherFile.textStorage.string, language: nil, hunks: []))
+            return AnyView(content.environment(\.isRetainedPageActive, page == selectedPage)
+                .environment(\.retainedPageActivity, activity))
+        }
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
+        try await eventually {
+            container.layoutSubtreeIfNeeded()
+            return !file.editorViews.views.isEmpty
+        }
+        let editorID = try #require(file.editorViews.views.keys.first)
+        let scroll = try #require(file.editorViews.views[editorID])
+        let text = try #require(scroll.documentView as? CodeTextView)
+        #expect(window.makeFirstResponder(text))
+        text.insertText("edited ", replacementRange: NSRange(location: 0, length: 0))
+        let selection = (text.string as NSString).range(of: "line 25")
+        text.setSelectedRange(selection)
+        text.scrollRangeToVisible(selection)
+        let origin = scroll.contentView.bounds.origin
+        #expect(file.hasUnsavedChanges)
+
+        selectedPage = 2
+        coordinator.update(container, selection: 2, availablePages: [1, 2], isActive: true, rootView: root)
+        #expect(window.firstResponder !== text)
+        container.layoutSubtreeIfNeeded()
+        let otherText = try #require(otherFile.editorViews.views["other"]?.documentView)
+        #expect(window.makeFirstResponder(otherText))
+        #expect(file.editorPositions[editorID]?.selectedRanges == [selection])
+        #expect(file.editorPositions[editorID]?.scrollOrigin == origin)
+        // Simulate AppKit losing native selection while the editor is hidden.
+        text.setSelectedRange(NSRange(location: 0, length: 0))
+        selectedPage = 1
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
+        try await eventually { window.firstResponder === text }
+        #expect(text.selectedRange() == selection)
+        let restoredOrigin = scroll.contentView.bounds.origin
+        #expect(abs(restoredOrigin.x - origin.x) < 1)
+        #expect(abs(restoredOrigin.y - origin.y) < 1)
+        #expect(text.string.hasPrefix("edited "))
+
+        selectedPage = 2
+        coordinator.update(container, selection: 2, availablePages: [1, 2], isActive: true, rootView: root)
+        selectedPage = 1
+        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
+        selectedPage = 2
+        coordinator.update(container, selection: 2, availablePages: [1, 2], isActive: true, rootView: root)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(window.firstResponder !== text)
+    }
+
+    @Test func editorPositionsAreSeparateAndClampAfterShorterContent() async throws {
+        let first = FileStore(content: .text("日本語😀 first file"), isEditable: true)
+        let second = FileStore(content: .text("second file"), isEditable: true)
+        let firstHost = NSHostingView(rootView: CodeEditorView(state: first, editorID: "one", onEdit: {},
+                                                             source: first.textStorage.string, language: nil, hunks: []))
+        let secondHost = NSHostingView(rootView: CodeEditorView(state: first, editorID: "two", onEdit: {},
+                                                              source: first.textStorage.string, language: nil, hunks: []))
+        let otherHost = NSHostingView(rootView: CodeEditorView(state: second, editorID: "one", onEdit: {},
+                                                             source: second.textStorage.string, language: nil, hunks: []))
+        let window = EditorFocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1800, height: 300),
+                                          styleMask: [.titled], backing: .buffered, defer: false)
+        for (index, host) in [firstHost, secondHost, otherHost].enumerated() {
+            host.frame = NSRect(x: index * 600, y: 0, width: 600, height: 300)
+            window.contentView?.addSubview(host)
+        }
+        try await eventually {
+            [firstHost, secondHost, otherHost].forEach { $0.layoutSubtreeIfNeeded() }
+            return first.editorViews.views.count == 2 && second.editorViews.views.count == 1
+        }
+        let one = try #require(first.editorViews.views["one"]?.documentView as? CodeTextView)
+        let two = try #require(first.editorViews.views["two"]?.documentView as? CodeTextView)
+        let other = try #require(second.editorViews.views["one"]?.documentView as? CodeTextView)
+        #expect(window.makeFirstResponder(one))
+        one.setSelectedRange(NSRange(location: 6, length: 4))
+        #expect(window.makeFirstResponder(two))
+        two.setSelectedRange(NSRange(location: 3, length: 0))
+        #expect(window.makeFirstResponder(other))
+        other.setSelectedRange(NSRange(location: 1, length: 2))
+        other.savePosition()
+        #expect(first.editorPositions["one"]?.selectedRanges == [NSRange(location: 6, length: 4)])
+        #expect(first.editorPositions["two"]?.selectedRanges == [NSRange(location: 3, length: 0)])
+        #expect(second.editorPositions["one"]?.selectedRanges == [NSRange(location: 1, length: 2)])
+        first.replace(source: "x")
+        one.restorePosition()
+        two.restorePosition()
+        other.restorePosition()
+        #expect(one.selectedRange() == NSRange(location: 1, length: 0))
+        #expect(two.selectedRange() == NSRange(location: 1, length: 0))
+        #expect(other.selectedRange() == NSRange(location: 1, length: 2))
+        withExtendedLifetime([firstHost, secondHost, otherHost]) {}
+    }
+
     @Test(arguments: ["\n", "\r\n", "\r", "\r\nwith mixed\n"], [false, true])
     func fileEncodingPreservesLineEndingsAndBOM(ending: String, bom: Bool) {
         let prefix = bom ? "\u{FEFF}" : ""
@@ -750,6 +864,11 @@ struct EditorStoreTests {
         #expect(editor.tabs.isEmpty)
         #expect(editor.selectedTab == nil)
     }
+}
+
+// Keep focus tests independent of the user's foreground application.
+@MainActor private final class EditorFocusTestWindow: NSWindow {
+    override var isKeyWindow: Bool { true }
 }
 
 @MainActor private struct ViewerFixture {

@@ -28,6 +28,7 @@ struct CodeEditorView: NSViewRepresentable {
 
     final class Coordinator {
         var highlighted: HighlightKey?
+        var didRestorePosition = false
         private weak var storage: NSTextStorage?
         private var observation: NSObjectProtocol?
 
@@ -58,6 +59,7 @@ struct CodeEditorView: NSViewRepresentable {
         layoutManager.addTextContainer(container)
         let textView = CodeTextView(frame: .zero, textContainer: container)
         textView.fileStore = state
+        textView.editorID = editorID
         textView.onEdit = onEdit
         textView.diffLines = diffLines
         textView.drawsBackground = false
@@ -104,6 +106,10 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onEdit = onEdit
         textView.diffLines = diffLines
         guard isActive else { return }
+        if !context.coordinator.didRestorePosition {
+            textView.restorePosition()
+            context.coordinator.didRestorePosition = true
+        }
         onScrollView?(scrollView)
         (scrollView.verticalRulerView as? LineNumberRulerView)?.update(source: textView.string, hunks: hunks, diffLines: diffLines)
         guard state.textStorage.string == source,
@@ -161,6 +167,10 @@ struct CodeEditorView: NSViewRepresentable {
         textView.typingAttributes = attributes
         context.coordinator.highlighted = key
     }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        (scrollView.documentView as? CodeTextView)?.savePosition()
+    }
 }
 
 private final class CodeScrollView: NSScrollView {
@@ -178,8 +188,40 @@ private final class CodeScrollView: NSScrollView {
 
 final class CodeTextView: NSTextView {
     weak var fileStore: FileStore?
+    var editorID: String?
     var onEdit: (() -> Void)?
     var diffLines: [DiffLine]?
+
+    func savePosition() {
+        guard isEditable, !isHiddenOrHasHiddenAncestor, let editorID, let fileStore,
+              window?.firstResponder === self || fileStore.editorPositions[editorID] != nil,
+              let scrollView = enclosingScrollView else { return }
+        fileStore.editorPositions[editorID] = FileStore.EditorPosition(
+            selectedRanges: selectedRanges.map(\.rangeValue),
+            scrollOrigin: scrollView.contentView.bounds.origin
+        )
+    }
+
+    func restorePosition() {
+        guard !isHiddenOrHasHiddenAncestor, let editorID,
+              let position = fileStore?.editorPositions[editorID] else { return }
+        let length = (string as NSString).length
+        let ranges = position.selectedRanges.map { range in
+            let start = min(max(0, range.location), length)
+            return NSValue(range: NSRange(location: start, length: min(max(0, range.length), length - start)))
+        }
+        if !ranges.isEmpty { selectedRanges = ranges }
+        if let scrollView = enclosingScrollView {
+            if let textContainer { layoutManager?.ensureLayout(for: textContainer) }
+            scrollView.contentView.scroll(to: position.scrollOrigin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+    }
+
+    override func resignFirstResponder() -> Bool {
+        savePosition()
+        return super.resignFirstResponder()
+    }
 
     override func copy(_ sender: Any?) {
         guard let diffLines else { super.copy(sender); return }
