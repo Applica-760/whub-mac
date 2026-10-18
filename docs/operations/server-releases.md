@@ -37,15 +37,47 @@ Files APIの閲覧ルートはMacが保持し、`/files/list`・`/files/read`の
 
 | メソッド・パス | 結果 |
 | --- | --- |
-| `POST /manager/updates` | 更新を受け付け、202と更新ID・Locationを返す |
+| `POST /manager/fetch` | devのリモート情報を取得する。checkoutや稼働版は変えない |
+| `GET /manager/commits` | この環境の最新の成功したFetchで保存したコミット一覧を返す |
+| `POST /manager/builds` | ビルド成果物を保存する。稼働版は変えない |
+| `GET /manager/builds` | この環境の成功したBuildのうち、利用可能な成果物を返す |
+| `POST /manager/apply` | 選択済みのビルド成果物へ切り替える |
+| `POST /manager/restart` | 現在のcurrentを再起動する |
+| `POST /manager/updates` | 従来の取得・ビルド・適用を一括で実行する |
 | `GET /manager/updates` | この環境の更新履歴を開始日時順に返す |
 | `GET /manager/updates/<id>` | 更新1件の状態・結果・エラーを返す |
 | `GET /manager/updates/<id>/log?offset=0` | 指定位置から最大1 MiBのログと`nextOffset`を返す |
 | `GET /manager/status` | 稼働版、current・previous、同環境の更新情報と共通ロックの有無を返す |
 
-POSTは`Content-Type: application/json`、本文は4 KiB以下とする。devでは`{"ref":"refs/remotes/origin/feature/example"}`のようにrefを指定する。prodでは`{}`を送り、必ずfetchした`refs/remotes/origin/main`のcommitをビルドする。ref以外のフィールド、任意の環境・パス・サービス名・コマンドは受け付けない。
+すべてのPOSTは202と操作ID・Location（`/manager/updates/<id>`）を返す。履歴・状態・ログもこの操作IDで取得する。
 
-更新はdev／prodを含めて一度に1件だけ実行する。受付時に共通ロックを確保し、要求と`queued`状態を保存する。更新中の追加要求は待たせず409で拒否する。認証失敗は401、不正入力は400、対象なし・別環境の更新IDは404、起動確認の失敗は503を返す。エラー本文は`{"error":{"code":"...","message":"..."}}`形式。履歴・結果・ログの応答は最大8 MiBで、超過時は413を返す。
+POSTは`Content-Type: application/json`、本文は4 KiB以下とする。各フィールドの値は文字列とし、表にないフィールドや任意の環境・パス・サービス名・コマンドは受け付けない。
+
+| 操作 | devの本文 | prodの本文 |
+| --- | --- | --- |
+| Fetch | `{}` | 受付不可。Build時に取得する |
+| Build | `{"commit":"<完全なcommit SHA>"}` | `{}`。fetch後の最新`origin/main`を自動選択 |
+| Apply | `{"buildID":"<build ID>"}` | `{"buildID":"<build ID>"}` |
+| Restart | `{}` | `{}` |
+| 従来の一括更新 | `{"ref":"refs/remotes/origin/feature/example"}`など | `{}`または`{"ref":"refs/remotes/origin/main"}` |
+
+devはFetch → コミット選択 → Build → 成果物選択 → Applyの順に操作する。devのBuildは追加のfetchを行わず、指定された完全なSHAのコミットをビルドする。prodはBuild → 成果物選択 → Applyとし、Build後にmainが進んでもApplyは選択した成果物をそのまま適用する。Applyできるのは同じ環境で分離したBuildが成功した成果物だけ。一括更新は従来どおり取得・ビルド・適用まで実行する。
+
+### HTTP処理の役割
+
+`Routes.swift`はパスを`ManagerAPI.Action`へ対応づける。更新操作は`.start(ServerOperation)`、参照操作は履歴・ログ・状態などのActionで表す。
+
+- `handle`：Bearer認証、クエリの検証、Actionの振り分け、エラーのHTTP応答への変換。クエリを受け付けるのはログの`offset`だけ。
+- `acceptOperation`：操作ごとの許可フィールドを決め、要求を読み取って`ServerReleases.start`へ渡し、202とLocationを返す。
+- `readValidatedJSONFields`：Content-Type・本文サイズ・文字列フィールド・許可フィールドを検証し、辞書を返す。必須値・環境制約・commitや成果物の妥当性はServiceが検証する。
+- `hasValidBearerToken`：Bearerトークンの一致を判定する。
+- `makeJSONResponse`：JSON化と日時のミリ秒表現、8 MiBの応答上限、Content-Type・no-storeを設定する。
+
+既存のFiles APIはパス制約や書き込み条件が異なるため、このManager専用処理と共通化しない。`/ping`は従来どおりプレーンテキストの`pong`を返す。
+
+### 受付後の確認
+
+更新はdev／prodを含めて一度に1件だけ実行する。受付時に共通ロックを確保し、要求と`queued`状態を保存する。更新中の追加要求は待たせず409で拒否する。認証失敗は401、不正入力は400、対象なし・別環境の更新IDは404、操作プロセスの起動を確認できなかった場合は503を返す。受付後のビルド・起動確認の失敗は操作の状態へ記録する。エラー本文は`{"error":{"code":"...","message":"..."}}`形式。履歴・結果・ログの応答は最大8 MiBで、超過時は413を返す。
 
 受付後はLocationのURLを問い合わせる。Server切り替え時は短い接続断が発生するため、再接続後も同じ更新IDを使う。202は受付を意味し、更新完了を意味しない。応答を受信できなかった場合は、再要求する前に履歴を確認する。
 
@@ -84,7 +116,8 @@ POSTは`Content-Type: application/json`、本文は4 KiB以下とする。devで
 │       └── previous → <root>/releases/<old-build-id>
 ├── updates/<update-id>/
 │   ├── state.json
-│   ├── request.json             # Server設定とref。トークンは含めない
+│   ├── request.json             # Server設定・操作種別・ref・build ID。トークンは含めない
+│   ├── commits.json             # Fetch成功時のコミット一覧
 │   ├── runner                   # 更新中だけ保持する実行ファイルのコピー
 │   └── build.log
 └── update.lock/                 # 更新IDとworkerの実行予約。中断時は残る
@@ -92,7 +125,9 @@ POSTは`Content-Type: application/json`、本文は4 KiB以下とする。devで
 
 Buildの出力先には`updates/<update-id>/artifact`を渡し、成功した成果物を`releases/<build-id>`へ移す。ビルド失敗時は現行Serverを維持する。配置済みの成果物は上書き・自動削除しない。
 
-ビルド成功後、旧`current`を`previous`へ記録し、`current`のシンボリックリンクをatomicに置き換える。その後に`systemctl --user restart`を実行する。起動確認ではMainPIDの`/proc/<pid>/exe`と対象実行ファイルを照合し、`/ping`がHTTP 200と`pong`を返すことを確認する。約1秒間隔で最大30回試行する。HTTP待機時間とsystemdの処理時間は別にかかる。
+Applyまたは一括更新のビルド成功後、旧`current`を`previous`へ記録し、`current`のシンボリックリンクをatomicに置き換える。その後に`systemctl --user restart`を実行する。起動確認ではMainPIDの`/proc/<pid>/exe`と対象実行ファイルを照合し、`/ping`がHTTP 200と`pong`を返すことを確認する。約1秒間隔で最大30回試行する。HTTP待機時間とsystemdの処理時間は別にかかる。
+
+同じ成果物へのApplyは再起動せず、previousも変更しない。Restartはcurrent・previousを変更せず再起動・起動確認を行う。
 
 切り替え後に失敗した場合は旧`current`へ戻し、旧Serverを再起動・確認する。初回導入では旧版がないため、`current`を取り除いて対象サービスを停止する。失敗した新成果物も調査用に残す。
 
@@ -107,16 +142,20 @@ Buildの出力先には`updates/<update-id>/artifact`を渡し、成功した成
 | `activeBuild` | 処理の結果、稼働を確認できたbuild ID。更新前の値は既存currentから引き継ぐ。切り替え中や復旧失敗時は不明 |
 | `status` | 下表の処理状態 |
 | `error`・`errorCode` | 失敗理由と識別用コード。復旧も失敗した場合は両方の理由を記録 |
-| `ref` | ビルドに指定したref。commitは各成果物の`build.json`で確認 |
+| `operation` | `update`・`fetch`・`build`・`apply`・`restart`。旧記録で省略されている場合は`update`として扱う |
+| `ref` | ビルドに指定したrefまたはcommit SHA。Fetch・Apply・Restartでは空文字列 |
+| `commit` | Buildで確定した、またはApplyで選択した成果物のcommit SHA |
 
 | status | 意味 |
 | --- | --- |
 | `queued` | 受付済み。更新プロセスの実行待ち |
 | `launch_failed` | 更新プロセスの起動を確認できなかった。ロックは要確認 |
-| `building` | ビルド中 |
+| `fetching` | Fetchによるリモート情報の取得中 |
+| `building` | ビルド中。prodの取得も含む |
 | `switching` | 成果物を保管済み。切り替え・起動確認中 |
+| `restarting` | 現在のcurrentを再起動・起動確認中 |
 | `rolling_back` | 旧版への復元処理中 |
-| `succeeded` | 新版の起動確認が成功 |
+| `succeeded` | 指定操作が成功。Build単独では成果物の保存までで、稼働版は変わらない |
 | `failed` | 更新失敗。切り替え前なら現行維持、初回導入の切り替え後なら停止済み |
 | `rolled_back` | 更新失敗後、旧版の起動確認が成功 |
 | `recovery_failed` | 更新も復旧も失敗。実際の稼働状態は要確認 |
