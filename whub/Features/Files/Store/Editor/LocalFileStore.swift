@@ -10,6 +10,10 @@ final class LocalFileStore: ObservableObject {
     private(set) var isSaving = false
     private var documentChanges: AnyCancellable?
 
+    var blocksFileOperation: Bool {
+        document.hasUnsavedChanges || document.editorViews.hasMarkedText || isSaving
+    }
+
     init(fileURL: URL) {
         self.fileURL = fileURL
         let content: FileStore.Content

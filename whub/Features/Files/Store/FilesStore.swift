@@ -147,23 +147,12 @@ final class FilesStore: ObservableObject {
     }
 
     private func editableTabs(under url: URL) throws -> [(EditorStore, EditorTab)] {
-        let roots = [url.standardizedFileURL.path, url.resolvingSymlinksInPath().path]
         var affected: [(EditorStore, EditorTab)] = []
         for editor in editorsByWorkspace.values {
-            for tab in editor.tabs {
-                let target: URL?
-                switch tab {
-                case let .file(location): target = location.localURL
-                case let .diff(url): target = url
-                }
-                guard let target else { continue }
-                let paths = [target.standardizedFileURL.path, target.resolvingSymlinksInPath().path]
-                guard paths.contains(where: { path in roots.contains { path == $0 || path.hasPrefix($0 + "/") } }) else { continue }
-                if case let .file(location) = tab, let file = editor.local.fileStores[location],
-                   file.document.hasUnsavedChanges || file.document.editorViews.hasMarkedText || file.isSaving {
-                    throw OperationError.editing(target.lastPathComponent)
-                }
-                affected.append((editor, tab))
+            do {
+                affected += try editor.tabsForFileOperation(under: url).map { (editor, $0) }
+            } catch let EditorStore.FileOperationError.editing(name) {
+                throw OperationError.editing(name)
             }
         }
         return affected

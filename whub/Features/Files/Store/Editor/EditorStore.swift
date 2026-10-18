@@ -24,6 +24,30 @@ final class EditorStore: ObservableObject {
         local.refreshDiffs()
     }
 
+    enum FileOperationError: Error {
+        case editing(String)
+    }
+
+    func tabsForFileOperation(under url: URL) throws -> [EditorTab] {
+        let roots = [url.standardizedFileURL.path, url.resolvingSymlinksInPath().path]
+        var affected: [EditorTab] = []
+        for tab in tabs {
+            let target: URL?
+            switch tab {
+            case let .file(location): target = location.localURL
+            case let .diff(url): target = url
+            }
+            guard let target else { continue }
+            let paths = [target.standardizedFileURL.path, target.resolvingSymlinksInPath().path]
+            guard paths.contains(where: { path in roots.contains { path == $0 || path.hasPrefix($0 + "/") } }) else { continue }
+            if case let .file(location) = tab, local.fileStores[location]?.blocksFileOperation == true {
+                throw FileOperationError.editing(target.lastPathComponent)
+            }
+            affected.append(tab)
+        }
+        return affected
+    }
+
     func open(_ tab: EditorTab) {
         guard isPrepared(tab) else { return }
         if !tabs.contains(tab) {

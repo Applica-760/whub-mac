@@ -64,7 +64,7 @@ Files/
 ## 変更時に守る境界
 
 - Store追加前に、管理する状態がワークスペース・タブ・ファイルのどれに属するかを確認し、既存Storeと同じ状態を別に持たせない。
-- ファイルの新規作成・改名・ゴミ箱移動は `FilesStore` を通す。改名・ゴミ箱移動では、非選択ワークスペースを含むタブへの影響を確認している。
+- ファイルの新規作成・改名・ゴミ箱移動は `FilesStore` を通す。改名・ゴミ箱移動では、FilesStoreが全ワークスペースを確認し、`EditorStore` が影響するタブを抽出する。未保存・入力中・保存中の判定は `LocalFileStore` が担当する。
 - 読み書き・競合確認は `LocalFileStore`／`RemoteFileStore`、共通の編集状態は `FileStore` に置く。
 - リモート接続・サーバー管理は、外部から渡される `RemoteConnectionStore`／`RemoteServerStore` を使う。
 - 所有関係・操作の入口・共通部品の使い方を変更したら、このREADMEも更新する。
