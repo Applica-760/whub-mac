@@ -48,9 +48,7 @@ struct AgentBookExchangeView: View {
                         }
                         ForEach(book.headers.filter { visiblePages.contains($0.page) }) { header in
                             if let exchange = book.exchange(header.id) {
-                                AgentBookExchangeHeader(exchange: exchange, agentName: agentName, isActive: canInteract,
-                                    isHistoryExpanded: book.isHistoryExpanded(header.id),
-                                    toggleHistory: { book.toggleHistory(header.id) })
+                                AgentBookExchangeHeader(exchange: exchange, agentName: agentName, isActive: canInteract)
                                     .frame(width: header.frame.width, height: header.frame.height)
                                     .offset(x: pageX(header.page) + header.frame.minX, y: header.frame.minY)
                             }
@@ -112,8 +110,7 @@ private struct AgentBookExchangeHeader: View {
     let exchange: AgentExchange
     let agentName: String
     let isActive: Bool
-    let isHistoryExpanded: Bool
-    let toggleHistory: () -> Void
+    @State private var showsHistory = false
 
     var body: some View {
         HStack {
@@ -125,15 +122,34 @@ private struct AgentBookExchangeHeader: View {
                 }
             }
             .frame(width: 16, height: 16)
-            Button("作業履歴", systemImage: isHistoryExpanded ? "chevron.down" : "chevron.right", action: toggleHistory)
+            Button("作業履歴", systemImage: "terminal") { showsHistory.toggle() }
                 .font(.caption).buttonStyle(.plain)
                 .disabled(!isActive || exchange.history.isEmpty)
+                .popover(isPresented: $showsHistory) { history }
             Button("回答をコピー", systemImage: "doc.on.doc") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(exchange.answers.map(\.agentBookMarkdown).joined(separator: "\n\n"), forType: .string)
             }
             .labelStyle(.iconOnly).buttonStyle(.plain)
         }
+        .onChange(of: isActive) { _, active in
+            if !active { showsHistory = false }
+        }
+    }
+
+    private var history: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("作業履歴").font(.headline)
+                if !exchange.history.isEmpty {
+                    Text(exchange.input.agentBookPrompt).font(.callout.weight(.semibold)).lineLimit(2)
+                    ForEach(exchange.history) { output in
+                        AgentBookOutputView(output: output)
+                    }
+                }
+            }.padding(20)
+        }
+        .frame(width: 480, height: 440)
     }
 }
 
