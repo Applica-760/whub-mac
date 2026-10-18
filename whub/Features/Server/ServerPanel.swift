@@ -9,24 +9,27 @@ struct ServerPanel: View {
     @State private var confirmation: (action: ServerAction, environment: ServerEnvironment)?
 
     var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 10) {
+        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 0) {
             GridRow {
                 Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                Text("Dev").font(.subheadline.bold()).gridCellColumns(2)
-                Text("Prod").font(.subheadline.bold()).gridCellColumns(2)
+                Text("Dev").font(.subheadline.bold()).padding(.vertical, 5).gridCellColumns(2)
+                Color.clear.frame(width: 1).gridCellUnsizedAxes(.vertical)
+                Text("Prod").font(.subheadline.bold()).padding(.vertical, 5).gridCellColumns(2)
             }
             GridRow {
-                Text("URL")
-                url(.dev).gridCellColumns(2)
-                url(.prod).gridCellColumns(2)
+                Text("URL").padding(.vertical, 5)
+                url(.dev).padding(.vertical, 5).gridCellColumns(2)
+                Color.clear.frame(width: 1).gridCellUnsizedAxes(.vertical)
+                url(.prod).padding(.vertical, 5).gridCellColumns(2)
             }
             ForEach(Row.allCases, id: \.self) { row in
                 GridRow {
-                    Text(row.rawValue)
-                    value(row, .dev).frame(width: 180, alignment: .leading)
-                    control(row, .dev).frame(width: 60, alignment: .leading)
-                    value(row, .prod).frame(width: 180, alignment: .leading)
-                    control(row, .prod).frame(width: 60, alignment: .leading)
+                    Text(row.rawValue).padding(.vertical, 5)
+                    value(row, .dev).frame(width: 180, alignment: .leading).padding(.vertical, 5)
+                    control(row, .dev).frame(width: 60, alignment: .leading).padding(.vertical, 5)
+                    Color(nsColor: .separatorColor).frame(width: 1).gridCellUnsizedAxes(.vertical)
+                    value(row, .prod).frame(width: 180, alignment: .leading).padding(.vertical, 5)
+                    control(row, .prod).frame(width: 60, alignment: .leading).padding(.vertical, 5)
                 }
             }
         }
