@@ -2,7 +2,7 @@ import Foundation
 import Hummingbird
 
 struct ManagerAPI: Sendable {
-    let releases: ServerReleases
+    let manager: ServerManager
     let configuration: ManagerConfiguration
     let token: String
     let executable: URL
@@ -26,16 +26,16 @@ struct ManagerAPI: Sendable {
             case .start(let operation):
                 return try await acceptOperation(request, operation: operation)
             case .commits:
-                return try makeJSONResponse(try await Task.detached { try releases.commits(environment: configuration.environment) }.value)
+                return try makeJSONResponse(try await Task.detached { try manager.commits(environment: configuration.environment) }.value)
             case .builds:
-                return try makeJSONResponse(try await Task.detached { try releases.builds(environment: configuration.environment) }.value)
+                return try makeJSONResponse(try await Task.detached { try manager.builds(environment: configuration.environment) }.value)
             case .history:
                 let updates = try await Task.detached {
-                    try releases.history(environment: configuration.environment)
+                    try manager.history(environment: configuration.environment)
                 }.value
                 return try makeJSONResponse(updates)
             case .update(let id):
-                let update = try await Task.detached { try releases.readUpdate(id: id, environment: configuration.environment) }.value
+                let update = try await Task.detached { try manager.readUpdate(id: id, environment: configuration.environment) }.value
                 return try makeJSONResponse(update)
             case .log(let id):
                 let offset: UInt64
@@ -48,12 +48,12 @@ struct ManagerAPI: Sendable {
                     offset = value
                 } else { offset = 0 }
                 let log = try await Task.detached {
-                    try releases.log(id: id, environment: configuration.environment, offset: offset)
+                    try manager.log(id: id, environment: configuration.environment, offset: offset)
                 }.value
                 return try makeJSONResponse(log)
             case .status:
                 let status = try await Task.detached {
-                    try releases.status(environment: configuration.environment, running: running)
+                    try manager.status(environment: configuration.environment, running: running)
                 }.value
                 return try makeJSONResponse(status)
             }
@@ -78,7 +78,7 @@ struct ManagerAPI: Sendable {
         }
         let fields = try await readValidatedJSONFields(request, allowedFields: allowedFields)
         let update = try await Task.detached {
-            try releases.start(configuration: configuration, ref: fields["ref"] ?? fields["commit"],
+            try manager.start(configuration: configuration, ref: fields["ref"] ?? fields["commit"],
                                executable: executable, operation: operation, buildID: fields["buildID"])
         }.value
         var response = try makeJSONResponse(update, status: .accepted)

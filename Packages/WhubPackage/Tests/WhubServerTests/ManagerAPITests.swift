@@ -8,11 +8,11 @@ private let managerToken = "test-manager-token-at-least-32-characters"
 
 private func managerAPI(_ fixture: BuildFixture, environment: ServerEnvironment = .dev, executable: URL? = nil,
                         launch: @escaping @Sendable (URL, String, URL) throws -> Void = { _, _, _ in }) -> ManagerAPI {
-    let releases = ServerReleases(root: fixture.directory.appendingPathComponent("server"), restart: { _, _ in },
+    let releases = ServerManager(root: fixture.directory.appendingPathComponent("server"), restart: { _, _ in },
                                   stop: { _, _ in }, verify: { _, _, _ in }, launch: launch)
     let configuration = ManagerConfiguration(environment: environment, source: fixture.source, swift: fixture.swift.path,
                                              service: "whub-\(environment.rawValue)", healthURL: URL(string: "http://127.0.0.1:8080/ping")!)
-    return ManagerAPI(releases: releases, configuration: configuration, token: managerToken,
+    return ManagerAPI(manager: releases, configuration: configuration, token: managerToken,
                       executable: executable ?? fixture.swift, running: BuildArtifact(id: "running-build", commit: "running-commit"))
 }
 
@@ -39,7 +39,7 @@ private func updateDecoder() -> JSONDecoder {
         }
         let wrong = try await client.execute(uri: "/manager/status", method: .get, headers: [.authorization: "Bearer wrong"])
         #expect(wrong.status == .unauthorized)
-        #expect(try api.releases.history().isEmpty)
+        #expect(try api.manager.history().isEmpty)
     }
 }
 
@@ -65,7 +65,7 @@ private func updateDecoder() -> JSONDecoder {
             let queued = try updateDecoder().decode(ServerUpdate.self, from: Data(response.body.readableBytesView))
             #expect(queued.operation == action)
             #expect(response.headers[.location] == "/manager/updates/\(queued.id)")
-            let completed = try await api.releases.perform(id: queued.id)
+            let completed = try await api.manager.perform(id: queued.id)
             #expect(completed.status == "succeeded")
             if action == .fetch {
                 let commits = try await client.execute(uri: "/manager/commits", method: .get, headers: headers)
@@ -76,7 +76,7 @@ private func updateDecoder() -> JSONDecoder {
             }
             if action == .build {
                 buildID = try #require(completed.targetBuild)
-                #expect(!FileManager.default.fileExists(atPath: api.releases.root.appendingPathComponent("environments/dev/current").path))
+                #expect(!FileManager.default.fileExists(atPath: api.manager.root.appendingPathComponent("environments/dev/current").path))
                 let builds = try await client.execute(uri: "/manager/builds", method: .get, headers: headers)
                 #expect(builds.status == .ok)
                 let values = try updateDecoder().decode([BuildArtifact].self, from: Data(builds.body.readableBytesView))
@@ -127,7 +127,7 @@ private func updateDecoder() -> JSONDecoder {
         let response = try await client.execute(uri: "/manager/builds", method: .post, headers: headers, body: .init(string: "{}"))
         #expect(response.status == .accepted)
         let queued = try updateDecoder().decode(ServerUpdate.self, from: Data(response.body.readableBytesView))
-        #expect(try await prod.releases.perform(id: queued.id).status == "succeeded")
+        #expect(try await prod.manager.perform(id: queued.id).status == "succeeded")
     }
 }
 
@@ -135,17 +135,17 @@ private func updateDecoder() -> JSONDecoder {
     let fixture = try BuildFixture()
     let api = managerAPI(fixture)
     let commit = try fixture.git(["rev-parse", "HEAD"])
-    let queued = try api.releases.start(configuration: api.configuration, ref: commit, executable: fixture.swift, operation: .build)
-    let built = try await api.releases.perform(id: queued.id)
+    let queued = try api.manager.start(configuration: api.configuration, ref: commit, executable: fixture.swift, operation: .build)
+    let built = try await api.manager.perform(id: queued.id)
     let id = try #require(built.targetBuild)
-    let metadata = api.releases.root.appendingPathComponent("releases/\(id)/build.json")
+    let metadata = api.manager.root.appendingPathComponent("releases/\(id)/build.json")
     try JSONEncoder().encode(BuildArtifact(id: id, commit: "changed")).write(to: metadata, options: .atomic)
     try await Application(router: makeRouter(files: FilesAPI(), manager: api)).test(.router) { client in
         let response = try await client.execute(uri: "/manager/apply", method: .post,
             headers: [.authorization: "Bearer \(managerToken)", .contentType: "application/json"],
             body: .init(string: "{\"buildID\":\"\(id)\"}"))
         #expect(response.status == .conflict)
-        #expect(!FileManager.default.fileExists(atPath: api.releases.root.appendingPathComponent("update.lock").path))
+        #expect(!FileManager.default.fileExists(atPath: api.manager.root.appendingPathComponent("update.lock").path))
     }
 }
 
@@ -166,12 +166,12 @@ private func updateDecoder() -> JSONDecoder {
     }
     let commit = try fixture.git(["rev-parse", "HEAD"])
     for action in [ServerOperation.fetch, .build] {
-        let queued = try api.releases.start(configuration: api.configuration, ref: action == .build ? commit : nil,
+        let queued = try api.manager.start(configuration: api.configuration, ref: action == .build ? commit : nil,
                                            executable: executable, operation: action)
-        #expect(try api.releases.readUpdate(id: queued.id).status == "succeeded")
+        #expect(try api.manager.readUpdate(id: queued.id).status == "succeeded")
     }
-    #expect(try api.releases.builds(environment: .dev).count == 1)
-    #expect(!fixture.fm.fileExists(atPath: api.releases.root.appendingPathComponent("environments/dev/current").path))
+    #expect(try api.manager.builds(environment: .dev).count == 1)
+    #expect(!fixture.fm.fileExists(atPath: api.manager.root.appendingPathComponent("environments/dev/current").path))
 }
 
 @Test func managerAcceptsPersistedUpdateAndExposesResultHistoryAndLogs() async throws {
@@ -192,14 +192,14 @@ private func updateDecoder() -> JSONDecoder {
         #expect(response.status == .accepted)
         let queued = try updateDecoder().decode(ServerUpdate.self, from: Data(response.body.readableBytesView))
         #expect(queued.status == "queued")
-        let savedRequest = try String(contentsOf: api.releases.root.appendingPathComponent("updates/\(queued.id)/request.json"), encoding: .utf8)
+        let savedRequest = try String(contentsOf: api.manager.root.appendingPathComponent("updates/\(queued.id)/request.json"), encoding: .utf8)
         #expect(!savedRequest.contains(managerToken))
         #expect(response.headers[.location] == "/manager/updates/\(queued.id)")
         let conflict = try await client.execute(uri: "/manager/updates", method: .post,
                                                 headers: [.authorization: "Bearer \(managerToken)", .contentType: "application/json"],
                                                 body: .init(string: #"{"ref":"main"}"#))
         #expect(conflict.status == .conflict)
-        let completed = try await api.releases.perform(id: queued.id)
+        let completed = try await api.manager.perform(id: queued.id)
         #expect(completed.id == queued.id)
         #expect(completed.status == "succeeded")
         let detail = try await client.execute(uri: "/manager/updates/\(queued.id)", method: .get,
@@ -220,7 +220,7 @@ private func updateDecoder() -> JSONDecoder {
         #expect(state.running?.id == "running-build")
         #expect(state.current == completed.targetBuild)
         #expect(!state.locked)
-        do { _ = try await api.releases.perform(id: queued.id); Issue.record("Expected duplicate worker rejection") }
+        do { _ = try await api.manager.perform(id: queued.id); Issue.record("Expected duplicate worker rejection") }
         catch let error as ReleaseError { #expect(error.code == "update_locked") }
     }
 }
@@ -228,7 +228,7 @@ private func updateDecoder() -> JSONDecoder {
 @Test func managerRejectsUnsafeInputAndSeparatesEnvironments() async throws {
     let fixture = try BuildFixture()
     let dev = managerAPI(fixture)
-    let queued = try dev.releases.start(configuration: dev.configuration, ref: "main", executable: dev.executable)
+    let queued = try dev.manager.start(configuration: dev.configuration, ref: "main", executable: dev.executable)
     let prod = managerAPI(fixture, environment: .prod)
     let app = Application(router: makeRouter(files: FilesAPI(), manager: prod))
     try await app.test(.router) { client in
@@ -258,10 +258,10 @@ private func updateDecoder() -> JSONDecoder {
                                                 headers: [.authorization: "Bearer \(managerToken)", .contentType: "application/json"],
                                                 body: .init(string: #"{"ref":"main"}"#))
         #expect(response.status == .serviceUnavailable)
-        let history = try api.releases.history()
+        let history = try api.manager.history()
         #expect(history.count == 1)
         #expect(history.first?.status == "launch_failed")
-        #expect(FileManager.default.fileExists(atPath: api.releases.root.appendingPathComponent("update.lock").path))
+        #expect(FileManager.default.fileExists(atPath: api.manager.root.appendingPathComponent("update.lock").path))
     }
 }
 
@@ -282,11 +282,11 @@ private func updateDecoder() -> JSONDecoder {
         process.waitUntilExit()
         #expect(process.terminationStatus != 0)
     }
-    let queued = try api.releases.start(configuration: api.configuration, ref: "main", executable: executable)
-    let completed = try api.releases.readUpdate(id: queued.id)
+    let queued = try api.manager.start(configuration: api.configuration, ref: "main", executable: executable)
+    let completed = try api.manager.readUpdate(id: queued.id)
     #expect(completed.status == "failed")
     #expect(completed.errorCode == "build_failed")
-    #expect(!FileManager.default.fileExists(atPath: api.releases.root.appendingPathComponent("update.lock").path))
+    #expect(!FileManager.default.fileExists(atPath: api.manager.root.appendingPathComponent("update.lock").path))
 }
 
 @Test func managerConfigurationRequiresCompleteAndValidSettings() throws {

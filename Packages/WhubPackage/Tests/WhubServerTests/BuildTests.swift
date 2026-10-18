@@ -77,13 +77,14 @@ final class BuildFixture {
     }
 
     func build(ref: String = "main") throws -> BuildArtifact {
-        try ServerBuild(source: source, swift: swift.path).build(ref: ref, output: output, log: log)
+        let commit = try ServerSource(source: source).fetchCommit(ref: ref, log: log)
+        return try ServerBuild(source: source, swift: swift.path).build(commit: commit, output: output, log: log)
     }
 }
 
 @Test func fetchListsAllRemoteBranchesWithoutChangingCheckoutOrFiles() throws {
     let fixture = try BuildFixture()
-    let builder = ServerBuild(source: fixture.source, swift: fixture.swift.path)
+    let builder = ServerSource(source: fixture.source)
     let main = try fixture.git(["rev-parse", "HEAD"])
     try fixture.git(["checkout", "-b", "feature"])
     try "feature".write(to: fixture.source.appendingPathComponent("Packages/WhubPackage/marker"), atomically: true, encoding: .utf8)
@@ -115,7 +116,7 @@ final class BuildFixture {
 
 @Test func commitListIsBoundedAndFetchPrunesDeletedBranches() throws {
     let fixture = try BuildFixture()
-    let builder = ServerBuild(source: fixture.source, swift: fixture.swift.path)
+    let builder = ServerSource(source: fixture.source)
     try fixture.git(["branch", "obsolete"])
     try fixture.git(["push", "origin", "obsolete"])
     for index in 0..<102 {

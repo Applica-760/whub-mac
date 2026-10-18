@@ -5,8 +5,8 @@ import Testing
 private let health = URL(string: "http://127.0.0.1:8080/ping")!
 
 private func manager(_ fixture: BuildFixture,
-                     verify: @escaping @Sendable (String, URL, URL) async throws -> Void = { _, _, _ in }) -> ServerReleases {
-    ServerReleases(root: fixture.directory.appendingPathComponent("server"), restart: { _, _ in }, stop: { _, _ in },
+                     verify: @escaping @Sendable (String, URL, URL) async throws -> Void = { _, _, _ in }) -> ServerManager {
+    ServerManager(root: fixture.directory.appendingPathComponent("server"), restart: { _, _ in }, stop: { _, _ in },
                    verify: verify, launch: { _, _, _ in })
 }
 
@@ -15,7 +15,7 @@ private func configuration(_ fixture: BuildFixture, _ environment: ServerEnviron
                          service: "whub-\(environment.rawValue)", healthURL: health)
 }
 
-private func operation(_ releases: ServerReleases, _ fixture: BuildFixture, _ action: ServerOperation,
+private func operation(_ releases: ServerManager, _ fixture: BuildFixture, _ action: ServerOperation,
                        environment: ServerEnvironment = .dev, commit: String? = nil, buildID: String? = nil) async throws -> ServerUpdate {
     let queued = try releases.start(configuration: configuration(fixture, environment), ref: commit,
                                     executable: fixture.swift, operation: action, buildID: buildID)

@@ -1,6 +1,6 @@
 # WhubServerのリリース
 
-`WhubServer`内の`Services/Manager/Releases/ServerReleases`が、ビルドからdev／prodの切り替え、失敗時の旧版復元までを実行する。HTTPのManager APIが更新を受け付け、同じ実行ファイルを別プロセスで起動して更新を完遂する。常駐Serverのsystemd初回登録は別途必要。
+`WhubServer`内の`Services/Manager/ServerManager`が、取得・ビルド・適用などの操作を進行する。Git操作は`ServerSource`、コンパイルと成果物の作成は`ServerBuild`、成果物の保管・dev／prodの切り替え・再起動・失敗時の旧版復元は`ServerReleases`、要求・状態・履歴・ログ・ロックの保存は`ServerOperationStore`が担当する。5ファイルとも`Services/Manager/`直下に置く。HTTPのManager APIが更新を受け付け、同じ実行ファイルを別プロセスで起動して更新を完遂する。常駐Serverのsystemd初回登録は別途必要。
 
 初めて接続するときは「呼び出す前の準備」と「HTTPから更新する」を読む。中断や失敗が起きた場合は「履歴を確認する」「中断後は手動で復旧する」を参照する。
 
@@ -68,7 +68,7 @@ devはFetch → コミット選択 → Build → 成果物選択 → Applyの順
 `Routes.swift`はパスを`ManagerAPI.Action`へ対応づける。更新操作は`.start(ServerOperation)`、参照操作は履歴・ログ・状態などのActionで表す。
 
 - `handle`：Bearer認証、クエリの検証、Actionの振り分け、エラーのHTTP応答への変換。クエリを受け付けるのはログの`offset`だけ。
-- `acceptOperation`：操作ごとの許可フィールドを決め、要求を読み取って`ServerReleases.start`へ渡し、202とLocationを返す。
+- `acceptOperation`：操作ごとの許可フィールドを決め、要求を読み取って`ServerManager.start`へ渡し、202とLocationを返す。
 - `readValidatedJSONFields`：Content-Type・本文サイズ・文字列フィールド・許可フィールドを検証し、辞書を返す。必須値・環境制約・commitや成果物の妥当性はServiceが検証する。
 - `hasValidBearerToken`：Bearerトークンの一致を判定する。
 - `makeJSONResponse`：JSON化と日時のミリ秒表現、8 MiBの応答上限、Content-Type・no-storeを設定する。
@@ -133,7 +133,7 @@ Applyまたは一括更新のビルド成功後、旧`current`を`previous`へ�
 
 ## 履歴を確認する
 
-`try releases.history()`で保存済みの更新履歴を開始日時順に取得する。dev／prodは各記録の`environment`で区別する。`state.json`には次の情報を保存する。日時はUnix時刻のミリ秒。
+`try manager.history()`で保存済みの更新履歴を開始日時順に取得する。dev／prodは各記録の`environment`で区別する。`state.json`には次の情報を保存する。日時はUnix時刻のミリ秒。
 
 | フィールド | 意味 |
 | --- | --- |

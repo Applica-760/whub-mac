@@ -20,7 +20,7 @@ struct WhubServer {
             guard arguments.count == 3, arguments[0] == "update", arguments[1].hasPrefix("/") else {
                 throw ReleaseError("invalid_arguments", "Usage: whub-server [update <absolute-manager-root> <update-id>]")
             }
-            let update = try await ServerReleases(root: URL(fileURLWithPath: arguments[1])).perform(id: arguments[2])
+            let update = try await ServerManager(root: URL(fileURLWithPath: arguments[1])).perform(id: arguments[2])
             guard update.status == "succeeded" else {
                 throw ReleaseError(update.errorCode ?? update.status, update.error ?? "Update failed.")
             }
@@ -68,7 +68,7 @@ struct WhubServer {
         #endif
         let metadata = executable.resolvingSymlinksInPath().deletingLastPathComponent().appendingPathComponent("build.json")
         let running = try? JSONDecoder().decode(BuildArtifact.self, from: Data(contentsOf: metadata))
-        return ManagerAPI(releases: ServerReleases(root: URL(fileURLWithPath: values["WHUB_MANAGER_ROOT"]!)),
+        return ManagerAPI(manager: ServerManager(root: URL(fileURLWithPath: values["WHUB_MANAGER_ROOT"]!)),
                           configuration: configuration, token: token, executable: executable, running: running)
     }
 }
