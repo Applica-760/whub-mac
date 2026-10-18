@@ -9,11 +9,7 @@ struct ServerWidget: View {
         WidgetFrame {
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 16) {
-                    ServerPanel(store: store, environment: .dev)
-                        .frame(width: 320)
-                    Divider()
-                    ServerPanel(store: store, environment: .prod)
-                        .frame(width: 320)
+                    ServerPanel(store: store)
                     Divider()
                     ServerLogView(store: store)
                         .frame(width: 320)
