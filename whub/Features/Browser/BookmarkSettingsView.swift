@@ -52,7 +52,10 @@ struct BookmarkSettingsView: View {
         guard let url = BrowserStore.url(from: row.address) else {
             throw BookmarkSettingsError.invalidURL
         }
-        let bookmark = Bookmark(id: row.id, title: title, url: url)
+        let current = try BookmarkStorage.decode(bookmarkData)
+        let sortOrder = current.first { $0.id == row.id }?.sortOrder
+            ?? ((current.last?.sortOrder ?? -1) + 1)
+        let bookmark = Bookmark(id: row.id, title: title, url: url, sortOrder: sortOrder)
         bookmarkData = try BookmarkStorage.save(bookmark, in: bookmarkData)
         return bookmark.id
     }

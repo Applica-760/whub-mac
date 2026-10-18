@@ -4,6 +4,7 @@ struct Bookmark: Codable, Identifiable {
     var id = UUID()
     var title: String
     var url: URL
+    var sortOrder: Int
 }
 
 enum BookmarkStorageError: LocalizedError {
@@ -17,7 +18,25 @@ enum BookmarkStorage {
     static let initialData = Data("[]".utf8)
 
     static func decode(_ data: Data) throws -> [Bookmark] {
-        try JSONDecoder().decode([Bookmark].self, from: data)
+        struct StoredBookmark: Decodable {
+            let id: UUID
+            let title: String
+            let url: URL
+            let sortOrder: Int?
+        }
+
+        return try JSONDecoder().decode([StoredBookmark].self, from: data)
+            .enumerated()
+            .map { index, stored in
+                Bookmark(id: stored.id, title: stored.title, url: stored.url,
+                         sortOrder: stored.sortOrder ?? index)
+            }
+            .enumerated()
+            .sorted {
+                if $0.element.sortOrder == $1.element.sortOrder { return $0.offset < $1.offset }
+                return $0.element.sortOrder < $1.element.sortOrder
+            }
+            .map(\.element)
     }
 
     static func encode(_ bookmarks: [Bookmark]) throws -> Data {
