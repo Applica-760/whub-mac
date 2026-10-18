@@ -338,10 +338,11 @@ extension Array where Element == AgentInput {
     }
 
     var agentBookPrompt: String {
-        compactMap { input in
+        let text = agentBookDraftText
+        return compactMap { input in
             switch input {
             case .text(let text): text
-            case .skill(let skill): skill.name
+            case .skill(let skill): skill.agentBookIsMentioned(in: text) ? nil : skill.name
             case .image: nil
             case .slashCommand(let command): command.rawValue
             }
