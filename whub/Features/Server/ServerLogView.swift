@@ -6,7 +6,7 @@ struct ServerLogView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("ログ").font(.subheadline.bold())
+                Text("ログ").font(.title3.bold())
                 Spacer()
                 Menu("Mockエラー") {
                     Button("認証エラー") { sampleError("unauthorized：Manager APIの認証が必要です。") }
@@ -33,8 +33,16 @@ struct ServerLogView: View {
                 .font(.callout.monospaced())
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
             }
             .frame(height: 180)
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(.secondary.opacity(0.2))
+                    .allowsHitTesting(false)
+            }
             HStack(spacing: 5) {
                 if let activity = store.activity {
                     ProgressView().controlSize(.small)

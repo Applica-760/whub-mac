@@ -57,7 +57,7 @@ struct ServerWidget: View {
                 Spacer()
             }
         }
-        .frame(maxWidth: 1090)
+        .frame(maxWidth: 980)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

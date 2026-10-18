@@ -12,14 +12,14 @@ struct ServerPanel: View {
         Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 0) {
             GridRow {
                 Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                Text("Dev").font(.subheadline.bold()).padding(.vertical, 5).gridCellColumns(2)
+                Text("Dev").font(.title3.bold()).padding(.vertical, 5).gridCellColumns(2)
                 Color.clear.frame(width: 1).gridCellUnsizedAxes(.vertical)
-                Text("Prod").font(.subheadline.bold()).padding(.vertical, 5).gridCellColumns(2)
+                Text("Prod").font(.title3.bold()).padding(.vertical, 5).gridCellColumns(2)
             }
             GridRow {
                 Text("URL").padding(.vertical, 5)
                 url(.dev).padding(.vertical, 5).gridCellColumns(2)
-                Color.clear.frame(width: 1).gridCellUnsizedAxes(.vertical)
+                Color(nsColor: .separatorColor).frame(width: 1).gridCellUnsizedAxes(.vertical)
                 url(.prod).padding(.vertical, 5).gridCellColumns(2)
             }
             ForEach(Row.allCases, id: \.self) { row in
