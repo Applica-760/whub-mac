@@ -4,9 +4,11 @@ import Foundation
 enum AgentBookTabPurpose: String, CaseIterable, Identifiable {
     case featureDevelopment
     case debugging
+    case investigation
     case personalDevelopment
     case internship
     case research
+    case modeling
 
     var id: String { rawValue }
 
@@ -14,9 +16,11 @@ enum AgentBookTabPurpose: String, CaseIterable, Identifiable {
         switch self {
         case .featureDevelopment: "機能追加"
         case .debugging: "デバッグ"
+        case .investigation: "調査"
         case .personalDevelopment: "個人開発"
         case .internship: "インターン"
         case .research: "研究"
+        case .modeling: "モデリング"
         }
     }
 
@@ -24,9 +28,11 @@ enum AgentBookTabPurpose: String, CaseIterable, Identifiable {
         switch self {
         case .featureDevelopment: "hammer"
         case .debugging: "ladybug"
+        case .investigation: "text.magnifyingglass"
         case .personalDevelopment: "laptopcomputer"
         case .internship: "briefcase"
         case .research: "graduationcap"
+        case .modeling: "cube.transparent"
         }
     }
 }
