@@ -51,8 +51,8 @@ final class AgentBookTabStore: ObservableObject, Identifiable {
 
     private var observation: AnyCancellable?
 
-    init(kind: AgentKind, runtime: AgentRuntime) {
-        let store = AgentStore(kind: kind, runtime: runtime)
+    init(kind: AgentKind, target: AgentExecutionTarget) {
+        let store = AgentStore(kind: kind, target: target)
         id = store.id
         self.store = store
         skillStore = AgentSkillStore(agent: store)

@@ -34,7 +34,8 @@ struct AgentBookView: View {
             .keyboardShortcut(.defaultAction)
             Button("キャンセル", role: .cancel) { pendingCloseID = nil }
         } message: {
-            Text("実行中の作業がある場合は中断されます。")
+            Text(store.tabs.first { $0.id == pendingCloseID }?.store.target.disconnectMessage
+                 ?? "このタブを閉じます。")
         }
     }
 

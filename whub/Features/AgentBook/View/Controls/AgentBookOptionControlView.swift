@@ -1,5 +1,7 @@
 import SwiftUI
+import SwiftData
 import WhubAgent
+import WhubCore
 
 struct AgentBookOptionControlView: View {
     static let inputInset: CGFloat = 270
@@ -7,9 +9,12 @@ struct AgentBookOptionControlView: View {
     @ObservedObject var store: AgentStore
     let canChangeKind: Bool
     let changeKind: (AgentKind) -> Void
+    let hosts: [WhubCore.Host]
+    let hostsError: String?
+    let canChangeHost: Bool
+    let changeHost: (WhubCore.Host) -> Void
+    let isHostConnected: (WhubCore.Host) -> Bool
     @Environment(\.isRetainedPageActive) private var isActive
-    @State private var mockHost = "ローカル"
-    private let mockHosts = ["ローカル", "ホスト1", "ホスト2"]
 
     private var canChange: Bool {
         isActive && store.isConnected && !store.isBusy && !store.isResuming && !store.isChangingModel
@@ -30,19 +35,26 @@ struct AgentBookOptionControlView: View {
     var body: some View {
         HStack(spacing: 6) {
             Menu {
-                ForEach(mockHosts, id: \.self) { host in
+                if let hostsError {
+                    Text(hostsError)
+                } else if hosts.isEmpty {
+                    Text("登録されたホストはありません。")
+                }
+                ForEach(hosts, id: \.persistentModelID) { host in
                     Button {
-                        if isActive { mockHost = host }
+                        if isActive && canChangeHost && isHostConnected(host) { changeHost(host) }
                     } label: {
-                        if host == mockHost {
-                            Label(host, systemImage: "checkmark")
+                        if host.persistentModelID == store.target.host?.persistentModelID {
+                            Label(host.name, systemImage: "checkmark")
                         } else {
-                            Text(host)
+                            Text(host.name)
                         }
                     }
+                    .disabled(!isActive || !canChangeHost || !isHostConnected(host)
+                              || host.persistentModelID == store.target.host?.persistentModelID)
                 }
             } label: {
-                Image(systemName: mockHost == "ローカル" ? "laptopcomputer" : "server.rack")
+                Image(systemName: store.target.systemImage)
                     .font(.system(size: 18))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -52,8 +64,8 @@ struct AgentBookOptionControlView: View {
             .glassEffect(.regular, in: .circle)
             .disabled(!isActive)
             .accessibilityLabel("ホストを選択")
-            .accessibilityValue(mockHost)
-            .help(mockHost)
+            .accessibilityValue(store.target.host?.name ?? "ローカル")
+            .help(store.target.host?.name ?? "ローカル")
 
             Menu {
                 ForEach(AgentKind.allCases, id: \.self) { kind in

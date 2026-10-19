@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import WhubAgent
+import WhubClient
 
 @MainActor
 final class AgentStore: ObservableObject, Identifiable {
@@ -17,12 +18,13 @@ final class AgentStore: ObservableObject, Identifiable {
 
     @Published private var state: AgentSessionState?
     @Published private var isDisconnected = false
+    @Published private var isTransportDisconnected = false
     @Published private var operationError: String?
 
     let agentKind: AgentKind
     var conversationID: String? { state?.conversationID }
     var selectedModelOption: AgentModelOption? { state?.selectedModelOption }
-    var isConnected: Bool { !isDisconnected && state?.isClosed == false }
+    var isConnected: Bool { !isDisconnected && !isTransportDisconnected && state?.isClosed == false }
     var isClosed: Bool { isDisconnected || state?.isClosed == true }
     var isBusy: Bool { isConnected && state?.isRunning == true }
     var isResuming: Bool { isConnected && state?.isResuming == true }
@@ -36,35 +38,58 @@ final class AgentStore: ObservableObject, Identifiable {
         !isClosed && isConnected && !isBusy && !isChangingModel && !isResuming
     }
 
-    private let runtime: AgentRuntime
+    let target: AgentExecutionTarget
+    private var activeSessionID: UUID?
+    private var remoteConnection: AgentSessionConnection?
     private let mapping = AgentModelMapping()
     private var eventTask: Task<Void, Never>?
     private var pendingInput: [AgentInput]?
     private var pendingSendID: UUID?
     private var commandResults: [(after: UUID?, exchange: AgentExchange)] = []
 
-    init(kind: AgentKind, runtime: AgentRuntime) {
+    init(kind: AgentKind, target: AgentExecutionTarget) {
         agentKind = kind
-        self.runtime = runtime
+        self.target = target
     }
 
     deinit { eventTask?.cancel() }
 
-    func connect(directory: String) async {
+    func connect(directory: String, reconnect: Bool = false, resuming entry: AgentHistoryEntry? = nil) async {
+        if reconnect, target.keepsExecutionOnDisconnect, !isClosed, !isConnecting {
+            streamEnded(nil)
+        }
         guard !isClosed, !isConnecting, !isConnected else { return }
         isConnecting = true
         operationError = nil
         defer { isConnecting = false }
         do {
-            let initial = try await runtime.create(kind: agentKind, directory: directory)
+            let id: UUID
+            if let activeSessionID { id = activeSessionID }
+            else {
+                id = try await target.create(kind: agentKind, directory: directory, resuming: entry)
+                activeSessionID = id
+            }
             guard !isClosed else {
-                try runtime.close(sessionID: initial.id)
+                target.disconnect(sessionID: id, connection: nil)
                 return
             }
+            let (initial, connection) = try await target.snapshot(sessionID: id)
+            guard !isClosed else {
+                target.disconnect(sessionID: id, connection: connection)
+                return
+            }
+            remoteConnection = connection
+            isTransportDisconnected = false
             try apply(initial)
-            observe(sessionID: initial.id, after: initial.revision)
+            observe(sessionID: id, after: initial.revision)
         } catch {
             guard !isClosed else { return }
+            if let id = activeSessionID {
+                target.disconnect(sessionID: id, connection: remoteConnection)
+                remoteConnection = nil
+                if !target.keepsExecutionOnDisconnect { activeSessionID = nil }
+            }
+            isTransportDisconnected = true
             operationError = error.localizedDescription
         }
     }
@@ -74,10 +99,12 @@ final class AgentStore: ObservableObject, Identifiable {
         guard !isClosed, !isConnected, !isConnecting, !isResuming,
               historyEntry == nil, exchanges.isEmpty else { return false }
         operationError = nil
-        await connect(directory: entry.directory)
+        await connect(directory: entry.directory, resuming: entry)
         guard isConnected else { return false }
         do {
-            try await perform(AgentCommand(action: .resume(entry)))
+            if state?.conversationID != entry.id {
+                try await perform(AgentCommand(action: .resume(entry)))
+            }
             guard !isClosed else { return false }
             historyEntry = entry
             return true
@@ -156,7 +183,7 @@ final class AgentStore: ObservableObject, Identifiable {
         operationError = nil
         defer { isLoadingModelOptions = false }
         do {
-            let options = try await runtime.models(sessionID: sessionID())
+            let options = try await target.models(sessionID: sessionID())
             guard !isClosed else { return }
             modelOptions = options
         } catch {
@@ -172,7 +199,7 @@ final class AgentStore: ObservableObject, Identifiable {
         operationError = nil
         defer { isLoadingStatus = false }
         do {
-            let loaded = try await runtime.status(sessionID: sessionID())
+            let loaded = try await target.status(sessionID: sessionID())
             let content = try loaded.map(mapping.content)
             guard !isClosed else { return }
             statusContent = content
@@ -212,10 +239,10 @@ final class AgentStore: ObservableObject, Identifiable {
         isDisconnected = true
         isConnecting = false
         eventTask?.cancel()
-        if let state {
-            // A shared runtime may already have shut down; the tab still releases its local state.
-            try? runtime.close(sessionID: state.id)
+        if let id = activeSessionID {
+            target.disconnect(sessionID: id, connection: remoteConnection)
         }
+        remoteConnection = nil
         if wasRunning {
             operationError = "接続を終了しました。"
             restoreInput()
@@ -223,11 +250,11 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     func loadHistory(cursor: String?) async throws -> AgentHistoryPage {
-        try await runtime.history(sessionID: sessionID(), cursor: cursor)
+        try await target.history(sessionID: sessionID(), cursor: cursor)
     }
 
     func loadSkills() async throws -> [AgentSkill] {
-        try await runtime.skills(sessionID: sessionID())
+        try await target.skills(sessionID: sessionID())
     }
 
     private func sessionID() throws -> UUID {
@@ -237,29 +264,27 @@ final class AgentStore: ObservableObject, Identifiable {
 
     private func perform(_ command: AgentCommand) async throws {
         let id = try sessionID()
-        _ = try runtime.execute(sessionID: id, command: command)
-        var latest = try runtime.state(sessionID: id)
-        while true {
-            guard !isClosed else { throw AgentError(.closed, "接続を終了しました。") }
-            try apply(latest)
-            guard let receipt = latest.commands.first(where: { $0.id == command.id }) else {
-                throw AgentError(.notFound, "操作の受付結果を確認できませんでした。")
+        _ = try await target.execute(sessionID: id, command: command)
+        for await (latest, disconnected, transportDisconnected) in $state.combineLatest($isDisconnected, $isTransportDisconnected).values {
+            guard !disconnected, !transportDisconnected, latest?.isClosed != true else {
+                throw AgentError(.closed, operationError ?? "接続を終了しました。")
             }
+            guard let receipt = latest?.commands.first(where: { $0.id == command.id }) else { continue }
             switch receipt.status {
             case .completed: return
             case .failed: throw receipt.error ?? AgentError(.adapterFailed, "操作を完了できませんでした。")
-            case .accepted:
-                latest = try await runtime.changes(sessionID: id, after: latest.revision)
+            case .accepted: continue
             }
         }
+        throw CancellationError()
     }
 
     private func observe(sessionID: UUID, after revision: UInt64) {
-        eventTask = Task { [weak self, runtime] in
+        eventTask = Task { [weak self, target, remoteConnection] in
             var revision = revision
             do {
                 while !Task.isCancelled {
-                    let state = try await runtime.changes(sessionID: sessionID, after: revision)
+                    let state = try await target.changes(sessionID: sessionID, after: revision, connection: remoteConnection)
                     guard !Task.isCancelled, self?.isClosed == false else { return }
                     try self?.apply(state)
                     revision = state.revision
@@ -286,8 +311,17 @@ final class AgentStore: ObservableObject, Identifiable {
     }
 
     private func streamEnded(_ error: (any Error)?) {
-        disconnect()
-        operationError = error?.localizedDescription ?? "エージェントとの接続が終了しました。"
+        let message = error?.localizedDescription ?? "エージェントとの接続が終了しました。"
+        if target.keepsExecutionOnDisconnect {
+            operationError = message
+            eventTask?.cancel()
+            if let id = activeSessionID { target.disconnect(sessionID: id, connection: remoteConnection) }
+            remoteConnection = nil
+            isTransportDisconnected = true
+        } else {
+            disconnect()
+            operationError = message
+        }
         restoreInput()
     }
 
