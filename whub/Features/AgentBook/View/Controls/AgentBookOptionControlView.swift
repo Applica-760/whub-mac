@@ -28,20 +28,16 @@ struct AgentBookOptionControlView: View {
     var body: some View {
         HStack(spacing: 6) {
             Menu {
-                Button {
-                    if isActive && canChangeKind && store.agentKind != .codex { changeKind(.codex) }
-                } label: {
-                    Label("Codex", image: "AgentCodex")
+                ForEach(AgentKind.allCases, id: \.self) { kind in
+                    Button {
+                        if isActive && canChangeKind && store.agentKind != kind { changeKind(kind) }
+                    } label: {
+                        Label(kind.displayName, image: kind.iconName)
+                    }
+                    .disabled(!isActive || !canChangeKind || store.agentKind == kind)
                 }
-                .disabled(!isActive || !canChangeKind || store.agentKind == .codex)
-                Button {
-                    if isActive && canChangeKind && store.agentKind != .claudeCode { changeKind(.claudeCode) }
-                } label: {
-                    Label("Claude Code", image: "AgentClaudeCode")
-                }
-                .disabled(!isActive || !canChangeKind || store.agentKind == .claudeCode)
             } label: {
-                Image(store.agentKind == .codex ? "AgentCodex" : "AgentClaudeCode")
+                Image(store.agentKind.iconName)
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
@@ -53,7 +49,7 @@ struct AgentBookOptionControlView: View {
             .frame(width: 32, height: 32)
             .glassEffect(.regular, in: .circle)
             .accessibilityLabel("接続先を選択")
-            .help(store.agentKind == .codex ? "Codex" : "Claude Code")
+            .help(store.agentKind.displayName)
 
             Menu {
                 if store.isLoadingModelOptions {

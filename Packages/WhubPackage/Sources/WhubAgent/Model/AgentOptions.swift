@@ -2,6 +2,20 @@ import Foundation
 
 public enum AgentKind: String, Codable, Sendable, CaseIterable {
     case codex, claudeCode
+
+    public var displayName: String {
+        switch self {
+        case .codex: "Codex"
+        case .claudeCode: "Claude Code"
+        }
+    }
+
+    public var iconName: String {
+        switch self {
+        case .codex: "AgentCodex"
+        case .claudeCode: "AgentClaudeCode"
+        }
+    }
 }
 
 public struct AgentSkill: Identifiable, Codable, Sendable, Equatable {
