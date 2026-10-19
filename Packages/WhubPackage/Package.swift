@@ -8,6 +8,7 @@ let package = Package(
     products: [
         .library(name: "WhubCore", targets: ["WhubCore"]),
         .library(name: "WhubClient", targets: ["WhubClient"]),
+        .library(name: "WhubAgent", targets: ["WhubAgent"]),
         .executable(name: "whub-mac", targets: ["WhubCLI"]),
         .executable(name: "whub-server", targets: ["WhubServer"]),
     ],
@@ -17,6 +18,7 @@ let package = Package(
     targets: [
         .target(name: "WhubCore"),
         .target(name: "WhubClient"),
+        .target(name: "WhubAgent"),
         .executableTarget(name: "WhubCLI", dependencies: ["WhubCore"]),
         .executableTarget(
             name: "WhubServer",
