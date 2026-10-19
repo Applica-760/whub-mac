@@ -8,6 +8,7 @@ let package = Package(
     products: [
         .library(name: "WhubCore", targets: ["WhubCore"]),
         .library(name: "WhubClient", targets: ["WhubClient"]),
+        .library(name: "WhubAgent", targets: ["WhubAgent"]),
         .executable(name: "whub-mac", targets: ["WhubCLI"]),
         .executable(name: "whub-server", targets: ["WhubServer"]),
     ],
@@ -16,13 +17,14 @@ let package = Package(
     ],
     targets: [
         .target(name: "WhubCore"),
-        .target(name: "WhubClient"),
+        .target(name: "WhubClient", dependencies: ["WhubAgent"]),
+        .target(name: "WhubAgent"),
         .executableTarget(name: "WhubCLI", dependencies: ["WhubCore"]),
         .executableTarget(
             name: "WhubServer",
-            dependencies: [.product(name: "Hummingbird", package: "hummingbird")]
+            dependencies: ["WhubAgent", .product(name: "Hummingbird", package: "hummingbird")]
         ),
         .testTarget(name: "WhubCoreTests", dependencies: ["WhubCore"]),
-        .testTarget(name: "WhubServerTests", dependencies: ["WhubServer", .product(name: "HummingbirdTesting", package: "hummingbird")]),
+        .testTarget(name: "WhubServerTests", dependencies: ["WhubServer", "WhubClient", "WhubAgent", .product(name: "HummingbirdTesting", package: "hummingbird")]),
     ]
 )

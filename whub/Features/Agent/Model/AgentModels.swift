@@ -1,5 +1,16 @@
 import AppKit
 import Foundation
+import WhubAgent
+
+typealias AgentKind = WhubAgent.AgentKind
+typealias AgentSkill = WhubAgent.AgentSkill
+typealias AgentTool = WhubAgent.AgentTool
+typealias AgentRequest = WhubAgent.AgentRequest
+typealias AgentApprovalRequest = WhubAgent.AgentApprovalRequest
+typealias AgentQuestion = WhubAgent.AgentQuestion
+typealias AgentResponse = WhubAgent.AgentResponse
+typealias AgentRequestOutcome = WhubAgent.AgentRequestOutcome
+typealias AgentExecutionStatus = WhubAgent.AgentExecutionStatus
 
 // MARK: - Exchange
 
@@ -26,9 +37,15 @@ struct AgentExchange: Identifiable {
 }
 
 struct AgentAdditionalInput: Identifiable {
-    let id = UUID()
+    let id: UUID
     let input: [AgentInput]
     let outputIndex: Int
+
+    init(id: UUID = UUID(), input: [AgentInput], outputIndex: Int) {
+        self.id = id
+        self.input = input
+        self.outputIndex = outputIndex
+    }
 }
 
 // MARK: - Input
@@ -38,13 +55,6 @@ enum AgentInput: Equatable {
     case skill(AgentSkill)
     case image(AgentImageAttachment)
     case slashCommand(AgentSlashCommand)
-}
-
-struct AgentSkill: Identifiable, Equatable {
-    // 接続側が識別子を割り当て、実際の呼び出し先との対応を管理する。
-    let id: String
-    let name: String
-    let description: String
 }
 
 struct AgentImageAttachment: Identifiable, Equatable {
@@ -100,10 +110,7 @@ struct AgentMessage: Identifiable {
     var content: AgentContent
     var status: AgentExecutionStatus
 
-    enum Role {
-        case answer
-        case progress
-    }
+    typealias Role = WhubAgent.AgentMessage.Role
 }
 
 struct AgentToolUse: Identifiable {
@@ -112,16 +119,6 @@ struct AgentToolUse: Identifiable {
     var arguments: AgentContent?
     var result: [AgentContent]?
     var status: AgentExecutionStatus
-}
-
-struct AgentTool {
-    let name: String
-    let source: String?
-
-    init(name: String, source: String? = nil) {
-        self.name = name
-        self.source = source
-    }
 }
 
 struct AgentSlashCommandResult: Identifiable {
@@ -136,67 +133,4 @@ enum AgentContent: Equatable {
     case markdown(String)
     case code(String)
     case image(AgentImageAttachment)
-}
-
-// MARK: - Request / Response
-
-struct AgentRequest: Identifiable {
-    // RPC IDとの対応と回答の送信形式は、接続側で保持する。
-    let id: String
-    let kind: Kind
-    var outcome: AgentRequestOutcome?
-
-    var isApproval: Bool {
-        if case .approval = kind { return true }
-        return false
-    }
-
-    enum Kind {
-        case approval(AgentApprovalRequest)
-        case questions([AgentQuestion])
-    }
-}
-
-struct AgentApprovalRequest {
-    let reason: String?
-    let command: String?
-    let directory: String?
-    let changePreview: String?
-    let permissionsDescription: String?
-    // 整形済みの詳細。Viewは中身を解析せず、そのまま表示する。
-    let details: String?
-}
-
-struct AgentQuestion: Identifiable {
-    let id: String
-    let prompt: String
-    let options: [Option]
-    let isSecret: Bool
-
-    struct Option {
-        let label: String
-        let description: String
-    }
-}
-
-enum AgentResponse {
-    case approval(allow: Bool)
-    case answers([String: String])
-}
-
-enum AgentRequestOutcome {
-    case accepted
-    case declined
-    case answered
-    case resolved
-    case unanswered
-}
-
-// MARK: - Status
-
-enum AgentExecutionStatus {
-    case running
-    case completed
-    case failed
-    case interrupted
 }

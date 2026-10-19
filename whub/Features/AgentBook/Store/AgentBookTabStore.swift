@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import WhubAgent
 
 enum AgentBookTabPurpose: String, CaseIterable, Identifiable {
     case featureDevelopment
@@ -50,12 +51,12 @@ final class AgentBookTabStore: ObservableObject, Identifiable {
 
     private var observation: AnyCancellable?
 
-    init(kind: AgentKind, session: (any AgentSession)?) {
-        let store = AgentStore(kind: kind, session: session)
+    init(kind: AgentKind, target: AgentExecutionTarget) {
+        let store = AgentStore(kind: kind, target: target)
         id = store.id
         self.store = store
-        skillStore = AgentSkillStore(session: session)
-        historyStore = AgentHistoryStore(session: session)
+        skillStore = AgentSkillStore(agent: store)
+        historyStore = AgentHistoryStore(agent: store)
         observe()
     }
 
@@ -87,8 +88,11 @@ final class AgentBookTabStore: ObservableObject, Identifiable {
             let running = exchanges.filter { $0.status == .running }
             let nextRunningIDs = Set(running.map(\.id))
             let nextApprovalIDs = Set(running.flatMap(\.pendingRequests).filter(\.isApproval).map(\.id))
+            let sentExchangeID = self.store.pendingSendExchangeID
             if !nextRunningIDs.subtracting(runningIDs).isEmpty { self.hasCompleted = false }
-            if exchanges.contains(where: { runningIDs.contains($0.id) && $0.status == .completed }) {
+            if exchanges.contains(where: {
+                $0.status == .completed && (runningIDs.contains($0.id) || $0.id == sentExchangeID)
+            }) {
                 self.hasCompleted = true
                 self.notificationDate = Date()
                 self.onNotification?("Glass")

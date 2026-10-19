@@ -16,7 +16,7 @@ struct CodexAgentStatusSnapshot {
 }
 
 // 既存Statusの項目順・残量表記を維持する。
-extension CodexAgentMapping {
+extension CodexMapping {
     static func statusText(_ snapshot: CodexAgentStatusSnapshot, timeZone: TimeZone = .current) -> String {
         let directory = snapshot.directory
         let threadID = snapshot.threadID

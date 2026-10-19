@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        A49300000000000000000001 /* WhubAgent in Frameworks */ = {isa = PBXBuildFile; productRef = A49300000000000000000002 /* WhubAgent */; };
 		A49000000000000000000001 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = A49000000000000000000002 /* SwiftMath */; };
 		C8244DC530553E480038A6AF /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C8244DC430553E480038A6AF /* SwiftTerm */; };
 		C8244E5C3056B24F0038A6AF /* WhubCore in Frameworks */ = {isa = PBXBuildFile; productRef = C8244E5B3056B24F0038A6AF /* WhubCore */; };
@@ -53,6 +54,7 @@
 				C8244DC530553E480038A6AF /* SwiftTerm in Frameworks */,
 				C8244E5C3056B24F0038A6AF /* WhubCore in Frameworks */,
 				A49200000000000000000001 /* WhubClient in Frameworks */,
+				A49300000000000000000001 /* WhubAgent in Frameworks */,
 				CAA6689B4CD1D40F57C3DB8D /* Highlighter in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -110,6 +112,7 @@
 				C8244DC430553E480038A6AF /* SwiftTerm */,
 				C8244E5B3056B24F0038A6AF /* WhubCore */,
 				A49200000000000000000002 /* WhubClient */,
+				A49300000000000000000002 /* WhubAgent */,
 				E46B7CCC8930061F68FD4E6E /* Highlighter */,
 			);
 			productName = whub;
@@ -536,6 +539,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+        A49300000000000000000002 /* WhubAgent */ = {
+            isa = XCSwiftPackageProductDependency;
+            productName = WhubAgent;
+        };
 		A49200000000000000000002 /* WhubClient */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = WhubClient;

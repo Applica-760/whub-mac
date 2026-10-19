@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import WhubAgent
 
 struct AgentBookResponsesView: View {
     let requests: [AgentRequest]

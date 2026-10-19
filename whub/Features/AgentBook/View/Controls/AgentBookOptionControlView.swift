@@ -1,4 +1,7 @@
 import SwiftUI
+import SwiftData
+import WhubAgent
+import WhubCore
 
 struct AgentBookOptionControlView: View {
     static let inputInset: CGFloat = 270
@@ -6,6 +9,11 @@ struct AgentBookOptionControlView: View {
     @ObservedObject var store: AgentStore
     let canChangeKind: Bool
     let changeKind: (AgentKind) -> Void
+    let hosts: [WhubCore.Host]
+    let hostsError: String?
+    let canChangeHost: Bool
+    let changeHost: (WhubCore.Host) -> Void
+    let isHostConnected: (WhubCore.Host) -> Bool
     @Environment(\.isRetainedPageActive) private var isActive
 
     private var canChange: Bool {
@@ -27,20 +35,49 @@ struct AgentBookOptionControlView: View {
     var body: some View {
         HStack(spacing: 6) {
             Menu {
-                Button {
-                    if isActive && canChangeKind && store.agentKind != .codex { changeKind(.codex) }
-                } label: {
-                    Label("Codex", image: "AgentCodex")
+                if let hostsError {
+                    Text(hostsError)
+                } else if hosts.isEmpty {
+                    Text("登録されたホストはありません。")
                 }
-                .disabled(!isActive || !canChangeKind || store.agentKind == .codex)
-                Button {
-                    if isActive && canChangeKind && store.agentKind != .claudeCode { changeKind(.claudeCode) }
-                } label: {
-                    Label("Claude Code", image: "AgentClaudeCode")
+                ForEach(hosts, id: \.persistentModelID) { host in
+                    Button {
+                        if isActive && canChangeHost && isHostConnected(host) { changeHost(host) }
+                    } label: {
+                        if host.persistentModelID == store.target.host?.persistentModelID {
+                            Label(host.name, systemImage: "checkmark")
+                        } else {
+                            Text(host.name)
+                        }
+                    }
+                    .disabled(!isActive || !canChangeHost || !isHostConnected(host)
+                              || host.persistentModelID == store.target.host?.persistentModelID)
                 }
-                .disabled(!isActive || !canChangeKind || store.agentKind == .claudeCode)
             } label: {
-                Image(store.agentKind == .codex ? "AgentCodex" : "AgentClaudeCode")
+                Image(systemName: store.target.systemImage)
+                    .font(.system(size: 18))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 32, height: 32)
+            .glassEffect(.regular, in: .circle)
+            .disabled(!isActive)
+            .accessibilityLabel("ホストを選択")
+            .accessibilityValue(store.target.host?.name ?? "ローカル")
+            .help(store.target.host?.name ?? "ローカル")
+
+            Menu {
+                ForEach(AgentKind.allCases, id: \.self) { kind in
+                    Button {
+                        if isActive && canChangeKind && store.agentKind != kind { changeKind(kind) }
+                    } label: {
+                        Label(kind.displayName, image: kind.iconName)
+                    }
+                    .disabled(!isActive || !canChangeKind || store.agentKind == kind)
+                }
+            } label: {
+                Image(store.agentKind.iconName)
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
@@ -52,7 +89,7 @@ struct AgentBookOptionControlView: View {
             .frame(width: 32, height: 32)
             .glassEffect(.regular, in: .circle)
             .accessibilityLabel("接続先を選択")
-            .help(store.agentKind == .codex ? "Codex" : "Claude Code")
+            .help(store.agentKind.displayName)
 
             Menu {
                 if store.isLoadingModelOptions {
@@ -80,19 +117,21 @@ struct AgentBookOptionControlView: View {
                     Button("再読み込み") { reload() }
                 }
             } label: {
-                Text((store.selectedModelOption?.displayName ?? "…")
-                    .replacingOccurrences(of: "GPT-", with: "", options: .caseInsensitive))
+                let name = (store.selectedModelOption?.displayName ?? "…")
+                    .replacingOccurrences(of: "GPT-", with: "", options: .caseInsensitive)
+                Text(name)
                     .lineLimit(1).truncationMode(.middle)
-                    .frame(maxWidth: .infinity)
-                    .padding(.trailing, 12)
+                    .padding(.trailing, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
-            .padding(.horizontal, 8)
-            .frame(width: 104, height: 32)
+            .padding(.leading, 4)
+            .padding(.trailing, 8)
+            .frame(width: 85, height: 32)
             .glassEffect(.regular, in: .capsule)
             .overlay(alignment: .trailing) {
-                Image(systemName: "chevron.down")
+                Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
                     .padding(.trailing, 10)
                     .allowsHitTesting(false)
@@ -118,18 +157,21 @@ struct AgentBookOptionControlView: View {
                     }
                 }
             } label: {
-                Text(store.selectedModelOption.map { $0.effort ?? "指定なし" } ?? "…")
-                    .lineLimit(1).frame(maxWidth: .infinity)
-                    .padding(.trailing, 12)
+                let effort = store.selectedModelOption.map { $0.effort ?? "指定なし" } ?? "…"
+                Text(effort)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.trailing, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .font(.caption2)
-            .padding(.horizontal, 6)
-            .frame(width: 104, height: 32)
+            .padding(.leading, 4)
+            .padding(.trailing, 8)
+            .frame(width: 85, height: 32)
             .glassEffect(.regular, in: .capsule)
             .overlay(alignment: .trailing) {
-                Image(systemName: "chevron.down")
+                Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
                     .padding(.trailing, 10)
                     .allowsHitTesting(false)

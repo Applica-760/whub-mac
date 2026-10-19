@@ -1,4 +1,5 @@
 import SwiftUI
+import WhubAgent
 
 struct AgentBookTabButton: View {
     let tabs: [AgentBookTabStore]

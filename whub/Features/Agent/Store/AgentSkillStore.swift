@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import WhubAgent
 
 @MainActor
 final class AgentSkillStore: ObservableObject {
@@ -7,21 +8,21 @@ final class AgentSkillStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
-    private let session: (any AgentSession)?
+    private let agent: AgentStore
 
     // 接続の開始・終了はAgentStoreが担当する。
-    init(session: (any AgentSession)?) {
-        self.session = session
+    init(agent: AgentStore) {
+        self.agent = agent
     }
 
     func load() async {
-        guard let session, !isLoading else { return }
+        guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
 
         do {
-            let loadedSkills = try await session.loadSkills()
+            let loadedSkills = try await agent.loadSkills()
             guard !Task.isCancelled else { return }
             skills = loadedSkills
         } catch {

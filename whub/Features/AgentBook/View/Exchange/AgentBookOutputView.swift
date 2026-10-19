@@ -1,4 +1,5 @@
 import SwiftUI
+import WhubAgent
 
 // Work history keeps the existing disclosure rows; answers use the book document.
 struct AgentBookOutputView: View {

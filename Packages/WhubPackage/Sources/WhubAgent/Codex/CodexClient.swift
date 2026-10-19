@@ -6,7 +6,13 @@ struct CodexAgentError: LocalizedError {
 }
 
 @MainActor
-final class CodexAgentClient {
+final class CodexClient {
+    private let executable: String?
+
+    init(executable: String? = nil) {
+        self.executable = executable
+    }
+
     struct LineBuffer {
         private var buffer = Data()
         private var searchStart = 0
@@ -28,7 +34,7 @@ final class CodexAgentClient {
     private var process: Process?
     private var input: FileHandle?
     private var readers: [Task<Void, Never>] = []
-    private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
+    private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
     private var timeouts: [Int: Task<Void, Never>] = [:]
     private var nextID = 0
     private var generation = UUID()
@@ -48,7 +54,15 @@ final class CodexAgentClient {
 
     private func startConnection(directory: URL) async throws {
         let connection = generation
-        let (executable, path) = try await Self.resolveExecutable(directory: directory)
+        let (executable, path): (String, String)
+        if let configured = self.executable {
+            guard configured.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: configured) else {
+                throw CodexAgentError(message: "Codexの実行ファイルには実行可能な絶対パスを指定してください。")
+            }
+            (executable, path) = (configured, ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin")
+        } else {
+            (executable, path) = try await Self.resolveExecutable(directory: directory)
+        }
         guard generation == connection else { throw CancellationError() }
         let child = Process()
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
@@ -102,16 +116,25 @@ final class CodexAgentClient {
     static func resolveExecutable(directory: URL) async throws -> (executable: String, path: String) {
         let shell = Process()
         let output = Pipe()
-        // Use the same login shell as TerminalSession; startup output is not part of the result.
+        #if os(macOS)
+        // Preserve the GUI's login-shell PATH; Linux services use their configured environment.
         shell.executableURL = URL(fileURLWithPath: "/bin/zsh")
         shell.arguments = ["-lic", "printf '\\000%s\\000%s\\000' \"$(command -v codex)\" \"$PATH\""]
+        #else
+        shell.executableURL = URL(fileURLWithPath: "/bin/sh")
+        shell.arguments = ["-c", "printf '\\000%s\\000%s\\000' \"$(command -v codex)\" \"$PATH\""]
+        #endif
         shell.currentDirectoryURL = directory
         shell.standardInput = FileHandle.nullDevice
         shell.standardOutput = output
         shell.standardError = FileHandle.nullDevice
         let stream = chunks(output.fileHandleForReading)
         try shell.run()
-        let reader = Task { await stream.reduce(into: Data()) { $0.append($1) } }
+        let reader = Task {
+            var data = Data()
+            for await chunk in stream { data.append(chunk) }
+            return data
+        }
         let timeout = Task {
             do { try await Task.sleep(for: .seconds(10)) } catch { return }
             reader.cancel()
@@ -153,7 +176,7 @@ final class CodexAgentClient {
         guard isConnected else { throw CodexAgentError(message: "Codexに接続されていません。") }
         nextID += 1
         let id = nextID
-        return try await withCheckedThrowingContinuation { continuation in
+        let data: Data = try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
             do {
                 try write(["id": id, "method": method, "params": params])
@@ -165,6 +188,10 @@ final class CodexAgentClient {
                 pending.removeValue(forKey: id)?.resume(throwing: error)
             }
         }
+        guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CodexAgentError(message: "Codexから不正なRPC結果を受信しました。")
+        }
+        return result
     }
 
     func respond(id: Any, result: [String: Any]) throws {
@@ -190,7 +217,9 @@ final class CodexAgentClient {
             if let error = message["error"] as? [String: Any] {
                 continuation.resume(throwing: CodexAgentError(message: error["message"] as? String ?? "Codexの要求が失敗しました。"))
             } else {
-                continuation.resume(returning: message["result"] as? [String: Any] ?? [:])
+                do {
+                    continuation.resume(returning: try JSONSerialization.data(withJSONObject: message["result"] as? [String: Any] ?? [:]))
+                } catch { continuation.resume(throwing: error) }
             }
         }
     }

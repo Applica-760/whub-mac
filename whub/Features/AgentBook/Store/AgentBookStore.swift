@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftData
+import WhubAgent
 import WhubCore
 
 @MainActor
@@ -9,10 +10,12 @@ final class AgentBookStore: ObservableObject {
     @Published private(set) var selectedTabID: AgentBookTabStore.ID
     @Published private(set) var isResuming = false
     @Published private(set) var resumeError: String?
+    @Published private(set) var hosts: [WhubCore.Host] = []
+    @Published private(set) var hostsError: String?
 
     private let context: ModelContext
     private let availableKinds: [AgentKind]
-    private let makeSession: @MainActor (AgentKind) -> (any AgentSession)?
+    private let runtime: AgentRuntime
     private let notify: (String) -> Void
     private var observations: [AgentBookTabStore.ID: AnyCancellable] = [:]
     private var pendingResume: AgentBookTabStore?
@@ -20,13 +23,15 @@ final class AgentBookStore: ObservableObject {
 
     init(context: ModelContext, kind: AgentKind = .codex,
          availableKinds: [AgentKind] = [.codex, .claudeCode],
-         makeSession: @escaping @MainActor (AgentKind) -> (any AgentSession)? = { $0.makeSession() },
+         runtime: AgentRuntime? = nil,
          notify: @escaping (String) -> Void = { NSSound(named: $0)?.play() }) {
+        let runtime = runtime ?? AgentRuntime()
         self.context = context
         self.availableKinds = availableKinds
-        self.makeSession = makeSession
+        self.runtime = runtime
         self.notify = notify
-        let tab = AgentBookTabStore(kind: kind, session: makeSession(kind))
+        let localHost = try? HostStore(context: context).fetchHosts().first { $0 is LocalHost } as? LocalHost
+        let tab = AgentBookTabStore(kind: kind, target: .local(host: localHost, runtime: runtime))
         tabs = [tab]
         selectedTabID = tab.id
         observe(tab)
@@ -46,17 +51,27 @@ final class AgentBookStore: ObservableObject {
         })
     }
 
-    func connect(_ id: AgentBookTabStore.ID) async {
+    func loadHosts() {
+        do {
+            hosts = try HostStore(context: context).fetchHosts()
+            hostsError = nil
+        } catch {
+            hosts = []
+            hostsError = error.localizedDescription
+        }
+    }
+
+    func connect(_ id: AgentBookTabStore.ID, reconnect: Bool = false) async {
         guard let tab = tabs.first(where: { $0.id == id }),
-              !tab.store.isClosed, !tab.store.isConnected else { return }
+              !tab.store.isClosed, !tab.store.isConnected || reconnect else { return }
         let directory = tab.store.historyEntry?.directory
-            ?? (try? HostStore(context: context).fetchHosts().first { $0 is LocalHost }?.basePath)
+            ?? tab.store.target.host?.basePath
             ?? NSHomeDirectory()
-        await tab.store.connect(directory: directory)
+        await tab.store.connect(directory: directory, reconnect: reconnect)
     }
 
     func add() {
-        let tab = AgentBookTabStore(kind: selectedTab.store.agentKind, session: makeSession(selectedTab.store.agentKind))
+        let tab = AgentBookTabStore(kind: selectedTab.store.agentKind, target: selectedTab.store.target)
         tabs.append(tab)
         observe(tab)
         select(tab.id)
@@ -67,12 +82,36 @@ final class AgentBookStore: ObservableObject {
             && tabs.first(where: { $0.id == id })?.canChangeKind == true
     }
 
+    func canChangeHost(in id: AgentBookTabStore.ID) -> Bool {
+        pendingResumeSourceID != id && tabs.first(where: { $0.id == id })?.canChangeKind == true
+    }
+
+    @discardableResult
+    func changeHost(_ host: WhubCore.Host, in id: AgentBookTabStore.ID, servers: RemoteServerStore) -> Bool {
+        guard canChangeHost(in: id), let index = tabs.firstIndex(where: { $0.id == id }),
+              tabs[index].store.target.host?.persistentModelID != host.persistentModelID else { return false }
+        let target: AgentExecutionTarget
+        switch host {
+        case let local as LocalHost: target = .local(host: local, runtime: runtime)
+        case let remote as RemoteHost: target = .remote(host: remote, servers: servers)
+        default: return false
+        }
+        let replacement = AgentBookTabStore(kind: tabs[index].store.agentKind, target: target)
+        replacement.store.draft = tabs[index].store.draft
+        replacement.purpose = tabs[index].purpose
+        close(tabs[index])
+        tabs[index] = replacement
+        observe(replacement)
+        if selectedTabID == id { select(replacement.id) }
+        return true
+    }
+
     @discardableResult
     func changeKind(_ kind: AgentKind, in id: AgentBookTabStore.ID) -> Bool {
         guard availableKinds.contains(kind), canChangeKind(in: id),
               let index = tabs.firstIndex(where: { $0.id == id }),
               tabs[index].store.agentKind != kind else { return false }
-        let replacement = AgentBookTabStore(kind: kind, session: makeSession(kind))
+        let replacement = AgentBookTabStore(kind: kind, target: tabs[index].store.target)
         replacement.store.draft = tabs[index].store.draft
         close(tabs[index])
         tabs[index] = replacement
@@ -95,9 +134,10 @@ final class AgentBookStore: ObservableObject {
     func remove(_ id: AgentBookTabStore.ID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let kind = tabs[index].store.agentKind
+        let target = tabs[index].store.target
         close(tabs[index])
         if tabs.count == 1 {
-            let replacement = AgentBookTabStore(kind: kind, session: makeSession(kind))
+            let replacement = AgentBookTabStore(kind: kind, target: target)
             tabs[index] = replacement
             observe(replacement)
         } else {
@@ -112,7 +152,7 @@ final class AgentBookStore: ObservableObject {
     func newConversation(in id: AgentBookTabStore.ID) -> Bool {
         guard let index = tabs.firstIndex(where: { $0.id == id }),
               tabs[index].canReplace else { return false }
-        let replacement = AgentBookTabStore(kind: tabs[index].store.agentKind, session: makeSession(tabs[index].store.agentKind))
+        let replacement = AgentBookTabStore(kind: tabs[index].store.agentKind, target: tabs[index].store.target)
         close(tabs[index])
         tabs[index] = replacement
         observe(replacement)
@@ -129,11 +169,11 @@ final class AgentBookStore: ObservableObject {
             resumeError = "作業や送信が終わってから会話を再開してください。"
             return false
         }
-        if let existing = openTab(for: entry, kind: source.store.agentKind) {
+        if let existing = openTab(for: entry, source: source.store) {
             return open(existing, replacing: sourceID)
         }
 
-        let tab = AgentBookTabStore(kind: source.store.agentKind, session: makeSession(source.store.agentKind))
+        let tab = AgentBookTabStore(kind: source.store.agentKind, target: source.store.target)
         pendingResume = tab
         pendingResumeSourceID = sourceID
         isResuming = true
@@ -155,7 +195,7 @@ final class AgentBookStore: ObservableObject {
         pendingResume = nil
         pendingResumeSourceID = nil
         isResuming = false
-        let target = openTab(for: entry, kind: source.store.agentKind) ?? tab
+        let target = openTab(for: entry, source: source.store) ?? tab
         if target.id != tab.id { tab.disconnect() }
         return open(target, replacing: sourceID)
     }
@@ -166,8 +206,11 @@ final class AgentBookStore: ObservableObject {
         for tab in tabs { tab.disconnect() }
     }
 
-    private func openTab(for entry: AgentHistoryEntry, kind: AgentKind) -> AgentBookTabStore? {
-        tabs.first { $0.store.agentKind == kind && $0.store.conversationID == entry.id }
+    private func openTab(for entry: AgentHistoryEntry, source: AgentStore) -> AgentBookTabStore? {
+        tabs.first {
+            $0.store.agentKind == source.agentKind && $0.store.conversationID == entry.id
+                && $0.store.target.host?.persistentModelID == source.target.host?.persistentModelID
+        }
     }
 
     private func open(_ tab: AgentBookTabStore, replacing sourceID: AgentBookTabStore.ID) -> Bool {

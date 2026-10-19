@@ -1,10 +1,15 @@
 import AppKit
 import Combine
 import SwiftUI
+import SwiftData
+import WhubAgent
+import WhubCore
 
 struct AgentBookTabView: View {
     @ObservedObject var bookStore: AgentBookStore
     @ObservedObject var store: AgentStore
+    @EnvironmentObject private var connections: RemoteConnectionStore
+    @EnvironmentObject private var servers: RemoteServerStore
     let tab: AgentBookTabStore
     let featureActivity: RetainedPageActivity?
     let select: (AgentStore.ID) -> Void
@@ -59,7 +64,14 @@ struct AgentBookTabView: View {
                 .overlay(alignment: .bottomTrailing) {
                     AgentBookOptionControlView(
                         store: store, canChangeKind: bookStore.canChangeKind(in: tab.id),
-                        changeKind: { bookStore.changeKind($0, in: tab.id) }
+                        changeKind: { bookStore.changeKind($0, in: tab.id) },
+                        hosts: bookStore.hosts, hostsError: bookStore.hostsError,
+                        canChangeHost: bookStore.canChangeHost(in: tab.id),
+                        changeHost: { host in
+                            guard isHostConnected(host) else { return }
+                            bookStore.changeHost(host, in: tab.id, servers: servers)
+                        },
+                        isHostConnected: isHostConnected
                     )
                         .padding(.trailing, 16)
                         .padding(.bottom, 16)
@@ -77,9 +89,18 @@ struct AgentBookTabView: View {
             }
         }
         .task(id: isActive) {
-            if isActive { await bookStore.connect(tab.id) }
+            if isActive {
+                bookStore.loadHosts()
+                await bookStore.connect(tab.id)
+            }
         }
         .onChange(of: store.id) { _, _ in confirmsReset = false }
+        .onChange(of: connections.states) { previous, states in
+            guard store.target.keepsExecutionOnDisconnect,
+                  let hostID = store.target.host?.persistentModelID,
+                  previous[hostID] != .connected, states[hostID] == .connected else { return }
+            Task { await bookStore.connect(tab.id, reconnect: true) }
+        }
         .alert("新しい会話を始めますか？", isPresented: $confirmsReset) {
             Button("キャンセル", role: .cancel) {}
             Button("新しい会話", action: newConversation)
@@ -88,10 +109,13 @@ struct AgentBookTabView: View {
         }
     }
 
-    private var agentName: String {
-        switch store.agentKind {
-        case .codex: "Codex"
-        case .claudeCode: "Claude Code"
+    private var agentName: String { store.agentKind.displayName }
+
+    private func isHostConnected(_ host: WhubCore.Host) -> Bool {
+        switch host {
+        case let remote as RemoteHost: connections.connection(for: remote) != nil
+        case is LocalHost: true
+        default: false
         }
     }
 

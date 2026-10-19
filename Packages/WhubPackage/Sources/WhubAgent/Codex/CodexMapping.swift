@@ -1,7 +1,6 @@
-import AppKit
 import Foundation
 
-enum CodexAgentMapping {
+enum CodexMapping {
     static func input(_ input: [AgentInput], skills: [AgentSkill]) throws -> [[String: Any]] {
         try input.map { item in
             switch item {
@@ -13,14 +12,7 @@ enum CodexAgentMapping {
                 }
                 return ["type": "skill", "name": skill.name, "path": skill.id]
             case .image(let attachment):
-                guard let tiff = attachment.image.tiffRepresentation,
-                      let bitmap = NSBitmapImageRep(data: tiff),
-                      let png = bitmap.representation(using: .png, properties: [:]) else {
-                    throw CodexAgentError(message: "画像を送信用のPNGへ変換できませんでした。")
-                }
-                return ["type": "image", "url": "data:image/png;base64," + png.base64EncodedString()]
-            case .slashCommand:
-                throw CodexAgentError(message: "コマンドは会話入力と分けて実行してください。")
+                return ["type": "image", "url": "data:" + attachment.mediaType + ";base64," + attachment.data.base64EncodedString()]
             }
         }
     }
@@ -188,8 +180,8 @@ enum CodexAgentMapping {
         case "image":
             if let url = value["url"] as? String, url.hasPrefix("data:image/"),
                let separator = url.range(of: ";base64,"),
-               let data = Data(base64Encoded: String(url[separator.upperBound...])), let image = NSImage(data: data) {
-                return .image(AgentImageAttachment(image: image))
+               let data = Data(base64Encoded: String(url[separator.upperBound...])) {
+                return .image(try AgentImageAttachment(data: data, mediaType: String(url[url.index(url.startIndex, offsetBy: 5)..<separator.lowerBound])))
             }
         default: break
         }

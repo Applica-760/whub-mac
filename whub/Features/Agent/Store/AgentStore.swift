@@ -1,167 +1,122 @@
 import Combine
 import Foundation
-
-enum AgentKind {
-    case codex
-    case claudeCode
-
-    @MainActor
-    func makeSession() -> (any AgentSession)? {
-        switch self {
-        case .codex: CodexAgentSession()
-        case .claudeCode: nil
-        }
-    }
-}
-
-enum AgentEvent {
-    // 接続側が会話を識別できた時点で、実行状態とは独立して通知する。
-    case conversationIDChanged(String)
-    case modelOptionChanged(AgentModelOption)
-    // 同じIDのOutputは、差分ではなく最新の内容全体を渡す。
-    case output(AgentOutput)
-    case completed
-    case interrupted
-    case failed(String)
-}
-
-@MainActor
-protocol AgentSession: AnyObject {
-    var kind: AgentKind { get }
-    // 接続前から購読でき、セッション終了時に閉じる受信口。
-    var events: AsyncStream<AgentEvent> { get }
-
-    func connect(directory: String) async throws
-    func send(_ input: [AgentInput]) async throws
-    func sendAdditionalInput(_ input: [AgentInput]) async throws
-    func interrupt() async throws
-    func loadModelOptions() async throws -> [AgentModelOption]
-    func loadSkills() async throws -> [AgentSkill]
-    func loadStatus() async throws -> [AgentContent]
-    func changeModel(_ option: AgentModelOption) async throws
-    func respond(to requestID: String, with response: AgentResponse) async throws
-    func loadHistory(cursor: String?) async throws -> AgentHistoryPage
-    func resume(_ entry: AgentHistoryEntry) async throws -> AgentHistorySnapshot
-    func disconnect()
-}
+import WhubAgent
+import WhubClient
 
 @MainActor
 final class AgentStore: ObservableObject, Identifiable {
     let id = UUID()
     @Published var draft: [AgentInput] = []
     @Published private(set) var exchanges: [AgentExchange] = []
-    @Published private(set) var conversationID: String?
     @Published private(set) var historyEntry: AgentHistoryEntry?
-    @Published private(set) var isResuming = false
     @Published private(set) var modelOptions: [AgentModelOption] = []
     @Published private(set) var isLoadingModelOptions = false
     @Published private(set) var modelOptionsError: String?
     @Published private(set) var statusContent: [AgentContent] = []
     @Published private(set) var isLoadingStatus = false
-    @Published private(set) var selectedModelOption: AgentModelOption?
-    @Published private(set) var isChangingModel = false
-    @Published private(set) var respondingRequestIDs: Set<String> = []
     @Published private(set) var isConnecting = false
-    @Published private(set) var isConnected = false
-    @Published private(set) var isBusy = false
-    @Published private(set) var isStopping = false
-    @Published private(set) var isSendingAdditionalInput = false
-    @Published private(set) var isClosed = false
-    @Published private(set) var errorMessage: String?
+
+    @Published private var state: AgentSessionState?
+    @Published private var isDisconnected = false
+    @Published private var isTransportDisconnected = false
+    @Published private var operationError: String?
 
     let agentKind: AgentKind
+    var conversationID: String? { state?.conversationID }
+    var selectedModelOption: AgentModelOption? { state?.selectedModelOption }
+    var isConnected: Bool { !isDisconnected && !isTransportDisconnected && state?.isClosed == false }
+    var isClosed: Bool { isDisconnected || state?.isClosed == true }
+    var isBusy: Bool { isConnected && state?.isRunning == true }
+    var isResuming: Bool { isConnected && state?.isResuming == true }
+    var isChangingModel: Bool { isConnected && state?.isChangingModel == true }
+    var isStopping: Bool { isConnected && state?.isStopping == true }
+    var isSendingAdditionalInput: Bool { isConnected && state?.isSendingAdditionalInput == true }
+    var respondingRequestIDs: Set<String> { isConnected ? state?.respondingRequestIDs ?? [] : [] }
+    var errorMessage: String? { operationError ?? state?.error?.localizedDescription }
+
+    var pendingSendExchangeID: AgentExchange.ID? {
+        guard let pendingSendID, let state,
+              state.commands.contains(where: { $0.id == pendingSendID }) else { return nil }
+        return state.exchanges.last?.id
+    }
 
     var canSend: Bool {
-        !isClosed && (isConnected || session == nil) && !isBusy && !isChangingModel && !isResuming
+        !isClosed && isConnected && !isBusy && !isChangingModel && !isResuming
     }
 
-    private let session: (any AgentSession)?
+    let target: AgentExecutionTarget
+    private var activeSessionID: UUID?
+    private var remoteConnection: AgentSessionConnection?
+    private let mapping = AgentModelMapping()
     private var eventTask: Task<Void, Never>?
     private var pendingInput: [AgentInput]?
+    private var pendingSendID: UUID?
+    private var commandResults: [(after: UUID?, exchange: AgentExchange)] = []
 
-    private var activeExchangeIndex: Int? {
-        exchanges.lastIndex { $0.status == .running }
-    }
-
-    private func isActiveExchange(_ id: UUID) -> Bool {
-        guard !isClosed, let index = activeExchangeIndex else { return false }
-        return exchanges[index].id == id
-    }
-
-    private func normalizedInput(_ input: [AgentInput]) -> [AgentInput] {
-        input.compactMap { item in
-            guard case .text(let text) = item else { return item }
-            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmedText.isEmpty ? nil : .text(trimmedText)
-        }
-    }
-
-    init(kind: AgentKind, session: (any AgentSession)?) {
+    init(kind: AgentKind, target: AgentExecutionTarget) {
         agentKind = kind
-        self.session = session
-        guard let session else { return }
-        let events = session.events
-        eventTask = Task { [weak self] in
-            for await event in events {
-                guard !Task.isCancelled else { return }
-                self?.handle(event)
-            }
-            guard !Task.isCancelled else { return }
-            self?.streamEnded()
+        self.target = target
+    }
+
+    deinit { eventTask?.cancel() }
+
+    func connect(directory: String, reconnect: Bool = false, resuming entry: AgentHistoryEntry? = nil) async {
+        if reconnect, target.keepsExecutionOnDisconnect, !isClosed, !isConnecting {
+            streamEnded(nil)
         }
-    }
-
-    deinit {
-        eventTask?.cancel()
-    }
-
-    func connect(directory: String) async {
-        guard let session, !isClosed, !isConnecting, !isConnected else { return }
+        guard !isClosed, !isConnecting, !isConnected else { return }
         isConnecting = true
-        errorMessage = nil
+        operationError = nil
         defer { isConnecting = false }
-
         do {
-            try await session.connect(directory: directory)
+            let id: UUID
+            if let activeSessionID { id = activeSessionID }
+            else {
+                id = try await target.create(kind: agentKind, directory: directory, resuming: entry)
+                activeSessionID = id
+            }
             guard !isClosed else {
-                session.disconnect()
+                target.disconnect(sessionID: id, connection: nil)
                 return
             }
-            isConnected = true
+            let (initial, connection) = try await target.snapshot(sessionID: id)
+            guard !isClosed else {
+                target.disconnect(sessionID: id, connection: connection)
+                return
+            }
+            remoteConnection = connection
+            isTransportDisconnected = false
+            try apply(initial)
+            observe(sessionID: id, after: initial.revision)
         } catch {
             guard !isClosed else { return }
-            errorMessage = error.localizedDescription
+            if let id = activeSessionID {
+                target.disconnect(sessionID: id, connection: remoteConnection)
+                remoteConnection = nil
+                if !target.keepsExecutionOnDisconnect { activeSessionID = nil }
+            }
+            isTransportDisconnected = true
+            operationError = error.localizedDescription
         }
     }
 
     @discardableResult
     func resume(_ entry: AgentHistoryEntry) async -> Bool {
-        guard let session, !isClosed, !isConnected, !isConnecting, !isResuming,
+        guard !isClosed, !isConnected, !isConnecting, !isResuming,
               historyEntry == nil, exchanges.isEmpty else { return false }
-        isResuming = true
-        errorMessage = nil
-        defer { isResuming = false }
-
-        await connect(directory: entry.directory)
+        operationError = nil
+        await connect(directory: entry.directory, resuming: entry)
         guard isConnected else { return false }
-
         do {
-            let snapshot = try await session.resume(entry)
-            guard !isClosed else { return false }
-            guard snapshot.entry.id == entry.id,
-                  snapshot.exchanges.allSatisfy({ $0.status != .running }) else {
-                errorMessage = "指定した会話の完了済みの履歴を確認できませんでした。"
-                disconnect()
-                return false
+            if state?.conversationID != entry.id {
+                try await perform(AgentCommand(action: .resume(entry)))
             }
-            conversationID = snapshot.entry.id
-            historyEntry = snapshot.entry
-            exchanges = snapshot.exchanges
-            selectedModelOption = snapshot.selectedModelOption
+            guard !isClosed else { return false }
+            historyEntry = entry
             return true
         } catch {
             guard !isClosed else { return false }
-            errorMessage = error.localizedDescription
+            operationError = error.localizedDescription
             disconnect()
             return false
         }
@@ -169,45 +124,35 @@ final class AgentStore: ObservableObject, Identifiable {
 
     func send(_ input: [AgentInput]) async {
         guard canSend else { return }
-        let submittedInput = normalizedInput(input)
-        guard !submittedInput.isEmpty else { return }
-        guard let session else {
-            errorMessage = "選択したKindへの接続はまだ実装されていません。"
-            return
-        }
-        pendingInput = submittedInput
+        let input = normalized(input)
+        guard !input.isEmpty else { return }
+        let commandID = UUID()
+        pendingInput = input
+        pendingSendID = commandID
         draft = []
-        exchanges.append(AgentExchange(input: submittedInput))
-        errorMessage = nil
-        isBusy = true
-
+        operationError = nil
         do {
-            try await session.send(submittedInput)
+            try await perform(AgentCommand(id: commandID, action: .send(try mapping.input(input))))
         } catch {
-            fail(error.localizedDescription)
+            guard !isClosed, pendingSendID == commandID else { return }
+            operationError = error.localizedDescription
+            restoreInput()
         }
     }
 
     @discardableResult
     func sendAdditionalInput(_ input: [AgentInput]) async -> Bool {
-        guard let session, isConnected, isBusy, !isStopping, !isSendingAdditionalInput,
-              let index = activeExchangeIndex else { return false }
-        let submittedInput = normalizedInput(input)
-        guard !submittedInput.isEmpty else { return false }
-        let exchangeID = exchanges[index].id
-        let outputIndex = exchanges[index].outputs.count
-        isSendingAdditionalInput = true
-        errorMessage = nil
-        defer { isSendingAdditionalInput = false }
-
+        guard isConnected, isBusy, !isStopping, !isSendingAdditionalInput else { return false }
+        let input = normalized(input)
+        guard !input.isEmpty else { return false }
+        let exchangeID = state?.exchanges.last?.id
+        operationError = nil
         do {
-            try await session.sendAdditionalInput(submittedInput)
-            guard !isClosed, let index = exchanges.firstIndex(where: { $0.id == exchangeID }) else { return false }
-            exchanges[index].additionalInputs.append(AgentAdditionalInput(input: submittedInput, outputIndex: outputIndex))
-            return true
+            try await perform(AgentCommand(action: .sendAdditionalInput(try mapping.input(input))))
+            return !isClosed
         } catch {
             guard isActiveExchange(exchangeID) else { return false }
-            errorMessage = error.localizedDescription
+            operationError = error.localizedDescription
             return false
         }
     }
@@ -221,59 +166,187 @@ final class AgentStore: ObservableObject, Identifiable {
             recordCommandResult(.stop, content: [.text("停止を要求しました。")])
             return
         }
-        guard let session, isConnected, isBusy, !isStopping,
-              let index = activeExchangeIndex else { return }
-        let exchangeID = exchanges[index].id
-        isStopping = true
-        errorMessage = nil
-
+        guard isConnected, isBusy, !isStopping else { return }
+        let exchangeID = state?.exchanges.last?.id
+        operationError = nil
         do {
-            try await session.interrupt()
+            try await perform(AgentCommand(action: .interrupt))
             guard !isClosed else { return }
             if recordResult {
                 recordCommandResult(.stop, content: [.text(isStopping ? "停止を要求しました。" : "作業を停止しました。")])
             }
         } catch {
             guard isActiveExchange(exchangeID) else { return }
-            isStopping = false
-            errorMessage = error.localizedDescription
+            operationError = error.localizedDescription
             if recordResult { recordCommandResult(.stop, content: [.text(error.localizedDescription)], failed: true) }
         }
     }
 
     func loadModelOptions() async {
-        guard let session, isConnected, !isResuming, !isLoadingModelOptions else { return }
+        guard isConnected, !isResuming, !isLoadingModelOptions else { return }
         isLoadingModelOptions = true
         modelOptionsError = nil
-        errorMessage = nil
+        operationError = nil
         defer { isLoadingModelOptions = false }
-
         do {
-            let options = try await session.loadModelOptions()
+            let options = try await target.models(sessionID: sessionID())
             guard !isClosed else { return }
             modelOptions = options
         } catch {
             guard !isClosed else { return }
             modelOptionsError = error.localizedDescription
-            errorMessage = error.localizedDescription
+            operationError = error.localizedDescription
         }
     }
 
     func loadStatus(recordResult: Bool = false) async {
-        guard let session, isConnected, !isResuming, !isLoadingStatus else { return }
+        guard isConnected, !isResuming, !isLoadingStatus else { return }
         isLoadingStatus = true
-        errorMessage = nil
+        operationError = nil
         defer { isLoadingStatus = false }
-
         do {
-            let content = try await session.loadStatus()
+            let loaded = try await target.status(sessionID: sessionID())
+            let content = try loaded.map(mapping.content)
             guard !isClosed else { return }
             statusContent = content
             if recordResult { recordCommandResult(.status, content: content) }
         } catch {
             guard !isClosed else { return }
-            errorMessage = error.localizedDescription
+            operationError = error.localizedDescription
             if recordResult { recordCommandResult(.status, content: [.text(error.localizedDescription)], failed: true) }
+        }
+    }
+
+    func changeModel(_ option: AgentModelOption) async {
+        guard isConnected, !isBusy, !isChangingModel, !isResuming else { return }
+        operationError = nil
+        do { try await perform(AgentCommand(action: .changeModel(option))) }
+        catch {
+            guard !isClosed else { return }
+            operationError = error.localizedDescription
+        }
+    }
+
+    func respond(to requestID: String, with response: AgentResponse) async {
+        guard isConnected, !respondingRequestIDs.contains(requestID),
+              state?.exchanges.last?.pendingRequests.contains(where: { $0.id == requestID }) == true else { return }
+        let exchangeID = state?.exchanges.last?.id
+        operationError = nil
+        do { try await perform(AgentCommand(action: .respond(requestID: requestID, response: response))) }
+        catch {
+            guard isActiveExchange(exchangeID) else { return }
+            operationError = error.localizedDescription
+        }
+    }
+
+    func disconnect() {
+        guard !isDisconnected else { return }
+        let wasRunning = isBusy
+        isDisconnected = true
+        isConnecting = false
+        eventTask?.cancel()
+        if let id = activeSessionID {
+            target.disconnect(sessionID: id, connection: remoteConnection)
+        }
+        remoteConnection = nil
+        if wasRunning {
+            operationError = "接続を終了しました。"
+            restoreInput()
+        }
+    }
+
+    func loadHistory(cursor: String?) async throws -> AgentHistoryPage {
+        try await target.history(sessionID: sessionID(), cursor: cursor)
+    }
+
+    func loadSkills() async throws -> [AgentSkill] {
+        try await target.skills(sessionID: sessionID())
+    }
+
+    private func sessionID() throws -> UUID {
+        guard !isClosed, isConnected, let state else { throw AgentError(.closed, "接続されていません。") }
+        return state.id
+    }
+
+    private func perform(_ command: AgentCommand) async throws {
+        let id = try sessionID()
+        _ = try await target.execute(sessionID: id, command: command)
+        for await (latest, disconnected, transportDisconnected) in $state.combineLatest($isDisconnected, $isTransportDisconnected).values {
+            guard !disconnected, !transportDisconnected, latest?.isClosed != true else {
+                throw AgentError(.closed, operationError ?? "接続を終了しました。")
+            }
+            guard let receipt = latest?.commands.first(where: { $0.id == command.id }) else { continue }
+            switch receipt.status {
+            case .completed: return
+            case .failed: throw receipt.error ?? AgentError(.adapterFailed, "操作を完了できませんでした。")
+            case .accepted: continue
+            }
+        }
+        throw CancellationError()
+    }
+
+    private func observe(sessionID: UUID, after revision: UInt64) {
+        eventTask = Task { [weak self, target, remoteConnection] in
+            var revision = revision
+            do {
+                while !Task.isCancelled {
+                    let state = try await target.changes(sessionID: sessionID, after: revision, connection: remoteConnection)
+                    guard !Task.isCancelled, self?.isClosed == false else { return }
+                    try self?.apply(state)
+                    revision = state.revision
+                    if state.isClosed { self?.streamEnded(state.error); return }
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.streamEnded(error)
+            }
+        }
+    }
+
+    private func apply(_ next: AgentSessionState) throws {
+        guard !isDisconnected else { return }
+        if let state, next.revision <= state.revision { return }
+        let mapped = try mapping.exchanges(next.exchanges)
+        state = next
+        // Notify observers before releasing the send's identity.
+        exchanges = merged(mapped)
+        if let pendingSendID, next.commands.contains(where: { $0.id == pendingSendID }),
+           let exchange = next.exchanges.last, exchange.status != .running {
+            if exchange.status == .completed { pendingInput = nil; self.pendingSendID = nil }
+            else { restoreInput() }
+        }
+    }
+
+    private func streamEnded(_ error: (any Error)?) {
+        let message = error?.localizedDescription ?? "エージェントとの接続が終了しました。"
+        if target.keepsExecutionOnDisconnect {
+            operationError = message
+            eventTask?.cancel()
+            if let id = activeSessionID { target.disconnect(sessionID: id, connection: remoteConnection) }
+            remoteConnection = nil
+            isTransportDisconnected = true
+        } else {
+            disconnect()
+            operationError = message
+        }
+        restoreInput()
+    }
+
+    private func restoreInput() {
+        if draft.isEmpty, let pendingInput { draft = pendingInput }
+        pendingInput = nil
+        pendingSendID = nil
+    }
+
+    private func isActiveExchange(_ id: UUID?) -> Bool {
+        !isClosed && state?.isRunning == true && state?.exchanges.last?.id == id
+    }
+
+    private func normalized(_ input: [AgentInput]) -> [AgentInput] {
+        input.compactMap { item in
+            guard case .text(let text) = item else { return item }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : .text(trimmed)
         }
     }
 
@@ -284,121 +357,16 @@ final class AgentStore: ObservableObject, Identifiable {
         var exchange = AgentExchange(input: [.slashCommand(command)])
         exchange.outputs = [.slashCommandResult(result)]
         exchange.status = status
-        exchanges.append(exchange)
+        commandResults.append((state?.exchanges.last?.id, exchange))
+        exchanges = merged(exchanges.filter { exchange in !exchange.input.contains { if case .slashCommand = $0 { true } else { false } } })
     }
 
-    func changeModel(_ option: AgentModelOption) async {
-        guard let session, isConnected, !isBusy, !isChangingModel, !isResuming else { return }
-        isChangingModel = true
-        errorMessage = nil
-        defer { isChangingModel = false }
-
-        do {
-            try await session.changeModel(option)
-        } catch {
-            guard !isClosed else { return }
-            errorMessage = error.localizedDescription
+    private func merged(_ conversation: [AgentExchange]) -> [AgentExchange] {
+        var result = commandResults.filter { $0.after == nil }.map(\.exchange)
+        for exchange in conversation {
+            result.append(exchange)
+            result += commandResults.filter { $0.after == exchange.id }.map(\.exchange)
         }
-    }
-
-    func respond(to requestID: String, with response: AgentResponse) async {
-        guard let session, isConnected, !respondingRequestIDs.contains(requestID),
-              let index = activeExchangeIndex,
-              let request = exchanges[index].pendingRequests.first(where: { $0.id == requestID }) else { return }
-        switch (request.kind, response) {
-        case (.approval, .approval):
-            break
-        case (.questions(let questions), .answers(let answers)):
-            guard questions.allSatisfy({ question in
-                guard let answer = answers[question.id] else { return false }
-                return !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }) else {
-                errorMessage = "すべての質問に回答してください。"
-                return
-            }
-        default:
-            errorMessage = "要求に対応する種類の回答を指定してください。"
-            return
-        }
-        let exchangeID = exchanges[index].id
-        respondingRequestIDs.insert(requestID)
-        errorMessage = nil
-
-        do {
-            try await session.respond(to: requestID, with: response)
-        } catch {
-            guard isActiveExchange(exchangeID) else { return }
-            respondingRequestIDs.remove(requestID)
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func disconnect() {
-        guard !isClosed else { return }
-        isClosed = true
-        isConnected = false
-        isConnecting = false
-        eventTask?.cancel()
-        session?.disconnect()
-        if isBusy { fail("接続を終了しました。") }
-    }
-
-    private func handle(_ event: AgentEvent) {
-        if case .conversationIDChanged(let id) = event {
-            guard !isClosed, !isResuming, !id.isEmpty else { return }
-            conversationID = id
-            return
-        }
-        if case .modelOptionChanged(let option) = event {
-            guard !isResuming else { return }
-            selectedModelOption = option
-            return
-        }
-        guard isBusy, let exchangeIndex = activeExchangeIndex else { return }
-        switch event {
-        case .conversationIDChanged, .modelOptionChanged:
-            break
-        case .output(let output):
-            if case .request(let request) = output, request.outcome != nil {
-                respondingRequestIDs.remove(request.id)
-            }
-            if let index = exchanges[exchangeIndex].outputs.firstIndex(where: { $0.id == output.id }) {
-                exchanges[exchangeIndex].outputs[index] = output
-            } else {
-                exchanges[exchangeIndex].outputs.append(output)
-            }
-        case .completed:
-            exchanges[exchangeIndex].status = .completed
-            respondingRequestIDs.removeAll()
-            pendingInput = nil
-            isBusy = false
-            isStopping = false
-        case .interrupted:
-            exchanges[exchangeIndex].status = .interrupted
-            respondingRequestIDs.removeAll()
-            if draft.isEmpty, let pendingInput { draft = pendingInput }
-            pendingInput = nil
-            isBusy = false
-            isStopping = false
-        case .failed(let message):
-            fail(message)
-        }
-    }
-
-    private func streamEnded() {
-        isClosed = true
-        isConnected = false
-        isConnecting = false
-        if isBusy { fail("エージェントとの接続が終了しました。") }
-    }
-
-    private func fail(_ message: String) {
-        errorMessage = message
-        respondingRequestIDs.removeAll()
-        if let index = activeExchangeIndex { exchanges[index].status = .failed }
-        if draft.isEmpty, let pendingInput { draft = pendingInput }
-        pendingInput = nil
-        isBusy = false
-        isStopping = false
+        return result
     }
 }

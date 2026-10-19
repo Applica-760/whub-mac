@@ -1,13 +1,13 @@
 import Foundation
 
 @MainActor
-final class CodexAgentSession: AgentSession {
+final class CodexAdapter: AgentAdapter {
     let kind = AgentKind.codex
     let events: AsyncStream<AgentEvent>
     private let emitter: AsyncStream<AgentEvent>.Continuation
-    private let client: CodexAgentClient
-    private let requestOverride: ((String, [String: Any], String) async throws -> [String: Any])?
-    private let responseOverride: ((Any, [String: Any]) throws -> Void)?
+    private let client: CodexClient
+    private let requestOverride: (@MainActor (String, [String: Any], String) async throws -> [String: Any])?
+    private let responseOverride: (@MainActor (Any, [String: Any]) throws -> Void)?
     private var directory: String?
     private var isClosed = false
     private var threadID: String?
@@ -28,10 +28,10 @@ final class CodexAgentSession: AgentSession {
         var request: AgentRequest
     }
 
-    init(client: CodexAgentClient? = nil,
-         request: ((String, [String: Any], String) async throws -> [String: Any])? = nil,
-         respond: ((Any, [String: Any]) throws -> Void)? = nil) {
-        let client = client ?? CodexAgentClient()
+    init(client: CodexClient? = nil,
+         request: (@MainActor (String, [String: Any], String) async throws -> [String: Any])? = nil,
+         respond: (@MainActor (Any, [String: Any]) throws -> Void)? = nil) {
+        let client = client ?? CodexClient()
         self.client = client
         requestOverride = request
         responseOverride = respond
@@ -187,7 +187,7 @@ final class CodexAgentSession: AgentSession {
             catch { failures.append(.rateLimits) }
         }
         guard !isClosed, !Task.isCancelled else { throw CancellationError() }
-        return [.code(CodexAgentMapping.statusText(CodexAgentStatusSnapshot(directory: directory, threadID: activeID,
+        return [.code(CodexMapping.statusText(CodexAgentStatusSnapshot(directory: directory, threadID: activeID,
             settings: activeSettings, config: config, account: account, limits: limits, tokenUsage: usage, failures: failures)))]
     }
 
@@ -209,7 +209,7 @@ final class CodexAgentSession: AgentSession {
         guard !isClosed, let pending = pendingRequests[requestID] else {
             throw CodexAgentError(message: "未回答の要求を確認できませんでした。")
         }
-        let mapped = try CodexAgentMapping.response(response, to: pending.request, method: pending.method, params: pending.params)
+        let mapped = try CodexMapping.response(response, to: pending.request, method: pending.method, params: pending.params)
         if let responseOverride { try responseOverride(pending.rpcID, mapped.result) }
         else { try client.respond(id: pending.rpcID, result: mapped.result) }
         resolve(requestID, outcome: mapped.outcome)
@@ -221,7 +221,7 @@ final class CodexAgentSession: AgentSession {
         if let cursor { params["cursor"] = cursor }
         let result = try await rpc("thread/list", params)
         guard let data = result["data"] as? [[String: Any]] else { throw CodexAgentError(message: "会話一覧を読み込めませんでした。") }
-        return AgentHistoryPage(entries: try data.map(CodexAgentMapping.historyEntry), nextCursor: result["nextCursor"] as? String)
+        return AgentHistoryPage(entries: try data.map(CodexMapping.historyEntry), nextCursor: result["nextCursor"] as? String)
     }
 
     func resume(_ entry: AgentHistoryEntry) async throws -> AgentHistorySnapshot {
@@ -247,7 +247,7 @@ final class CodexAgentSession: AgentSession {
             guard let turns = thread["turns"] as? [[String: Any]] else { throw CodexAgentError(message: "会話履歴を読み込めませんでした。") }
             values = turns
         }
-        let exchanges = try CodexAgentMapping.exchanges(values)
+        let exchanges = try CodexMapping.exchanges(values)
         threadID = entry.id
         updateSettings(result)
         needsResume = false
@@ -255,7 +255,7 @@ final class CodexAgentSession: AgentSession {
         return AgentHistorySnapshot(entry: entry, exchanges: exchanges, selectedModelOption: selectedOption)
     }
 
-    func disconnect() {
+    func close() {
         guard !isClosed else { return }
         isClosed = true
         pendingRequests.removeAll()
@@ -306,7 +306,7 @@ final class CodexAgentSession: AgentSession {
            models.first(where: { $0.options.contains(where: { $0.modelID == settings["model"] as? String }) })?.supportsImages == false {
             throw CodexAgentError(message: "このモデルは画像入力に対応していません。")
         }
-        return try CodexAgentMapping.input(input, skills: skills)
+        return try CodexMapping.input(input, skills: skills)
     }
 
     private func prepareThread() async throws {
@@ -367,7 +367,7 @@ final class CodexAgentSession: AgentSession {
                 var details = params
                 if method == "item/fileChange/requestApproval", let itemID = params["itemId"] as? String,
                    let item = turn?.items.first(where: { $0.id == itemID }) { details["changes"] = item.data["changes"] }
-                let request = try CodexAgentMapping.request(method: method, params: details, rpcID: requestID)
+                let request = try CodexMapping.request(method: method, params: details, rpcID: requestID)
                 guard pendingRequests[request.id] == nil else { return }
                 pendingRequests[request.id] = PendingRequest(rpcID: requestID, method: method, params: details, request: request)
                 emitter.yield(.output(.request(request)))
@@ -378,7 +378,7 @@ final class CodexAgentSession: AgentSession {
             return
         }
         if method == "serverRequest/resolved", let id = params["requestId"] {
-            resolve(CodexAgentMapping.requestID(id), outcome: .resolved)
+            resolve(CodexMapping.requestID(id), outcome: .resolved)
             return
         }
         guard let threadID, params["threadId"] as? String == threadID else { return }
@@ -400,17 +400,17 @@ final class CodexAgentSession: AgentSession {
             guard let item = params["item"] as? [String: Any], let id = item["id"] as? String else { return }
             active.updateItem(item, completed: method == "item/completed")
             turn = active
-            if let item = active.items.first(where: { $0.id == id }) { emitter.yield(.output(CodexAgentMapping.output(item))) }
+            if let item = active.items.first(where: { $0.id == id }) { emitter.yield(.output(CodexMapping.output(item))) }
         case "item/agentMessage/delta", "item/commandExecution/outputDelta", "item/plan/delta":
             guard let id = params["itemId"] as? String, let delta = params["delta"] as? String,
                   let index = active.items.firstIndex(where: { $0.id == id }) else { return }
             active.items[index].delta += delta
             turn = active
-            emitter.yield(.output(CodexAgentMapping.output(active.items[index])))
+            emitter.yield(.output(CodexMapping.output(active.items[index])))
         case "turn/completed":
             guard let remote = params["turn"] as? [String: Any], remote["id"] as? String == active.remoteID else { return }
             active.inferFinalAnswerIfNeeded()
-            for item in active.items { emitter.yield(.output(CodexAgentMapping.output(item))) }
+            for item in active.items { emitter.yield(.output(CodexMapping.output(item))) }
             if let error = remote["error"] as? [String: Any] { finish(.failed(error["message"] as? String ?? "Codexの実行に失敗しました。")) }
             else if remote["status"] as? String == "completed" { finish(.completed) }
             else if remote["status"] as? String == "interrupted" { finish(.interrupted) }

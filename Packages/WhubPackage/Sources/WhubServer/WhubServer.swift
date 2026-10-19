@@ -1,5 +1,6 @@
 import Foundation
 import Hummingbird
+import WhubAgent
 
 enum ConfigurationError: Error, CustomStringConvertible {
     case invalidAddress, invalidPort
@@ -14,7 +15,7 @@ enum ConfigurationError: Error, CustomStringConvertible {
 
 @main
 struct WhubServer {
-    static func main() async throws {
+    @MainActor static func main() async throws {
         let arguments = Array(CommandLine.arguments.dropFirst())
         if !arguments.isEmpty {
             guard arguments.count == 3, arguments[0] == "update", arguments[1].hasPrefix("/") else {
@@ -33,7 +34,9 @@ struct WhubServer {
             throw ConfigurationError.invalidPort
         }
 
-        let router = makeRouter(files: FilesAPI(), manager: try managerAPI(environment))
+        let runtime = AgentRuntime()
+        defer { runtime.shutdown() }
+        let router = makeRouter(files: FilesAPI(), manager: try managerAPI(environment), agent: AgentAPI(runtime: runtime))
 
         let app = Application(
             router: router,
