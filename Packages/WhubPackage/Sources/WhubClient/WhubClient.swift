@@ -29,6 +29,8 @@ public struct WhubClient: Sendable {
 
     public var manager: ManagerAPI { ManagerAPI(client: self) }
 
+    public var agent: AgentAPI { AgentAPI(client: self) }
+
     public init(baseURL: URL, session: URLSession = .shared) throws {
         guard let components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
               let scheme = components.scheme, ["http", "https"].contains(scheme.lowercased()),

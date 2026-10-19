@@ -1,5 +1,6 @@
 import Foundation
 import Hummingbird
+import WhubAgent
 import HummingbirdTesting
 import Testing
 #if os(Linux)
@@ -15,7 +16,7 @@ private final class FilesFixture: Sendable {
     let second: URL
     let app: Application<RouterResponder<BasicRequestContext>>
 
-    init() throws {
+    init() async throws {
         let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         directory = package.appendingPathComponent(".build/files-tests/\(UUID().uuidString)").resolvingSymlinksInPath()
         first = directory.appendingPathComponent("first + 日本語")
@@ -28,7 +29,7 @@ private final class FilesFixture: Sendable {
         let manager = ManagerAPI(manager: ServerManager(root: directory.appendingPathComponent("manager")),
                                  configuration: configuration,
                                  executable: directory, running: nil)
-        app = Application(router: makeRouter(files: FilesAPI(), manager: manager))
+        app = Application(router: makeRouter(files: FilesAPI(), manager: manager, agent: AgentAPI(runtime: await AgentRuntime())))
     }
 
     func uri(_ endpoint: String, root: URL, path: String? = nil) -> String {
@@ -43,7 +44,7 @@ private final class FilesFixture: Sendable {
 }
 
 @Test func filesRequestsSelectTheirOwnRootAndDecodeNames() async throws {
-    let fixture = try FilesFixture()
+    let fixture = try await FilesFixture()
     let name = "hello + 日本語.txt"
     for (root, text) in [(fixture.first, "first"), (fixture.second, "second")] {
         try text.write(to: root.appendingPathComponent(name), atomically: true, encoding: .utf8)
@@ -65,7 +66,7 @@ private final class FilesFixture: Sendable {
 }
 
 @Test func filesRejectInvalidQueriesAndTraversal() async throws {
-    let fixture = try FilesFixture()
+    let fixture = try await FilesFixture()
     let valid = fixture.uri("list", root: fixture.first)
     try await fixture.app.test(.router) { client in
         for uri in ["/files/list", "/files/list?path=", "/files/list?root=", "/files/list?root=relative",
@@ -80,7 +81,7 @@ private final class FilesFixture: Sendable {
 }
 
 @Test func filesKeepSymlinkAndTextRestrictions() async throws {
-    let fixture = try FilesFixture()
+    let fixture = try await FilesFixture()
     let fm = FileManager.default
     try "outside".write(to: fixture.second.appendingPathComponent("secret"), atomically: true, encoding: .utf8)
     try fm.createSymbolicLink(at: fixture.first.appendingPathComponent("link"), withDestinationURL: fixture.second)
@@ -103,7 +104,7 @@ private final class FilesFixture: Sendable {
 
 
 @Test func filesWritePreservesBytesPermissionsAndRejectsStaleBase() async throws {
-    let fixture = try FilesFixture()
+    let fixture = try await FilesFixture()
     let file = fixture.first.appendingPathComponent("日本語 + file")
     let original = "\u{FEFF}before\r\n"
     let saved = "\u{FEFF}after\r\n"
@@ -128,7 +129,7 @@ private final class FilesFixture: Sendable {
 }
 
 @Test func filesWriteChecksBytesRatherThanUnicodeEquivalenceAndSerializesSaves() async throws {
-    let fixture = try FilesFixture()
+    let fixture = try await FilesFixture()
     let file = fixture.first.appendingPathComponent("file")
     let service = try FilesService(root: fixture.first.path)
     try Data("e\u{301}".utf8).write(to: file)
@@ -152,7 +153,7 @@ private final class FilesFixture: Sendable {
 }
 
 @Test func filesWriteRefusesUnsafeUnsupportedAndUnwritableTargetsWithoutChangingFiles() async throws {
-    let fixture = try FilesFixture()
+    let fixture = try await FilesFixture()
     let fm = FileManager.default
     let file = fixture.first.appendingPathComponent("file")
     try Data("base".utf8).write(to: file)
@@ -175,7 +176,7 @@ private final class FilesFixture: Sendable {
 }
 
 @Test func filesWriteValidatesRequestAndSupportsEscapedOneMiBText() async throws {
-    let fixture = try FilesFixture()
+    let fixture = try await FilesFixture()
     let file = fixture.first.appendingPathComponent("file")
     let text = String(repeating: "\t", count: 1_048_576)
     try Data(text.utf8).write(to: file)
@@ -199,7 +200,7 @@ private final class FilesFixture: Sendable {
 
 @Test(arguments: [false, true])
 func filesWriteRejectsExtraMetadataWithoutReplacingOriginal(acl: Bool) async throws {
-    let fixture = try FilesFixture()
+    let fixture = try await FilesFixture()
     let file = fixture.first.appendingPathComponent("file")
     try Data("base".utf8).write(to: file)
     let fd = open(file.path, O_RDWR | O_CLOEXEC)

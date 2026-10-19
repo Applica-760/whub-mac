@@ -1,8 +1,10 @@
 import Hummingbird
 
-func makeRouter(files: FilesAPI, manager: ManagerAPI) -> Router<BasicRequestContext> {
+func makeRouter(files: FilesAPI, manager: ManagerAPI, agent: AgentAPI) -> Router<BasicRequestContext> {
     let router = Router()
     router.get("ping") { _, _ -> String in "pong" }
+
+    // Files API
     router.get("files/list") { request, _ -> Response in
         await files.list(query: request.uri.query)
     }
@@ -12,6 +14,8 @@ func makeRouter(files: FilesAPI, manager: ManagerAPI) -> Router<BasicRequestCont
     router.put("files/write") { request, _ -> Response in
         await files.writeText(request)
     }
+
+    // Manager API
     router.post("manager/updates") { request, _ in await manager.handle(request, action: .start(.update)) }
     router.post("manager/fetch") { request, _ in await manager.handle(request, action: .start(.fetch)) }
     router.get("manager/commits") { request, _ in await manager.handle(request, action: .commits) }
@@ -27,5 +31,34 @@ func makeRouter(files: FilesAPI, manager: ManagerAPI) -> Router<BasicRequestCont
         await manager.handle(request, action: .log(context.parameters.get("id") ?? ""))
     }
     router.get("manager/status") { request, _ in await manager.handle(request, action: .status) }
+
+    // Agent API
+    router.post("agent/sessions") { request, _ in try await agent.handle(request, action: .create) }
+    router.get("agent/sessions") { request, _ in try await agent.handle(request, action: .list) }
+    router.get("agent/sessions/:id") { request, context in
+        try await agent.handle(request, action: .state(context.parameters.get("id") ?? ""))
+    }
+    router.delete("agent/sessions/:id") { request, context in
+        try await agent.handle(request, action: .close(context.parameters.get("id") ?? ""))
+    }
+    router.get("agent/sessions/:id/changes") { request, context in
+        try await agent.handle(request, action: .changes(context.parameters.get("id") ?? ""))
+    }
+    router.post("agent/sessions/:id/commands") { request, context in
+        try await agent.handle(request, action: .execute(context.parameters.get("id") ?? ""))
+    }
+    router.get("agent/sessions/:id/models") { request, context in
+        try await agent.handle(request, action: .models(context.parameters.get("id") ?? ""))
+    }
+    router.get("agent/sessions/:id/skills") { request, context in
+        try await agent.handle(request, action: .skills(context.parameters.get("id") ?? ""))
+    }
+    router.get("agent/sessions/:id/status") { request, context in
+        try await agent.handle(request, action: .status(context.parameters.get("id") ?? ""))
+    }
+    router.get("agent/sessions/:id/history") { request, context in
+        try await agent.handle(request, action: .history(context.parameters.get("id") ?? ""))
+    }
+
     return router
 }

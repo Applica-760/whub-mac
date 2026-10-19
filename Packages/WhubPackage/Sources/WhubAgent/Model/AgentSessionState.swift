@@ -1,5 +1,15 @@
 import Foundation
 
+public struct AgentSessionConfiguration: Codable, Sendable, Equatable {
+    public let kind: AgentKind
+    public let directory: String
+
+    public init(kind: AgentKind, directory: String) {
+        self.kind = kind
+        self.directory = directory
+    }
+}
+
 public struct AgentSessionState: Identifiable, Codable, Sendable, Equatable {
     public let id: UUID
     public let kind: AgentKind
