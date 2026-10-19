@@ -10,13 +10,15 @@ struct AgentAPI: Sendable {
         case create, list
         case state(String), close(String), changes(String), execute(String)
         case models(String), skills(String), status(String), history(String)
+        case openSnapshot(String), snapshot(String, String), releaseSnapshot(String, String), image(String, String)
     }
 
     func handle(_ request: Request, action: Action) async throws -> Response {
         do {
             let allowed: Set<String>
             switch action {
-            case .changes: allowed = ["after"]
+            case .changes: allowed = ["snapshot", "after", "cursor"]
+            case .snapshot, .image: allowed = ["cursor"]
             case .history: allowed = ["cursor"]
             default: allowed = []
             }
@@ -25,13 +27,13 @@ struct AgentAPI: Sendable {
             case .create:
                 let configuration = try await body(AgentSessionConfiguration.self, request)
                 let state = try await runtime.create(kind: configuration.kind, directory: configuration.directory)
-                var response = try json(state, status: .created)
+                var response = try await json(runtime.summary(sessionID: state.id), status: .created)
                 response.headers[.location] = "/agent/sessions/\(state.id)"
                 return response
             case .list:
-                return try await json(runtime.list())
+                return try await json(runtime.summaries())
             case .state(let id):
-                return try await json(runtime.state(sessionID: sessionID(id)))
+                return try await json(runtime.summary(sessionID: sessionID(id)))
             case .close(let id):
                 try await runtime.close(sessionID: sessionID(id))
                 return Response(status: .noContent, headers: [.cacheControl: "no-store"])
@@ -40,7 +42,26 @@ struct AgentAPI: Sendable {
                       value.allSatisfy({ $0.isASCII && $0.isNumber }), let revision = UInt64(value) else {
                     throw AgentAPIError.invalidRequest
                 }
-                return try await json(changes(sessionID: sessionID(id), after: revision))
+                guard let snapshot = query["snapshot"] else { throw AgentAPIError.invalidRequest }
+                if let page = try await changes(sessionID: sessionID(id), snapshotID: sessionID(snapshot),
+                                                after: revision, cursor: cursor(query)) {
+                    return try json(page)
+                }
+                return Response(status: .noContent, headers: [.cacheControl: "no-store"])
+            case .openSnapshot(let id):
+                let snapshot = try await runtime.openSnapshot(sessionID: sessionID(id))
+                var response = try json(snapshot, status: .created)
+                response.headers[.location] = "/agent/sessions/\(id)/snapshots/\(snapshot.id)"
+                return response
+            case .snapshot(let id, let snapshot):
+                return try await json(runtime.snapshotPage(sessionID: sessionID(id), snapshotID: sessionID(snapshot),
+                                                          cursor: cursor(query)))
+            case .releaseSnapshot(let id, let snapshot):
+                try await runtime.releaseSnapshot(sessionID: sessionID(id), snapshotID: sessionID(snapshot))
+                return Response(status: .noContent, headers: [.cacheControl: "no-store"])
+            case .image(let id, let image):
+                return try await json(runtime.imagePage(sessionID: sessionID(id), imageID: sessionID(image),
+                                                       cursor: cursor(query)))
             case .execute(let id):
                 let id = try sessionID(id)
                 let command = try await body(AgentCommand.self, request)
@@ -65,18 +86,32 @@ struct AgentAPI: Sendable {
         }
     }
 
-    private func changes(sessionID: UUID, after revision: UInt64) async throws -> AgentSessionState {
-        // Bound the HTTP request; cancelling either observer never stops the runtime's execution.
-        try await withThrowingTaskGroup(of: AgentSessionState.self) { group in
-            group.addTask { try await runtime.changes(sessionID: sessionID, after: revision) }
+    private func changes(sessionID: UUID, snapshotID: UUID, after revision: UInt64,
+                         cursor: Int) async throws -> AgentTransferPage? {
+        if let page = try await runtime.changePage(sessionID: sessionID, snapshotID: snapshotID,
+                                                   after: revision, cursor: cursor) { return page }
+        // Only the HTTP observer is cancelled; accepted work remains owned by the runtime.
+        return try await withThrowingTaskGroup(of: AgentTransferPage?.self) { group in
+            group.addTask {
+                _ = try await runtime.changes(sessionID: sessionID, after: revision)
+                return try await runtime.changePage(sessionID: sessionID, snapshotID: snapshotID, after: revision)
+            }
             group.addTask {
                 try await Task.sleep(for: .seconds(5))
-                return try await runtime.state(sessionID: sessionID)
+                return try await runtime.changePage(sessionID: sessionID, snapshotID: snapshotID, after: revision)
             }
             defer { group.cancelAll() }
-            guard let state = try await group.next() else { throw CancellationError() }
-            return state
+            guard let result = try await group.next() else { throw CancellationError() }
+            return result
         }
+    }
+
+    private func cursor(_ query: [String: String]) throws -> Int {
+        guard let value = query["cursor"] else { return 0 }
+        guard value.allSatisfy({ $0.isASCII && $0.isNumber }), let cursor = Int(value) else {
+            throw AgentAPIError.invalidRequest
+        }
+        return cursor
     }
 
     private func sessionID(_ value: String) throws -> UUID {

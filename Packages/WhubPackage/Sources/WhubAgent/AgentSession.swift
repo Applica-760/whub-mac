@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class AgentSession {
     private(set) var state: AgentSessionState
+    let synchronization = AgentSynchronization()
     private let adapter: any AgentAdapter
     private var observer: Task<Void, Never>?
     private var commands: [UUID: AgentCommand] = [:]
@@ -110,6 +111,7 @@ final class AgentSession {
             state.commands[index].error = AgentError(.closed, "セッションを終了しました。")
         }
         publish()
+        synchronization.releaseAll()
     }
 
     private func prepare(_ action: AgentCommand.Action) throws {

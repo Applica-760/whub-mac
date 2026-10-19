@@ -29,7 +29,7 @@ enum AgentAPIError: Error {
         case .notFound: .notFound
         case .conflict: .conflict
         case .unsupported: .unprocessableContent
-        case .closed: .gone
+        case .closed, .resyncRequired: .gone
         case .adapterFailed: .badGateway
         }
     }

@@ -20,6 +20,19 @@ public struct AgentImageAttachment: Identifiable, Codable, Sendable, Equatable {
         self.mediaType = mediaType
     }
 
+    private enum CodingKeys: String, CodingKey { case id, data, mediaType, byteCount }
+
+    public func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(mediaType, forKey: .mediaType)
+        if encoder.userInfo[.agentImageReferences] as? Bool == true {
+            try values.encode(data.count, forKey: .byteCount)
+        } else {
+            try values.encode(data, forKey: .data)
+        }
+    }
+
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(id: values.decode(UUID.self, forKey: .id),

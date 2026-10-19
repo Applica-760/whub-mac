@@ -44,6 +44,18 @@ func makeRouter(files: FilesAPI, manager: ManagerAPI, agent: AgentAPI) -> Router
     router.get("agent/sessions/:id/changes") { request, context in
         try await agent.handle(request, action: .changes(context.parameters.get("id") ?? ""))
     }
+    router.post("agent/sessions/:id/snapshots") { request, context in
+        try await agent.handle(request, action: .openSnapshot(context.parameters.get("id") ?? ""))
+    }
+    router.get("agent/sessions/:id/snapshots/:snapshot") { request, context in
+        try await agent.handle(request, action: .snapshot(context.parameters.get("id") ?? "", context.parameters.get("snapshot") ?? ""))
+    }
+    router.delete("agent/sessions/:id/snapshots/:snapshot") { request, context in
+        try await agent.handle(request, action: .releaseSnapshot(context.parameters.get("id") ?? "", context.parameters.get("snapshot") ?? ""))
+    }
+    router.get("agent/sessions/:id/images/:image") { request, context in
+        try await agent.handle(request, action: .image(context.parameters.get("id") ?? "", context.parameters.get("image") ?? ""))
+    }
     router.post("agent/sessions/:id/commands") { request, context in
         try await agent.handle(request, action: .execute(context.parameters.get("id") ?? ""))
     }

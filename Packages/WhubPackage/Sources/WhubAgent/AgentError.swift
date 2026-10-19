@@ -2,7 +2,7 @@ import Foundation
 
 public struct AgentError: Error, Codable, Sendable, Equatable, LocalizedError {
     public enum Code: String, Codable, Sendable {
-        case invalidInput, notFound, conflict, unsupported, closed, adapterFailed
+        case invalidInput, notFound, conflict, unsupported, closed, adapterFailed, resyncRequired
     }
 
     public let code: Code
