@@ -24,7 +24,26 @@ struct AgentBookExchangeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AgentBookTextView(book: book, focus: focus)
+            AgentBookTextView(book: book, focus: focus, header: { exchange in
+                AnyView(
+                    AgentBookExchangeHeader(exchange: exchange, agentName: agentName, isActive: canInteract)
+                        .overlay(alignment: .bottom) {
+                            Divider()
+                        }
+                )
+            }, promptControl: { id in
+                AnyView(
+                    Button(book.isPromptExpanded(id) ? "折りたたむ" : "全文を表示",
+                           systemImage: book.isPromptExpanded(id) ? "chevron.up" : "chevron.down") {
+                        focus.activateReading()
+                        book.togglePrompt(id)
+                    }
+                    .font(.caption)
+                    .buttonStyle(.plain)
+                    .disabled(!canInteract)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                )
+            })
                 .overlay(alignment: .top) {
                     GeometryReader { geometry in
                         Rectangle().fill(.secondary.opacity(0.18))
@@ -35,25 +54,6 @@ struct AgentBookExchangeView: View {
                 }
                 .overlay(alignment: .topLeading) {
                     ZStack(alignment: .topLeading) {
-                        ForEach(book.promptControls.filter { visiblePages.contains($0.page) }) { control in
-                            Button(book.isPromptExpanded(control.id) ? "折りたたむ" : "全文を表示",
-                                   systemImage: book.isPromptExpanded(control.id) ? "chevron.up" : "chevron.down") {
-                                focus.activateReading()
-                                book.togglePrompt(control.id)
-                            }
-                            .font(.caption)
-                            .buttonStyle(.plain)
-                            .disabled(!canInteract)
-                            .frame(width: control.frame.width, height: control.frame.height, alignment: .leading)
-                            .offset(x: pageX(control.page) + control.frame.minX, y: control.frame.minY)
-                        }
-                        ForEach(book.headers.filter { visiblePages.contains($0.page) }) { header in
-                            if let exchange = book.exchange(header.id) {
-                                AgentBookExchangeHeader(exchange: exchange, agentName: agentName, isActive: canInteract)
-                                    .frame(width: header.frame.width, height: header.frame.height)
-                                    .offset(x: pageX(header.page) + header.frame.minX, y: header.frame.minY)
-                            }
-                        }
                         if let contentBottom = book.contentBottoms.last {
                             AgentBookApprovalEntryView(request: approval,
                                 pageSize: book.pageSize, contentBottom: contentBottom, scale: 1,

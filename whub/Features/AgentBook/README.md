@@ -48,14 +48,16 @@ AgentBook/
 
 ## ページ配置は会話データから作る表示状態
 
-`AgentBookExchangeView` が `AgentBookPageLayout` を保持する。Markdownの見た目は `AgentBookMarkdownDocument`、ページへの配置は `AgentBookPageLayout`、実際のAppKit Viewの配置は `AgentBookTextSurface`（AgentBookTextView.swift内）が担当する。改ページや折りたたみの変更で `AgentStore.exchanges` を加工しない。
+`AgentBookExchangeView` が `AgentBookPageLayout` を保持する。Markdownの見た目は `AgentBookMarkdownDocument`、ページへの配置は `AgentBookPageLayout`、実際のAppKit Viewの配置は `AgentBookTextSurface`（AgentBookTextView.swift内）が担当する。ページ内スクロールのために `AgentStore.exchanges` を加工しない。
 
-コードは横スクロール用の別Viewで描画し、本文には配置用の添付部品を入れている。現状はページ1枚分の行数でコードを先に分割するため、ページの残り高さに合わせた途中分割はしていない。コードや数式のコピーには、表示文字列や画像ではなく保持した元ソースを使う。
+1回のやり取りを片側1ページに表示し、次のやり取りは次のページから始める。各ページは独立して縦スクロールし、本文の長さでは改ページしない。最初の入力と追加入力はページ高の15％の固定領域にまとめ、その中で全文をスクロールできる。直下に作業履歴の操作部と区切り線、8ptの余白を置いて回答を表示する。
+
+各ページは独立したTextKitの本文・レイアウトを持つ。入力・コードは本文中の添付部品で領域を確保し、別Viewで描画する。コードは横スクロールでき、縦のスクロール操作はページへ渡す。コードや数式のコピーには、保持した元ソースを使う。
 
 ## 変更時に守る境界
 
 - タブの追加・削除・会話の新規作成・再開・エージェント種別の変更は `AgentBookStore` を通す。最後のタブを閉じても1つ残し、選択IDが実在する状態を保つ。
 - タブ切り替えには共通の [RetainedPageContainer](../../Components/RetainedPageContainer.swift) を使う。非表示になっただけで会話を切断しない。非表示タブ・Featureの承認操作やキー入力は無効にする。
 - 接続先の作業ディレクトリは `AgentBookStore.connect` で決める。履歴のディレクトリ、Local HostのBase Path、ホームの順に使う。Viewや入力欄で別の決定処理を作らない。
-- 本文更新はExchangeViewで間引き、再表示時に最新の会話を渡す。ページ配置を変える際は、未変更の先頭部分の再利用と、リサイズ・更新時の読書位置／選択範囲の復元を維持する。
+- 本文更新はExchangeViewで間引き、再表示時に最新の会話を渡す。ページ配置を変える際は、未変更ページの再利用と、リサイズ・更新時の読書位置／選択範囲の復元を維持する。
 - タブ操作とページ内操作は別に扱う。ページ移動は読書フォーカス、送信は入力フォーカスとの関係を確認し、非表示の画面がショートカットを受け取らないようにする。境界を変えたら、このREADMEも更新する。

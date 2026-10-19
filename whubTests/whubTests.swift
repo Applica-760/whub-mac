@@ -611,38 +611,33 @@ struct AgentBookReadingTests {
     @Test func tailUpdateDoesNotLayOutUnchangedFrontPages() throws {
         let book = AgentBookPageLayout()
         let probe = AgentBookLayoutProbe()
-        book.manager.delegate = probe
         var exchanges = (0..<8).map { testExchange("Question \($0)", answer: String(repeating: "Paragraph \($0).\n\n", count: 12)) }
         let viewport = CGSize(width: 800, height: 450)
-        let surface = AgentBookTextSurface(book: book)
-        surface.frame.size = viewport
         book.update(exchanges, agentName: "Codex")
-        surface.needsLayout = true
-        surface.layoutSubtreeIfNeeded()
-        try #require(book.ranges.count > 4)
-        let first = try #require(book.manager.textContainers.first)
-        probe.laidOutContainers.removeAll()
+        book.prepare(viewport: viewport, colorScheme: .light)
+        let first = try #require(book.pages.first)
+        for page in book.pages { page.manager.delegate = probe }
         exchanges[7].outputs = testExchange(answer: "Updated final answer").outputs
         book.update(exchanges, agentName: "Codex")
-        surface.needsLayout = true
-        surface.layoutSubtreeIfNeeded()
+        book.prepare(viewport: viewport, colorScheme: .light)
         #expect(!probe.laidOutContainers.isEmpty)
-        #expect(!probe.laidOutContainers.contains { $0 === first })
+        #expect(!probe.laidOutContainers.contains { $0 === first.container })
+        #expect(book.pages.first === first)
         let fresh = AgentBookPageLayout()
         fresh.update(exchanges, agentName: "Codex")
         fresh.prepare(viewport: viewport, colorScheme: .light)
-        #expect(book.ranges == fresh.ranges)
+        #expect(book.pages.map { $0.storage.string } == fresh.pages.map { $0.storage.string })
     }
 
-    @Test func incrementalPaginationMatchesFreshLayoutAcrossEditsAndResize() throws {
+    @Test func incrementalLayoutMatchesFreshLayoutAcrossEditsAndResize() throws {
         let book = AgentBookPageLayout()
         var exchanges = (0..<8).map { testExchange("Question \($0)", answer: String(repeating: "Paragraph \($0). 日本語の本文。\n\n", count: 12)) }
         var viewport = CGSize(width: 800, height: 450)
         var scheme = ColorScheme.light
         book.update(exchanges, agentName: "Codex")
         book.prepare(viewport: viewport, colorScheme: scheme)
-        let originalRanges = book.ranges
-        try #require(originalRanges.count > 4)
+        let originalPages = book.pages
+        #expect(originalPages.count == exchanges.count)
         for edit in 0..<6 {
             switch edit {
             case 0: exchanges[7].outputs = testExchange(answer: "Appended answer.\n\n```swift\nlet value = 1\n```").outputs
@@ -659,40 +654,48 @@ struct AgentBookReadingTests {
             let fresh = AgentBookPageLayout()
             fresh.update(exchanges, agentName: "Codex")
             fresh.prepare(viewport: viewport, colorScheme: scheme)
-            #expect(book.storage.string == fresh.storage.string && book.ranges == fresh.ranges)
-            #expect(book.codes.map(\.text) == fresh.codes.map(\.text))
+            #expect(book.pages.count == exchanges.count)
+            #expect(book.pages.map { $0.storage.string } == fresh.pages.map { $0.storage.string })
+            #expect(book.pages.flatMap(\.codes).map(\.text) == fresh.pages.flatMap(\.codes).map(\.text))
             #expect(book.headers.map(\.frame) == fresh.headers.map(\.frame))
-            #expect(NSMaxRange(try #require(book.ranges.last)) == book.storage.length)
-            #expect(book.manager.textContainers.count == book.ranges.count)
             #expect(!book.prepare(viewport: viewport, colorScheme: scheme))
-            if edit == 0 { #expect(Array(book.ranges.prefix(3)) == Array(originalRanges.prefix(3))) }
+            if edit == 0 { #expect(zip(book.pages.prefix(3), originalPages.prefix(3)).allSatisfy { $0 === $1 }) }
         }
     }
 
-    @Test func longPromptExpansionAndAdditionalInputOrderingSurviveUpdates() async throws {
-        #expect(AgentBookPageLayout.collapsedPrompt(String(repeating: "あ", count: 500)) == nil)
-        #expect(AgentBookPageLayout.collapsedPrompt(String(repeating: "👩‍💻", count: 501)) == String(repeating: "👩‍💻", count: 500) + "…")
-        #expect(AgentBookPageLayout.collapsedPrompt((1...7).map(String.init).joined(separator: "\n")) == "1\n2\n3\n4\n5\n6…")
+    @Test func fixedPromptAreaKeepsAdditionalInputsAndAnswerOnOnePage() throws {
         let prompt = (1...80).map { "error line \($0)" }.joined(separator: "\n")
         var exchange = testExchange(prompt, answer: "before additional")
         exchange.additionalInputs = [AgentAdditionalInput(input: [.text("additional prompt")], outputIndex: 1)]
         exchange.outputs += [.message(AgentMessage(id: "second", role: .answer, title: "Answer", content: .text("after additional"), status: .completed))]
         let book = AgentBookPageLayout()
+        let viewport = CGSize(width: 800, height: 450)
         book.update([exchange], agentName: "Codex")
-        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
-        #expect(!book.storage.string.contains("error line 80"))
-        book.togglePrompt(exchange.id)
-        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
-        #expect(book.storage.string.contains(prompt))
-        let text = book.storage.string as NSString
-        #expect(text.range(of: "before additional").location < text.range(of: "additional prompt").location)
-        #expect(text.range(of: "additional prompt").location < text.range(of: "after additional").location)
+        book.prepare(viewport: viewport, colorScheme: .dark)
+        #expect(book.pages.count == 1)
+        let page = try #require(book.pages.first)
+        let input = try #require(page.prompts.first)
+        #expect(page.prompts.count == 1)
+        #expect(input.text.string.contains(prompt))
+        #expect(input.text.string.contains("additional prompt"))
+        #expect(input.size.height == viewport.height * 0.15)
+        #expect((input.text.string as NSString).range(of: prompt).location < (input.text.string as NSString).range(of: "additional prompt").location)
+        #expect((page.storage.string as NSString).range(of: "before additional").location < (page.storage.string as NSString).range(of: "after additional").location)
+        let short = AgentBookPageLayout()
+        short.update([testExchange("short")], agentName: "Codex")
+        short.prepare(viewport: viewport, colorScheme: .dark)
+        #expect(book.headers.first?.frame.minY == short.headers.first?.frame.minY)
         exchange.outputs[1] = .message(AgentMessage(id: "second", role: .answer, title: "Answer", content: .text("updated"), status: .completed))
         book.update([exchange], agentName: "Codex")
-        book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: .dark)
-        #expect(book.isPromptExpanded(exchange.id) && book.storage.string.contains("updated"))
+        book.prepare(viewport: viewport, colorScheme: .dark)
+        #expect(book.pages.count == 1 && page.storage.string.contains("updated"))
+        book.update([exchange, testExchange("Next input")], agentName: "Codex")
+        book.prepare(viewport: viewport, colorScheme: .dark)
+        #expect(book.pages.count == 2)
+        #expect(book.pages[1].prompts.first?.text.string.contains("Next input") == true)
         book.update([], agentName: "Codex")
-        #expect(!book.isPromptExpanded(exchange.id))
+        book.prepare(viewport: viewport, colorScheme: .dark)
+        #expect(book.pages.isEmpty)
     }
 
     @Test func imagesAndCodeRemainOrderedAcrossPagesAndAnswerUpdates() throws {
@@ -704,13 +707,15 @@ struct AgentBookReadingTests {
             book.update([exchange], agentName: "Codex")
             book.prepare(viewport: CGSize(width: 800, height: 450), colorScheme: scheme)
             var found: [NSImage] = []
-            book.storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: book.storage.length)) { value, _, _ in
+            let page = try #require(book.pages.first)
+            let prompt = try #require(page.prompts.first)
+            prompt.text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: prompt.text.length)) { value, _, _ in
                 if let image = (value as? NSTextAttachment)?.image { found.append(image) }
             }
             #expect(found.count == images.count)
             #expect(zip(found, images).allSatisfy { $0.0 === $0.1.image })
-            #expect(book.codes.map(\.text).joined() == String(repeating: "let value = 1\n", count: 50))
-            #expect(book.ranges.count > 2)
+            #expect(page.codes.map(\.text).joined() == String(repeating: "let value = 1\n", count: 50))
+            #expect(book.pages.count == 1)
         }
     }
 
@@ -735,7 +740,7 @@ struct AgentBookReadingTests {
         surface.needsLayout = true
         surface.layoutSubtreeIfNeeded()
         #expect(focus.isReading(in: window) && text.selectedRange() == NSRange(location: 0, length: 5))
-        #expect(book.storage.string.contains("appended answer"))
+        #expect(book.pages.first?.storage.string.contains("appended answer") == true)
     }
 
     @Test func shrinkingPagesDoesNotStealInputFocus() throws {
@@ -743,17 +748,16 @@ struct AgentBookReadingTests {
         let content = try #require(window.contentView)
         let focus = AgentBookFocus()
         let book = AgentBookPageLayout()
-        let exchange = testExchange(String(repeating: "長い本文。\n\n", count: 100))
-        book.update([exchange], agentName: "Codex")
-        book.togglePrompt(exchange.id)
+        let exchanges = (0..<3).map { _ in testExchange(String(repeating: "長い本文。\n\n", count: 100)) }
+        book.update(exchanges, agentName: "Codex")
         let surface = AgentBookTextSurface(book: book)
         surface.frame = content.bounds
         focus.readingView = surface
         content.addSubview(surface)
         surface.needsLayout = true
         surface.layoutSubtreeIfNeeded()
-        let originalPages = surface.subviews.compactMap { $0 as? NSTextView }
-        try #require(originalPages.count > 2)
+        let originalPages = surface.subviews.compactMap { $0 as? NSScrollView }
+        try #require(originalPages.count == 2)
         let input = NSTextView(frame: content.bounds)
         input.string = "draft"
         content.addSubview(input)
@@ -763,8 +767,8 @@ struct AgentBookReadingTests {
         book.update([testExchange("short")], agentName: "Codex")
         surface.needsLayout = true
         surface.layoutSubtreeIfNeeded()
-        #expect(surface.subviews.compactMap { $0 as? NSTextView }.count == 1)
-        #expect(originalPages.dropFirst().allSatisfy { $0.superview == nil })
+        #expect(surface.subviews.compactMap { $0 as? NSScrollView }.count == 1)
+        #expect(originalPages.allSatisfy { $0.superview == nil })
         #expect(window.firstResponder === input && input.string == "draft")
         #expect(input.selectedRange() == NSRange(location: 2, length: 0))
         surface.isHidden = true
@@ -780,8 +784,8 @@ struct AgentBookReadingTests {
         surface.frame.size = CGSize(width: 800, height: 450)
         surface.needsLayout = true
         surface.layoutSubtreeIfNeeded()
-        let text = try #require(surface.subviews.compactMap { $0 as? NSTextView }.first)
-        text.setSelectedRange(NSRange(location: 0, length: book.storage.length))
+        let text = try #require(surface.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSTextView }.first)
+        text.setSelectedRange(NSRange(location: 0, length: try #require(book.pages.first).storage.length))
         let pasteboard = NSPasteboard.withUniqueName()
         #expect(text.writeSelection(to: pasteboard, type: .string))
         let copied = try #require(pasteboard.string(forType: .string))
@@ -888,11 +892,13 @@ struct AgentBookReadingTests {
         let store = AgentStore(kind: .codex, session: backend)
         defer { store.disconnect() }
         await store.connect(directory: "/project")
-        await store.send([.text("question")])
-        backend.emit(.output(.message(AgentMessage(id: "a", role: .answer, title: "Answer",
-            content: .markdown(String(repeating: "Long paragraph.\n\n", count: 100)), status: .completed))))
-        backend.emit(.completed)
-        #expect(await testEventually { !store.isBusy })
+        for index in 0..<3 {
+            await store.send([.text("question \(index)")])
+            backend.emit(.output(.message(AgentMessage(id: "a", role: .answer, title: "Answer",
+                content: .markdown("Answer \(index)"), status: .completed))))
+            backend.emit(.completed)
+            #expect(await testEventually { !store.isBusy })
+        }
         let focus = AgentBookFocus()
         var spread = 0
         var pageCount = 0
