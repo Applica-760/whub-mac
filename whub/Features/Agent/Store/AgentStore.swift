@@ -34,6 +34,12 @@ final class AgentStore: ObservableObject, Identifiable {
     var respondingRequestIDs: Set<String> { isConnected ? state?.respondingRequestIDs ?? [] : [] }
     var errorMessage: String? { operationError ?? state?.error?.localizedDescription }
 
+    var pendingSendExchangeID: AgentExchange.ID? {
+        guard let pendingSendID, let state,
+              state.commands.contains(where: { $0.id == pendingSendID }) else { return nil }
+        return state.exchanges.last?.id
+    }
+
     var canSend: Bool {
         !isClosed && isConnected && !isBusy && !isChangingModel && !isResuming
     }
@@ -302,12 +308,13 @@ final class AgentStore: ObservableObject, Identifiable {
         if let state, next.revision <= state.revision { return }
         let mapped = try mapping.exchanges(next.exchanges)
         state = next
+        // Notify observers before releasing the send's identity.
+        exchanges = merged(mapped)
         if let pendingSendID, next.commands.contains(where: { $0.id == pendingSendID }),
            let exchange = next.exchanges.last, exchange.status != .running {
             if exchange.status == .completed { pendingInput = nil; self.pendingSendID = nil }
             else { restoreInput() }
         }
-        exchanges = merged(mapped)
     }
 
     private func streamEnded(_ error: (any Error)?) {
