@@ -35,8 +35,17 @@ public struct AgentImageAttachment: Identifiable, Codable, Sendable, Equatable {
 
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        try self.init(id: values.decode(UUID.self, forKey: .id),
-                      data: values.decode(Data.self, forKey: .data),
-                      mediaType: values.decode(String.self, forKey: .mediaType))
+        let id = try values.decode(UUID.self, forKey: .id)
+        let data: Data
+        if values.contains(.data) {
+            data = try values.decode(Data.self, forKey: .data)
+        } else {
+            guard let cached = (decoder.userInfo[.agentImageData] as? [UUID: Data])?[id],
+                  cached.count == (try values.decode(Int.self, forKey: .byteCount)) else {
+                throw DecodingError.dataCorruptedError(forKey: .data, in: values, debugDescription: "Image reference has no matching data.")
+            }
+            data = cached
+        }
+        try self.init(id: id, data: data, mediaType: values.decode(String.self, forKey: .mediaType))
     }
 }

@@ -135,6 +135,52 @@ private func applyAgentChange(_ change: AgentStateChange, to document: inout Age
     }
 }
 
+private func expectAgentState(_ actual: AgentSessionState, _ expected: AgentSessionState) throws {
+    // JSON timestamps round-trip through floating-point milliseconds, unlike an in-process Date().
+    let difference = abs(actual.createdAt.timeIntervalSince(expected.createdAt))
+    #expect(difference < 0.000_001)
+    func fields(_ state: AgentSessionState) throws -> [String: AgentJSONValue] {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        let value = try JSONDecoder().decode(AgentJSONValue.self, from: encoder.encode(state))
+        guard case .object(var values) = value else { throw WhubClientError.invalidResponse }
+        values.removeValue(forKey: "createdAt")
+        return values
+    }
+    let matches = try fields(actual) == fields(expected)
+    #expect(matches)
+}
+
+private actor AgentClientTraffic {
+    var requests: [(method: String, path: String, query: String?)] = []
+    var corruptNextChange = false
+
+    func corruptChange() { corruptNextChange = true }
+    func record(_ request: Request) throws -> Response? {
+        requests.append((request.method.rawValue, request.uri.path, request.uri.query))
+        guard corruptNextChange, request.uri.path.hasSuffix("/changes") else { return nil }
+        corruptNextChange = false
+        let revision = try #require(request.uri.query?.split(separator: "&").first(where: { $0.hasPrefix("after=") }))
+        let after = try #require(UInt64(revision.dropFirst(6)))
+        let changes = [AgentStateChange(operation: .set, path: ["directory"], value: .string("/corrupt")),
+                       AgentStateChange(operation: .append, path: ["missing"], value: .string("invalid"))]
+        let page = AgentTransferPage(fromRevision: after, toRevision: after + 1, cursor: 0, nextCursor: nil,
+                                     data: try JSONEncoder().encode(changes))
+        return Response(status: .ok, headers: [.contentType: "application/json"],
+                        body: .init(byteBuffer: .init(bytes: try JSONEncoder().encode(page))))
+    }
+}
+
+private struct AgentClientTestResponder: HTTPResponder {
+    let router: RouterResponder<BasicRequestContext>
+    let traffic: AgentClientTraffic
+
+    func respond(to request: Request, context: BasicRequestContext) async throws -> Response {
+        if let response = try await traffic.record(request) { return response }
+        return try await router.respond(to: request, context: context)
+    }
+}
+
 @Suite @MainActor
 struct AgentAPITests {
     @Test func commandsAndQueriesKeepExistingBehavior() async throws {
@@ -434,6 +480,114 @@ struct AgentAPITests {
         let reopened = try runtime.openSnapshot(sessionID: state.id)
         #expect(reopened.revision == state.revision)
         #expect(factory.adapters.first?.closes == 0)
+    }
+
+    @Test func clientCachesPagesAppliesDeltasResyncsAndDisconnects() async throws {
+        let factory = AgentAPITestFactory()
+        let runtime = AgentRuntime(makeAdapter: { try factory.make($0) })
+        defer { runtime.shutdown() }
+        let traffic = AgentClientTraffic()
+        let responder = AgentClientTestResponder(router: agentTestRouter(runtime).buildResponder(), traffic: traffic)
+        try await Application(responder: responder).test(.live) { transport in
+            let port = try #require(transport.port)
+            let client = try WhubClient(baseURL: #require(URL(string: "http://localhost:\(port)")))
+            let created = try await client.agent.create(kind: .codex, directory: "/workspace")
+            let id = created.id
+            #expect(try await client.agent.list().map(\.id) == [id])
+            #expect(try await client.agent.state(sessionID: id).id == id)
+            let adapter = try #require(await factory.adapters.first)
+            let images = try (1...2).map { try AgentImageAttachment(data: Data(repeating: UInt8($0), count: 3 * 1024 * 1024), mediaType: "image/png") }
+            for (index, image) in images.enumerated() {
+                _ = try await client.agent.execute(sessionID: id, command: .init(action: .send([.image(image)])))
+                _ = try await agentState(runtime, id: id) { $0.commands.last?.status == .completed && $0.conversationID != nil }
+                if index == 0 {
+                    await adapter.emit(.completed)
+                    _ = try await agentState(runtime, id: id) { !$0.isRunning }
+                }
+            }
+            let longText = String(repeating: "長文😀\n", count: 100_000)
+            var message = AgentMessage(id: "answer", role: .answer, title: "", content: .markdown(longText), status: .running)
+            await adapter.emit(.output(.message(message)))
+            let expected = try await agentState(runtime, id: id) { $0.exchanges.last?.outputs.count == 1 }
+            let connection = try await client.agent.connect(sessionID: id)
+            try expectAgentState(try await connection.state(), expected)
+            let initialRequests = await traffic.requests
+            let snapshotReads = initialRequests.filter { $0.path.contains("/snapshots/") && $0.method == "GET" }
+            #expect(snapshotReads.count > 1)
+            let imageReads = initialRequests.filter { $0.path.contains("/images/") }.count
+            #expect(imageReads > 2)
+            let rawSnapshot = try #require(snapshotReads.first?.path.split(separator: "/").last)
+            let snapshotID = try #require(UUID(uuidString: String(rawSnapshot)))
+            let idle = try await connection.update()
+            try expectAgentState(idle, expected)
+
+            message.content = .markdown(longText + "追記")
+            await adapter.emit(.output(.message(message)))
+            let appended = try await agentState(runtime, id: id) {
+                guard case .message(let value) = $0.exchanges.last?.outputs.last else { return false }
+                return value.content == .markdown(longText + "追記")
+            }
+            try expectAgentState(try await connection.update(), appended)
+            #expect(await traffic.requests.filter { $0.path.contains("/images/") }.count == imageReads)
+            #expect(await traffic.requests.filter { $0.path.contains("/snapshots/") && $0.method == "GET" }.count == snapshotReads.count)
+
+            // An invalid second patch must not commit the valid first patch either.
+            await traffic.corruptChange()
+            do { _ = try await connection.update(); Issue.record("Invalid patch must fail") }
+            catch let error as WhubClientError { #expect(error == .invalidResponse) }
+            try expectAgentState(try await connection.state(), appended)
+
+            try await runtime.releaseSnapshot(sessionID: id, snapshotID: snapshotID)
+            let resynced = try await connection.update()
+            try expectAgentState(resynced, appended)
+            #expect(await traffic.requests.filter { $0.path.contains("/images/") }.count == imageReads)
+            #expect(await traffic.requests.filter { $0.path.hasSuffix("/snapshots") && $0.method == "POST" }.count == 2)
+
+            message.content = .markdown(String(repeating: "大きな差分\n", count: 150_000))
+            await adapter.emit(.output(.message(message)))
+            let large = try await agentState(runtime, id: id) {
+                guard case .message(let value) = $0.exchanges.last?.outputs.last else { return false }
+                return value.content != .markdown(longText + "追記")
+            }
+            let changesBefore = await traffic.requests.filter { $0.path.hasSuffix("/changes") }.count
+            try expectAgentState(try await connection.update(), large)
+            #expect(await traffic.requests.filter { $0.path.hasSuffix("/changes") }.count > changesBefore + 1)
+
+            let approval = AgentRequest(id: "cached-approval", kind: .approval(.init(
+                reason: "Run command", command: "pwd", directory: "/workspace", changePreview: nil,
+                permissionsDescription: nil, details: nil)), outcome: nil)
+            await adapter.emit(.output(.request(approval)))
+            _ = try await agentState(runtime, id: id) { $0.exchanges.last?.pendingRequests.count == 1 }
+            #expect(try await connection.update().exchanges.last?.pendingRequests.first == approval)
+            _ = try await client.agent.execute(sessionID: id, command: .init(action: .respond(
+                requestID: approval.id, response: .approval(allow: true))))
+            let answered = try await agentState(runtime, id: id) {
+                $0.exchanges.last?.pendingRequests.isEmpty == true && $0.commands.last?.status == .completed
+            }
+            try expectAgentState(try await connection.update(), answered)
+
+            let cancelled = Task { try await connection.update() }
+            try await Task.sleep(for: .milliseconds(30))
+            cancelled.cancel()
+            do { _ = try await cancelled.value; Issue.record("Cancelled poll must fail") }
+            catch { #expect(error is CancellationError || (error as? URLError)?.code == .cancelled) }
+            try expectAgentState(try await connection.state(), answered)
+
+            let pending = Task { try await connection.update() }
+            try await Task.sleep(for: .milliseconds(30))
+            do { _ = try await connection.update(); Issue.record("Overlapping updates must fail") }
+            catch let error as WhubClientError { #expect(error == .updateInProgress) }
+            try await connection.disconnect()
+            do { _ = try await pending.value; Issue.record("Disconnect must cancel polling") } catch {}
+            do { _ = try await connection.state(); Issue.record("Disconnected cache must be empty") }
+            catch let error as WhubClientError { #expect(error == .connectionClosed) }
+            #expect(try await runtime.state(sessionID: id).isRunning)
+            #expect(await adapter.closes == 0)
+            #expect(await traffic.requests.filter { $0.method == "DELETE" && $0.path == "/agent/sessions/\(id)" }.isEmpty)
+            let reopened = try await client.agent.connect(sessionID: id)
+            try expectAgentState(try await reopened.state(), answered)
+            try await reopened.disconnect()
+        }
     }
 
     @Test func routesRejectInvalidInputAndKeepRuntimeErrors() async throws {

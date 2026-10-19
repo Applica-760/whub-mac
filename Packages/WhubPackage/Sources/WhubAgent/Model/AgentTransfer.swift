@@ -86,5 +86,8 @@ public struct AgentImagePage: Codable, Sendable, Equatable {
 }
 
 extension CodingUserInfoKey {
+    /// Image bytes fetched separately, keyed by the immutable attachment ID.
+    public static let agentImageData = CodingUserInfoKey(rawValue: "WhubAgent.imageData")!
+
     static let agentImageReferences = CodingUserInfoKey(rawValue: "WhubAgent.imageReferences")!
 }
