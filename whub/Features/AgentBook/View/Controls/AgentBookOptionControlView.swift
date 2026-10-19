@@ -8,6 +8,8 @@ struct AgentBookOptionControlView: View {
     let canChangeKind: Bool
     let changeKind: (AgentKind) -> Void
     @Environment(\.isRetainedPageActive) private var isActive
+    @State private var mockHost = "ローカル"
+    private let mockHosts = ["ローカル", "ホスト1", "ホスト2"]
 
     private var canChange: Bool {
         isActive && store.isConnected && !store.isBusy && !store.isResuming && !store.isChangingModel
@@ -27,6 +29,32 @@ struct AgentBookOptionControlView: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            Menu {
+                ForEach(mockHosts, id: \.self) { host in
+                    Button {
+                        if isActive { mockHost = host }
+                    } label: {
+                        if host == mockHost {
+                            Label(host, systemImage: "checkmark")
+                        } else {
+                            Text(host)
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: mockHost == "ローカル" ? "laptopcomputer" : "server.rack")
+                    .font(.system(size: 18))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 32, height: 32)
+            .glassEffect(.regular, in: .circle)
+            .disabled(!isActive)
+            .accessibilityLabel("ホストを選択")
+            .accessibilityValue(mockHost)
+            .help(mockHost)
+
             Menu {
                 ForEach(AgentKind.allCases, id: \.self) { kind in
                     Button {
@@ -77,19 +105,21 @@ struct AgentBookOptionControlView: View {
                     Button("再読み込み") { reload() }
                 }
             } label: {
-                Text((store.selectedModelOption?.displayName ?? "…")
-                    .replacingOccurrences(of: "GPT-", with: "", options: .caseInsensitive))
+                let name = (store.selectedModelOption?.displayName ?? "…")
+                    .replacingOccurrences(of: "GPT-", with: "", options: .caseInsensitive)
+                Text(name)
                     .lineLimit(1).truncationMode(.middle)
-                    .frame(maxWidth: .infinity)
-                    .padding(.trailing, 12)
+                    .padding(.trailing, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
-            .padding(.horizontal, 8)
-            .frame(width: 104, height: 32)
+            .padding(.leading, 4)
+            .padding(.trailing, 8)
+            .frame(width: 85, height: 32)
             .glassEffect(.regular, in: .capsule)
             .overlay(alignment: .trailing) {
-                Image(systemName: "chevron.down")
+                Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
                     .padding(.trailing, 10)
                     .allowsHitTesting(false)
@@ -115,18 +145,21 @@ struct AgentBookOptionControlView: View {
                     }
                 }
             } label: {
-                Text(store.selectedModelOption.map { $0.effort ?? "指定なし" } ?? "…")
-                    .lineLimit(1).frame(maxWidth: .infinity)
-                    .padding(.trailing, 12)
+                let effort = store.selectedModelOption.map { $0.effort ?? "指定なし" } ?? "…"
+                Text(effort)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.trailing, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .font(.caption2)
-            .padding(.horizontal, 6)
-            .frame(width: 104, height: 32)
+            .padding(.leading, 4)
+            .padding(.trailing, 8)
+            .frame(width: 85, height: 32)
             .glassEffect(.regular, in: .capsule)
             .overlay(alignment: .trailing) {
-                Image(systemName: "chevron.down")
+                Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
                     .padding(.trailing, 10)
                     .allowsHitTesting(false)
