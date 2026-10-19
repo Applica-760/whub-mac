@@ -384,6 +384,71 @@ struct ExplorerStoreTests {
         #expect(receiver.count == 7)
     }
 
+    @Test func browserFocusesVisibleWebContentWithoutClicking() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let container = BrowserContainerView(frame: window.contentView!.bounds)
+        window.contentView = container
+        let page = NSView(frame: container.bounds)
+        container.addSubview(page)
+        let webView = WKWebView(frame: page.bounds)
+        page.addSubview(webView)
+        let address = NSTextView(frame: container.bounds)
+        container.addSubview(address)
+        #expect(window.makeFirstResponder(address))
+        #expect(container.focusWebContent(in: page))
+        #expect((window.firstResponder as? NSView)?.isDescendant(of: webView) == true)
+        #expect(window.makeFirstResponder(address))
+        page.isHidden = true
+        #expect(!container.focusWebContent(in: page))
+        #expect(window.firstResponder === address)
+    }
+
+    @Test func browserScrollsWithJKExceptWhenEditing() async throws {
+        let page = BrowserStore().selectedSession.page
+        page.load(html: """
+            <title>Scroll Test</title>
+            <style>body { height: 5000px; } #pane { height: 100px; overflow-y: auto; }</style>
+            <input id="input"><textarea id="textarea"></textarea><select id="select"><option>A</option></select>
+            <div id="editor" contenteditable="true"><span id="nested">Edit</span></div>
+            <div id="pane" tabindex="0"><div style="height: 1000px">Scroll</div></div>
+            """)
+        let deadline = ContinuousClock.now + .seconds(15)
+        while page.isLoading || page.title != "Scroll Test" {
+            guard ContinuousClock.now < deadline else { throw SSHError.timedOut }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let result = try await page.callJavaScript("""
+            const failures = [];
+            function check(condition, name) { if (!condition) failures.push(name); }
+            function send(target, key, options = {}) {
+                return target.dispatchEvent(new KeyboardEvent('keydown', {
+                    key, bubbles: true, cancelable: true, composed: true, ...options
+                }));
+            }
+            window.scrollTo(0, 0);
+            check(!send(document.body, 'j') && window.scrollY === 120, 'j down');
+            check(!send(document.body, 'j', { repeat: true }) && window.scrollY === 240, 'held j');
+            check(!send(document.body, 'k') && window.scrollY === 120, 'k up');
+            for (const id of ['input', 'textarea', 'select', 'nested']) {
+                const element = document.getElementById(id);
+                element.focus({ preventScroll: true });
+                check(send(element, 'j') && window.scrollY === 120, id);
+            }
+            for (const flag of ['isComposing', 'metaKey', 'ctrlKey', 'altKey', 'shiftKey']) {
+                check(send(document.body, 'j', { [flag]: true }) && window.scrollY === 120, flag);
+            }
+            check(send(document.body, 'j', { keyCode: 229 }) && window.scrollY === 120, 'IME keyCode');
+            check(send(document.body, 'x') && window.scrollY === 120, 'other key');
+            const pane = document.getElementById('pane');
+            check(!send(pane, 'j') && pane.scrollTop === 120 && window.scrollY === 120, 'nested scroll');
+            return failures;
+            """)
+        #expect(try #require(result as? [String]).isEmpty)
+    }
+
     @Test func browserLoadsLocalHTMLAndRelativeResources() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/ExplorerStoreTests/" + UUID().uuidString)

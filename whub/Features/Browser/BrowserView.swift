@@ -7,6 +7,7 @@ struct BrowserView: View {
     @Environment(\.isRetainedPageActive) private var isActive
     @State private var tabFocus = TabPaneFocus()
     @State private var bookmarkFocusRequest: BrowserSession.ID?
+    @State private var webFocusRequest = UUID()
     @FocusState private var focusedAddress: BrowserSession.ID?
     @EnvironmentObject private var store: BrowserStore
 
@@ -16,6 +17,7 @@ struct BrowserView: View {
         WidgetFrame {
             RetainedBrowserSessions(
                 sessions: store.sessions, selection: store.selectedSessionID,
+                webFocusRequest: webFocusRequest,
                 bookmarkFocusRequest: $bookmarkFocusRequest,
                 focusAddress: { focusedAddress = store.selectedSessionID }
             )
@@ -24,8 +26,8 @@ struct BrowserView: View {
                 ids: store.sessions.map(\.id),
                 selection: store.selectedSessionID,
                 select: { id in
-                    tabFocus.activate()
                     store.select(id)
+                    activateBrowser()
                 },
                 close: { id in
                     tabFocus.activate()
@@ -59,6 +61,7 @@ struct BrowserView: View {
                         if let item = session.page.backForwardList.backList.last {
                             session.page.load(item)
                             session.showsBookmarks = false
+                            activateBrowser()
                         }
                     }
                     .disabled(session.page.backForwardList.backList.isEmpty)
@@ -67,12 +70,14 @@ struct BrowserView: View {
                         if let item = session.page.backForwardList.forwardList.first {
                             session.page.load(item)
                             session.showsBookmarks = false
+                            activateBrowser()
                         }
                     }
                     .disabled(session.page.backForwardList.forwardList.isEmpty)
 
                     Button("Reload", systemImage: "arrow.clockwise") {
                         session.page.reload()
+                        activateBrowser()
                     }
                     .keyboardShortcut("r", modifiers: .command)
                     .disabled(session.page.url == nil)
@@ -82,7 +87,10 @@ struct BrowserView: View {
                 TextField("URL", text: $session.address)
                     .textFieldStyle(.roundedBorder)
                     .focused($focusedAddress, equals: session.id)
-                    .onSubmit(session.loadAddress)
+                    .onSubmit {
+                        session.loadAddress()
+                        activateBrowser()
+                    }
                     .onKeyPress(.tab, phases: .down) { press in
                         guard press.modifiers.isEmpty, session.showsBookmarks else { return .ignored }
                         focusedAddress = nil
@@ -93,10 +101,18 @@ struct BrowserView: View {
         }
         .background(TabPaneFocusView(focus: tabFocus))
         .onAppear {
-            if isActive { DispatchQueue.main.async { tabFocus.activate() } }
+            if isActive { DispatchQueue.main.async { activateBrowser() } }
         }
         .onChange(of: store.selectedSessionID) { _, _ in
-            if isActive { tabFocus.activate() }
+            if isActive { activateBrowser() }
+        }
+        .onChange(of: session.showsBookmarks) { _, showsBookmarks in
+            if isActive, !showsBookmarks { activateBrowser() }
+        }
+        .onChange(of: session.page.isLoading) { _, loading in
+            guard isActive, loading,
+                  focusedAddress == session.id || tabFocus.view?.window.map(tabFocus.contains) == true else { return }
+            activateBrowser()
         }
         .onChange(of: store.sessions.map(\.id)) { previous, current in
             let id = store.selectedSessionID
@@ -109,14 +125,22 @@ struct BrowserView: View {
             }
         }
         .onChange(of: isActive) { _, active in
-            if active { tabFocus.activate() }
+            if active { activateBrowser() }
         }
+    }
+
+    private func activateBrowser() {
+        tabFocus.activate()
+        guard !store.selectedSession.showsBookmarks else { return }
+        focusedAddress = nil
+        webFocusRequest = UUID()
     }
 }
 
 private struct RetainedBrowserSessions: NSViewRepresentable {
     let sessions: [BrowserSession]
     let selection: BrowserSession.ID
+    let webFocusRequest: UUID
     @Binding var bookmarkFocusRequest: BrowserSession.ID?
     let focusAddress: () -> Void
     @Environment(\.self) private var environment
@@ -159,6 +183,18 @@ private struct RetainedBrowserSessions: NSViewRepresentable {
         }
         assert(Set(coordinator.pages.keys).isSubset(of: ids))
         assert(coordinator.pages.values.filter { !$0.isHidden }.count == 1)
+        if coordinator.webFocusRequest != webFocusRequest {
+            coordinator.webFocusRequest = webFocusRequest
+            if let page = coordinator.pages[selection],
+               sessions.contains(where: { $0.id == selection && !$0.showsBookmarks }) {
+                DispatchQueue.main.async { [weak container, weak page] in
+                    guard coordinator.webFocusRequest == webFocusRequest,
+                          let container, let page, !page.isHiddenOrHasHiddenAncestor else { return }
+                    container.layoutSubtreeIfNeeded()
+                    (container as? BrowserContainerView)?.focusWebContent(in: page)
+                }
+            }
+        }
     }
 
     private func resignFocus(in page: NSView) {
@@ -170,10 +206,23 @@ private struct RetainedBrowserSessions: NSViewRepresentable {
 
     final class Coordinator {
         var pages: [BrowserSession.ID: NSHostingView<AnyView>] = [:]
+        var webFocusRequest: UUID?
     }
 }
 
 final class BrowserContainerView: NSView {
+    @discardableResult
+    func focusWebContent(in view: NSView) -> Bool {
+        guard !isHiddenOrHasHiddenAncestor, !view.isHiddenOrHasHiddenAncestor,
+              view.isDescendant(of: self), let window else { return false }
+        if let webView = view as? WKWebView {
+            if let responder = window.firstResponder as? NSView,
+               responder.isDescendant(of: webView) { return true }
+            return window.makeFirstResponder(webView)
+        }
+        return view.subviews.contains { focusWebContent(in: $0) }
+    }
+
     override func keyDown(with event: NSEvent) {
         if [123, 124, 125, 126].contains(event.keyCode),
            event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty {
