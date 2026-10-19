@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import WhubAgent
 
 enum AgentBookTabPurpose: String, CaseIterable, Identifiable {
     case featureDevelopment
@@ -50,12 +51,12 @@ final class AgentBookTabStore: ObservableObject, Identifiable {
 
     private var observation: AnyCancellable?
 
-    init(kind: AgentKind, session: (any AgentSession)?) {
-        let store = AgentStore(kind: kind, session: session)
+    init(kind: AgentKind, runtime: AgentRuntime) {
+        let store = AgentStore(kind: kind, runtime: runtime)
         id = store.id
         self.store = store
-        skillStore = AgentSkillStore(session: session)
-        historyStore = AgentHistoryStore(session: session)
+        skillStore = AgentSkillStore(agent: store)
+        historyStore = AgentHistoryStore(agent: store)
         observe()
     }
 

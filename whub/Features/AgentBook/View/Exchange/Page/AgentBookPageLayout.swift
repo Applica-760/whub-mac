@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import WhubAgent
 
 enum AgentBookPageStyle {
     static let pageInset: CGFloat = 28

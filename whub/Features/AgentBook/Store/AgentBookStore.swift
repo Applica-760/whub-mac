@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftData
+import WhubAgent
 import WhubCore
 
 @MainActor
@@ -12,7 +13,7 @@ final class AgentBookStore: ObservableObject {
 
     private let context: ModelContext
     private let availableKinds: [AgentKind]
-    private let makeSession: @MainActor (AgentKind) -> (any AgentSession)?
+    private let runtime: AgentRuntime
     private let notify: (String) -> Void
     private var observations: [AgentBookTabStore.ID: AnyCancellable] = [:]
     private var pendingResume: AgentBookTabStore?
@@ -20,13 +21,14 @@ final class AgentBookStore: ObservableObject {
 
     init(context: ModelContext, kind: AgentKind = .codex,
          availableKinds: [AgentKind] = [.codex, .claudeCode],
-         makeSession: @escaping @MainActor (AgentKind) -> (any AgentSession)? = { $0.makeSession() },
+         runtime: AgentRuntime? = nil,
          notify: @escaping (String) -> Void = { NSSound(named: $0)?.play() }) {
+        let runtime = runtime ?? AgentRuntime()
         self.context = context
         self.availableKinds = availableKinds
-        self.makeSession = makeSession
+        self.runtime = runtime
         self.notify = notify
-        let tab = AgentBookTabStore(kind: kind, session: makeSession(kind))
+        let tab = AgentBookTabStore(kind: kind, runtime: runtime)
         tabs = [tab]
         selectedTabID = tab.id
         observe(tab)
@@ -56,7 +58,7 @@ final class AgentBookStore: ObservableObject {
     }
 
     func add() {
-        let tab = AgentBookTabStore(kind: selectedTab.store.agentKind, session: makeSession(selectedTab.store.agentKind))
+        let tab = AgentBookTabStore(kind: selectedTab.store.agentKind, runtime: runtime)
         tabs.append(tab)
         observe(tab)
         select(tab.id)
@@ -72,7 +74,7 @@ final class AgentBookStore: ObservableObject {
         guard availableKinds.contains(kind), canChangeKind(in: id),
               let index = tabs.firstIndex(where: { $0.id == id }),
               tabs[index].store.agentKind != kind else { return false }
-        let replacement = AgentBookTabStore(kind: kind, session: makeSession(kind))
+        let replacement = AgentBookTabStore(kind: kind, runtime: runtime)
         replacement.store.draft = tabs[index].store.draft
         close(tabs[index])
         tabs[index] = replacement
@@ -97,7 +99,7 @@ final class AgentBookStore: ObservableObject {
         let kind = tabs[index].store.agentKind
         close(tabs[index])
         if tabs.count == 1 {
-            let replacement = AgentBookTabStore(kind: kind, session: makeSession(kind))
+            let replacement = AgentBookTabStore(kind: kind, runtime: runtime)
             tabs[index] = replacement
             observe(replacement)
         } else {
@@ -112,7 +114,7 @@ final class AgentBookStore: ObservableObject {
     func newConversation(in id: AgentBookTabStore.ID) -> Bool {
         guard let index = tabs.firstIndex(where: { $0.id == id }),
               tabs[index].canReplace else { return false }
-        let replacement = AgentBookTabStore(kind: tabs[index].store.agentKind, session: makeSession(tabs[index].store.agentKind))
+        let replacement = AgentBookTabStore(kind: tabs[index].store.agentKind, runtime: runtime)
         close(tabs[index])
         tabs[index] = replacement
         observe(replacement)
@@ -133,7 +135,7 @@ final class AgentBookStore: ObservableObject {
             return open(existing, replacing: sourceID)
         }
 
-        let tab = AgentBookTabStore(kind: source.store.agentKind, session: makeSession(source.store.agentKind))
+        let tab = AgentBookTabStore(kind: source.store.agentKind, runtime: runtime)
         pendingResume = tab
         pendingResumeSourceID = sourceID
         isResuming = true

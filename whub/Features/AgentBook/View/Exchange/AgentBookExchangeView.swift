@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import WhubAgent
 
 struct AgentBookExchangeView: View {
     @ObservedObject var store: AgentStore

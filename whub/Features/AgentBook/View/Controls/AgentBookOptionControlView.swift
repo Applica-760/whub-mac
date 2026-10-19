@@ -1,4 +1,5 @@
 import SwiftUI
+import WhubAgent
 
 struct AgentBookOptionControlView: View {
     static let inputInset: CGFloat = 270

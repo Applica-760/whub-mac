@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WhubAgent
 
 struct AgentBookInputToken: Equatable {
     let range: NSRange
