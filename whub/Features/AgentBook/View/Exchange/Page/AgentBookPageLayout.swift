@@ -14,11 +14,8 @@ final class AgentBookPageLayout: ObservableObject {
     @Published private(set) var spread = 0
     @Published private(set) var pageCount = 1
     @Published private(set) var layoutError: String?
-    let storage = NSTextStorage()
-    let manager: NSLayoutManager = AgentBookLayoutManager()
-    private(set) var ranges: [NSRange] = []
+    private(set) var pages: [Page] = []
     private(set) var pageSize = CGSize.zero
-    private(set) var codes: [Code] = []
     private(set) var headers: [Header] = []
     private(set) var promptControls: [Header] = []
     private(set) var contentBottoms: [CGFloat] = []
@@ -37,9 +34,50 @@ final class AgentBookPageLayout: ObservableObject {
         let size: CGSize
     }
 
-    struct Anchor {
-        let exchangeID: UUID
-        let offset: Int
+    struct Prompt: Identifiable {
+        let id: UUID
+        let range: NSRange
+        let text: NSAttributedString
+        let size: CGSize
+    }
+
+    final class Page {
+        let id: String
+        let storage = NSTextStorage()
+        let manager: NSLayoutManager = AgentBookLayoutManager()
+        let container = NSTextContainer()
+        private(set) var codes: [Code] = []
+        private(set) var prompts: [Prompt] = []
+
+        init(id: String) {
+            self.id = id
+            container.lineFragmentPadding = 0
+            container.widthTracksTextView = false
+            container.heightTracksTextView = false
+            storage.addLayoutManager(manager)
+            manager.addTextContainer(container)
+        }
+
+        func update(_ text: NSAttributedString, width: CGFloat) {
+            container.containerSize = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+            storage.setAttributedString(text)
+            manager.ensureLayout(for: container)
+            codes = []
+            storage.enumerateAttribute(.agentBookCodeSource, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                guard let text = value as? String,
+                      let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment,
+                      let id = storage.attribute(.agentBookCodeID, at: range.location, effectiveRange: nil) as? String else { return }
+                codes.append(Code(id: id, range: range, text: text, size: attachment.bounds.size))
+            }
+            prompts = []
+            storage.enumerateAttribute(.agentBookPromptSource, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                guard let text = value as? NSAttributedString,
+                      let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment,
+                      let id = storage.attribute(.agentBookPromptID, at: range.location, effectiveRange: nil) as? UUID else { return }
+                prompts.append(Prompt(id: id, range: range, text: text, size: attachment.bounds.size))
+            }
+
+        }
     }
 
     private struct Input: Equatable {
@@ -47,6 +85,8 @@ final class AgentBookPageLayout: ObservableObject {
         let agentName: String
         let prompt: String
         let images: [UUID]
+        let additionalPrompts: [String]
+        let additionalImages: [[UUID]]
         let history: [String]
         let answers: [AgentContent]
         let status: AgentExecutionStatus
@@ -60,33 +100,21 @@ final class AgentBookPageLayout: ObservableObject {
     private var inputs: [Input] = []
     private struct RenderedExchange {
         let input: Input
-        let text: NSAttributedString
+        let page: Page
     }
 
     private var rendered: [RenderedExchange] = []
-    private var exchangeRanges: [(UUID, NSRange)] = []
     private var renderedRevision = -1
     private var appearance: ColorScheme?
     private var publication = 0
     var spreadCount: Int { max(1, (pageCount + 1) / 2) }
 
-    init() { storage.addLayoutManager(manager) }
-
     func update(_ exchanges: [AgentExchange], agentName: String) {
-        let exchanges = exchanges.flatMap { exchange in
-            let messages = [(exchange.id, exchange.input, 0)]
-                + exchange.additionalInputs.map { ($0.id, $0.input, $0.outputIndex) }
-            return messages.enumerated().map { index, message in
-                let end = index + 1 < messages.count ? messages[index + 1].2 : exchange.outputs.count
-                var section = AgentExchange(id: message.0, input: message.1)
-                section.outputs = Array(exchange.outputs[message.2..<end])
-                section.status = index + 1 == messages.count ? exchange.status : .completed
-                return section
-            }
-        }
         expandedPrompts.formIntersection(exchanges.map(\.id))
         let next = exchanges.map {
             Input(id: $0.id, agentName: agentName, prompt: $0.input.agentBookPrompt, images: $0.input.agentBookImages.map(\.id),
+                  additionalPrompts: $0.additionalInputs.map { $0.input.agentBookPrompt },
+                  additionalImages: $0.additionalInputs.map { $0.input.agentBookImages.map(\.id) },
                   history: $0.history.map { output in
                       output.agentBookTitle + (output.agentBookStatus == .failed ? "（失敗）" : "") + "\n" + output.agentBookText
                   }, answers: $0.answers.flatMap(\.agentBookContent), status: $0.status,
@@ -125,106 +153,49 @@ final class AgentBookPageLayout: ObservableObject {
         spread = next
     }
 
-    func anchor(at location: Int) -> Anchor? {
-        guard let entry = exchangeRanges.last(where: { $0.1.location <= location }) else { return nil }
-        return Anchor(exchangeID: entry.0, offset: min(location - entry.1.location, entry.1.length))
-    }
-
-    func location(of anchor: Anchor) -> Int? {
-        guard let entry = exchangeRanges.first(where: { $0.0 == anchor.exchangeID }) else { return nil }
-        return entry.1.location + min(anchor.offset, entry.1.length)
-    }
-
     @discardableResult
     func prepare(viewport: CGSize, colorScheme: ColorScheme) -> Bool {
         guard viewport.width.isFinite, viewport.height.isFinite,
               viewport.width > 112, viewport.height > 112 else { return false }
         let size = CGSize(width: floor((viewport.width - AgentBookPageStyle.pageGap) / 2), height: floor(viewport.height))
         guard renderedRevision != revision || pageSize != size || appearance != colorScheme else { return false }
-        let reading = ranges.indices.contains(spread * 2) ? anchor(at: ranges[spread * 2].location) : nil
-        let initial = rendered.isEmpty && !inputs.isEmpty
+        let readingID = rendered.indices.contains(spread * 2) ? rendered[spread * 2].input.id : nil
+        let addedExchange = inputs.count > rendered.count
         let changedSize = pageSize != size || appearance != colorScheme
         pageSize = size
         appearance = colorScheme
         let content = CGSize(width: max(1, size.width - 2 * AgentBookPageStyle.pageInset),
                              height: max(1, size.height - 2 * AgentBookPageStyle.pageInset))
         updateDocument(content: content, colorScheme: colorScheme, rebuild: changedSize)
-        let failure = paginate(content: content)
         updateControlFrames(content: content)
-        var nextSpread = min(spread, max(0, (ranges.count - 1) / 2))
-        if initial { nextSpread = max(0, (ranges.count - 1) / 2) }
-        else if let reading, let position = location(of: reading),
-                let page = ranges.firstIndex(where: { NSLocationInRange(position, $0) }) { nextSpread = page / 2 }
+        var nextSpread = min(spread, max(0, (inputs.count - 1) / 2))
+        if addedExchange { nextSpread = max(0, (inputs.count - 1) / 2) }
+        else if let readingID, let index = inputs.firstIndex(where: { $0.id == readingID }) { nextSpread = index / 2 }
         if let pendingPromptID, let control = promptControls.first(where: { $0.id == pendingPromptID }) {
             nextSpread = control.page / 2
         }
         pendingPromptID = nil
-        publish(pageCount: ranges.count, spread: nextSpread, error: failure)
+        publish(pageCount: max(1, pages.count), spread: nextSpread, error: nil)
         return true
     }
 
     private func updateDocument(content: CGSize, colorScheme: ColorScheme, rebuild: Bool) {
-        let output = NSMutableAttributedString(string: "")
-        var nextRendered: [RenderedExchange] = []
-        var nextRanges: [(UUID, NSRange)] = []
-        var firstChanged = 0
-        for (index, input) in inputs.enumerated() {
-            let cached = !rebuild && rendered.indices.contains(index) && rendered[index].input == input
-            let part = cached ? rendered[index].text : render(exchanges[index], input: input, content: content, colorScheme: colorScheme)
-            if cached && firstChanged == index { firstChanged += 1 }
-            nextRanges.append((input.id, NSRange(location: output.length, length: part.length)))
-            output.append(part)
-            nextRendered.append(RenderedExchange(input: input, text: part))
+        let previous = Dictionary(uniqueKeysWithValues: rendered.map { ($0.input.id, $0) })
+        rendered = inputs.enumerated().map { index, input in
+            let cached = previous[input.id]
+            let page = cached?.page ?? Page(id: input.id.uuidString)
+            if rebuild || cached?.input != input {
+                page.update(render(exchanges[index], input: input, content: content, colorScheme: colorScheme), width: content.width)
+            }
+            return RenderedExchange(input: input, page: page)
         }
-        let prefix = rendered.prefix(firstChanged).reduce(0) { $0 + $1.text.length }
-        storage.replaceCharacters(in: NSRange(location: prefix, length: storage.length - prefix),
-                                  with: output.attributedSubstring(from: NSRange(location: prefix, length: output.length - prefix)))
-        rendered = nextRendered
-        exchangeRanges = nextRanges
+        pages = rendered.map(\.page)
         renderedRevision = revision
-        codes = []
-        storage.enumerateAttribute(.agentBookCodeSource, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            guard let text = value as? String,
-                  let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment,
-                  let id = storage.attribute(.agentBookCodeID, at: range.location, effectiveRange: nil) as? String else { return }
-            codes.append(Code(id: id, range: range, text: text, size: attachment.bounds.size))
-        }
-    }
-
-    private func paginate(content: CGSize) -> String? {
-        for container in manager.textContainers { container.containerSize = content }
-        ranges = []
-        var end = 0
-        var failure: String?
-        repeat {
-            let index = ranges.count
-            if index == manager.textContainers.count {
-                let container = NSTextContainer(containerSize: content)
-                container.lineFragmentPadding = 0
-                container.widthTracksTextView = false
-                container.heightTracksTextView = false
-                manager.addTextContainer(container)
-            }
-            let container = manager.textContainers[index]
-            manager.ensureLayout(for: container)
-            let glyphs = manager.glyphRange(for: container)
-            ranges.append(manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil))
-            let next = NSMaxRange(glyphs)
-            if next <= end && end < manager.numberOfGlyphs {
-                failure = "このページの内容を配置できません。ウィンドウを広げてください。"
-                break
-            }
-            end = next
-        } while end < manager.numberOfGlyphs
-        while manager.textContainers.count > ranges.count {
-            manager.removeTextContainer(at: manager.textContainers.count - 1)
-        }
-        return failure
     }
 
     private func updateControlFrames(content: CGSize) {
-        contentBottoms = manager.textContainers.map {
-            min(pageSize.height - 16, AgentBookPageStyle.pageInset + manager.usedRect(for: $0).maxY)
+        contentBottoms = pages.map {
+            min(pageSize.height - 16, AgentBookPageStyle.pageInset + $0.manager.usedRect(for: $0.container).maxY)
         }
         headers = controlFrames(for: .agentBookHeaderExchangeID, content: content)
         promptControls = controlFrames(for: .agentBookPromptExchangeID, content: content)
@@ -232,13 +203,14 @@ final class AgentBookPageLayout: ObservableObject {
 
     private func controlFrames(for key: NSAttributedString.Key, content: CGSize) -> [Header] {
         var controls: [Header] = []
-        storage.enumerateAttribute(key, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            guard let id = value as? UUID,
-                  let page = ranges.firstIndex(where: { NSLocationInRange(range.location, $0) }) else { return }
-            let glyph = manager.glyphIndexForCharacter(at: range.location)
-            let line = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            controls.append(Header(id: id, page: page,
-                                  frame: CGRect(x: AgentBookPageStyle.pageInset, y: AgentBookPageStyle.pageInset + line.minY, width: content.width, height: 20)))
+        for (index, page) in pages.enumerated() {
+            page.storage.enumerateAttribute(key, in: NSRange(location: 0, length: page.storage.length)) { value, range, _ in
+                guard let id = value as? UUID else { return }
+                let glyph = page.manager.glyphIndexForCharacter(at: range.location)
+                let line = page.manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                controls.append(Header(id: id, page: index,
+                                      frame: CGRect(x: AgentBookPageStyle.pageInset, y: AgentBookPageStyle.pageInset + line.minY, width: content.width, height: 20)))
+            }
         }
         return controls
     }
@@ -255,54 +227,57 @@ final class AgentBookPageLayout: ObservableObject {
         }
     }
 
-    private func render(_ turn: AgentExchange, input: Input, content: CGSize, colorScheme: ColorScheme) -> NSAttributedString {
+    private func renderPrompt(_ groups: [[AgentInput]], id: UUID, content: CGSize) -> NSAttributedString {
         let output = NSMutableAttributedString(string: "")
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 4
         paragraph.paragraphSpacing = 14
-        if !input.prompt.isEmpty {
-            let collapsed = Self.collapsedPrompt(input.prompt)
-            if collapsed != nil {
-                let controlStyle = paragraph.mutableCopy() as! NSMutableParagraphStyle
-                controlStyle.minimumLineHeight = 20
-                controlStyle.maximumLineHeight = 20
-                controlStyle.paragraphSpacing = 8
-                output.append(NSAttributedString(string: "\u{200B}\n", attributes: [
-                    .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.clear,
-                    .paragraphStyle: controlStyle, .agentBookPromptExchangeID: turn.id
-                ]))
+        for inputs in groups {
+            if !inputs.agentBookPrompt.isEmpty {
+                let table = NSTextTable()
+                table.numberOfColumns = 1
+                table.layoutAlgorithm = .fixedLayoutAlgorithm
+                table.setValue(content.width, type: .absoluteValueType, for: .width)
+                let bubble = AgentBookPromptBlock(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
+                bubble.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.1)
+                bubble.setWidth(12, type: .absoluteValueType, for: .padding)
+                let style = paragraph.mutableCopy() as! NSMutableParagraphStyle
+                style.textBlocks = [bubble]
+                style.paragraphSpacing = 0
+                let prompt = inputs.agentBookPrompt
+                let text = NSMutableAttributedString(string: prompt + "\n", attributes: [
+                    .font: NSFont.systemFont(ofSize: 15), .foregroundColor: NSColor.labelColor, .paragraphStyle: style
+                ])
+                let lastParagraph = (text.string as NSString).paragraphRange(for: NSRange(location: text.length - 1, length: 0))
+                let lastStyle = style.mutableCopy() as! NSMutableParagraphStyle
+                lastStyle.paragraphSpacing = paragraph.paragraphSpacing
+                text.addAttribute(.paragraphStyle, value: lastStyle, range: lastParagraph)
+                output.append(text)
             }
-            // A table cell can continue across text containers; a plain text block cannot.
-            let table = NSTextTable()
-            table.numberOfColumns = 1
-            table.layoutAlgorithm = .fixedLayoutAlgorithm
-            table.setValue(content.width, type: .absoluteValueType, for: .width)
-            let bubble = AgentBookPromptBlock(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
-            bubble.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.1)
-            bubble.setWidth(12, type: .absoluteValueType, for: .padding)
-            let style = paragraph.mutableCopy() as! NSMutableParagraphStyle
-            style.textBlocks = [bubble]
-            style.paragraphSpacing = 0
-            let prompt = input.isPromptExpanded ? input.prompt : collapsed ?? input.prompt
-            let text = NSMutableAttributedString(string: prompt + "\n", attributes: [
-                .font: NSFont.systemFont(ofSize: 15), .foregroundColor: NSColor.labelColor, .paragraphStyle: style
-            ])
-            let lastParagraph = (text.string as NSString).paragraphRange(for: NSRange(location: text.length - 1, length: 0))
-            let lastStyle = style.mutableCopy() as! NSMutableParagraphStyle
-            lastStyle.paragraphSpacing = paragraph.paragraphSpacing
-            text.addAttribute(.paragraphStyle, value: lastStyle, range: lastParagraph)
-            output.append(text)
+            for image in inputs.agentBookImages {
+                let attachment = NSTextAttachment()
+                attachment.image = image.image
+                let size = image.image.size
+                let scale = min(content.width / max(1, size.width), min(80, content.height - 24) / max(1, size.height))
+                attachment.bounds = CGRect(x: 0, y: 0, width: size.width * scale, height: size.height * scale)
+                output.append(NSAttributedString(attachment: attachment))
+                output.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: paragraph]))
+            }
         }
-        for image in turn.input.agentBookImages {
-            let attachment = NSTextAttachment()
-            attachment.image = image.image
-            let size = image.image.size
-            let scale = min(content.width / max(1, size.width), min(80, content.height - 24) / max(1, size.height))
-            attachment.bounds = CGRect(x: 0, y: 0, width: size.width * scale, height: size.height * scale)
-            output.append(NSAttributedString(attachment: attachment))
-            output.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: paragraph]))
-        }
-        let headerStyle = paragraph.mutableCopy() as! NSMutableParagraphStyle
+        let attachment = NSTextAttachment()
+        attachment.bounds = CGRect(x: 0, y: 0, width: content.width,
+                                   height: max(1, pageSize.height * 0.15))
+        attachment.attachmentCell = AgentBookContentCell()
+        let result = NSMutableAttributedString(attachment: attachment)
+        result.addAttributes([.agentBookPromptSource: output, .agentBookPromptID: id], range: NSRange(location: 0, length: 1))
+        result.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: paragraph]))
+        return result
+    }
+
+    private func render(_ turn: AgentExchange, input: Input, content: CGSize, colorScheme: ColorScheme) -> NSAttributedString {
+        let output = NSMutableAttributedString(string: "")
+        output.append(renderPrompt([turn.input] + turn.additionalInputs.map(\.input), id: turn.id, content: content))
+        let headerStyle = NSMutableParagraphStyle()
         headerStyle.minimumLineHeight = 20
         headerStyle.maximumLineHeight = 20
         headerStyle.paragraphSpacing = 8
@@ -310,28 +285,18 @@ final class AgentBookPageLayout: ObservableObject {
             .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.clear,
             .paragraphStyle: headerStyle, .agentBookHeaderExchangeID: turn.id
         ]))
+        var hasAnswer = false
         for (answerIndex, source) in input.answers.enumerated() {
             let document = AgentBookRenderedContent(content: source, width: content.width, colorScheme: colorScheme)
             let text = NSMutableAttributedString(attributedString: document.text)
-            let lineHeight = AgentBookCodeStyle.codeLineHeight
-            let linesPerPage = max(1, Int((content.height - 2 * AgentBookCodeStyle.codeInset - 16) / lineHeight))
             for (codeIndex, code) in document.codes.enumerated().reversed() {
-                let lines = code.text.components(separatedBy: "\n")
-                let replacement = NSMutableAttributedString(string: "")
-                for start in stride(from: 0, to: lines.count, by: linesPerPage) {
-                    let end = min(lines.count, start + linesPerPage)
-                    let chunk = lines[start..<end].joined(separator: "\n") + (end < lines.count ? "\n" : "")
-                    let attachment = NSTextAttachment()
-                    attachment.bounds = CGRect(x: 0, y: 0, width: code.size.width,
-                                               height: CGFloat(end - start) * lineHeight + 2 * AgentBookCodeStyle.codeInset)
-                    attachment.attachmentCell = AgentBookCodeCell()
-                    let part = NSMutableAttributedString(attachment: attachment)
-                    part.addAttributes([.agentBookCodeSource: chunk,
-                                        .agentBookCodeID: "\(turn.id)/\(answerIndex)/\(codeIndex)/\(start)"],
-                                       range: NSRange(location: 0, length: 1))
-                    replacement.append(part)
-                    if end < lines.count { replacement.append(NSAttributedString(string: "\n")) }
-                }
+                let attachment = NSTextAttachment()
+                attachment.bounds = CGRect(origin: .zero, size: code.size)
+                attachment.attachmentCell = AgentBookContentCell()
+                let replacement = NSMutableAttributedString(attachment: attachment)
+                replacement.addAttributes([.agentBookCodeSource: code.text,
+                                           .agentBookCodeID: "\(turn.id)/\(answerIndex)/\(codeIndex)"],
+                                          range: NSRange(location: 0, length: 1))
                 if let style = text.attribute(.paragraphStyle, at: code.range.location, effectiveRange: nil) {
                     replacement.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: replacement.length))
                 }
@@ -341,11 +306,24 @@ final class AgentBookPageLayout: ObservableObject {
                 guard let attachment = value as? NSTextAttachment,
                       text.attribute(.agentBookCodeSource, at: range.location, effectiveRange: nil) == nil else { return }
                 let size = attachment.bounds.size
-                let scale = min(1, min(content.width / max(1, size.width), (content.height - 24) / max(1, size.height)))
+                let scale = min(1, content.width / max(1, size.width))
                 if scale < 1 {
                     attachment.bounds = CGRect(x: 0, y: attachment.bounds.minY * scale,
                                                width: size.width * scale, height: size.height * scale)
                 }
+            }
+            if !hasAnswer {
+                while text.length > 0 {
+                    let range = (text.string as NSString).paragraphRange(for: NSRange(location: 0, length: 0))
+                    guard (text.string as NSString).substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { break }
+                    text.deleteCharacters(in: range)
+                }
+                guard text.length > 0 else { continue }
+                let range = (text.string as NSString).paragraphRange(for: NSRange(location: 0, length: 0))
+                let style = (text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+                style.paragraphSpacingBefore = 0
+                text.addAttribute(.paragraphStyle, value: style, range: range)
+                hasAnswer = true
             }
             output.append(text)
         }
@@ -353,10 +331,10 @@ final class AgentBookPageLayout: ObservableObject {
     }
 }
 
-private final class AgentBookCodeCell: NSTextAttachmentCell {
+private final class AgentBookContentCell: NSTextAttachmentCell {
     nonisolated override func cellSize() -> NSSize { attachment?.bounds.size ?? .zero }
 
-    // The code view draws the content; the cell reserves its space in TextKit 1.
+    // Embedded scroll views draw the content; TextKit reserves their space.
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {}
 }
 
@@ -385,7 +363,9 @@ private final class AgentBookLayoutManager: NSLayoutManager {
     }
 }
 
-private extension NSAttributedString.Key {
+extension NSAttributedString.Key {
+    static let agentBookPromptSource = NSAttributedString.Key("whub.book.promptSource")
+    static let agentBookPromptID = NSAttributedString.Key("whub.book.promptID")
     static let agentBookHeaderExchangeID = NSAttributedString.Key("whub.book.headerTurnID")
     static let agentBookCodeID = NSAttributedString.Key("whub.book.codeID")
     static let agentBookPromptExchangeID = NSAttributedString.Key("whub.book.promptTurnID")
