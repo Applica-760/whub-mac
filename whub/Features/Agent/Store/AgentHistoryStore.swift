@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import WhubAgent
 
 @MainActor
 final class AgentHistoryStore: ObservableObject {
@@ -8,22 +9,22 @@ final class AgentHistoryStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
-    private let session: (any AgentSession)?
+    private let agent: AgentStore
 
     // 接続の開始・終了はAgentStoreが担当する。
-    init(session: (any AgentSession)?) {
-        self.session = session
+    init(agent: AgentStore) {
+        self.agent = agent
     }
 
     func load(more: Bool = false) async {
-        guard let session, !isLoading, !more || nextCursor != nil else { return }
+        guard !isLoading, !more || nextCursor != nil else { return }
         let cursor = more ? nextCursor : nil
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
 
         do {
-            let page = try await session.loadHistory(cursor: cursor)
+            let page = try await agent.loadHistory(cursor: cursor)
             guard !Task.isCancelled else { return }
             var seen = Set(more ? entries.map(\.id) : [])
             let additions = page.entries.filter { seen.insert($0.id).inserted }
