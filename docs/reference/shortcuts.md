@@ -48,16 +48,19 @@ File・Terminal・Browserのタブは同じ列内でドラッグして並べ替�
 
 ## AgentBookの本文
 
-本文をクリックしてフォーカスを移した後に有効。ページをめくっても続けて操作できる。
+本文をクリックするか、入力欄でEscを押すと有効。Book全体を1つの操作エリアとして扱い、操作対象のページは内部で保持する。ページ枠やページ番号の強調は表示しない。
 
 | キー | 操作 |
 | --- | --- |
 | H / ← | 前の見開きへ移動する |
 | L / → | 次の見開きへ移動する |
+| J / K | 左右のページを同じ距離だけ下／上へ約3行分スクロールする。端に達した側は止まる。長押しに対応 |
 | Space | 入力欄へ戻る。下書きとカーソル位置を保持し、空白は入力しない |
 | Esc | 本文フォーカスを維持する。連打してもフルスクリーンを解除しない |
 
-H・L・Space・Escは修飾キーなしで使用する。先頭・末尾では循環しない。入力欄では通常の文字入力・カーソル移動として扱い、入力欄内の/は既存のコマンド補完に使う。日本語変換中・ダイアログ表示中は本文操作を行わない。Enter/Escによる既存の承認操作は変更しない。
+H・J・K・L・Space・Escは修飾キーなしで使用する。先頭・末尾では循環しない。入力欄では通常の文字入力・カーソル移動として扱い、入力欄内の/は既存のコマンド補完に使う。日本語変換中・ダイアログ表示中は本文操作を行わない。Enter/Escによる既存の承認操作は変更しない。HJKLの長押し中でもSpaceで入力欄、EscでBookへ切り替えられる。Book操作として受け取ったキーのリピートは、入力欄へ切り替えた後の文字入力として流さない。
+
+新しいやり取りが追加されると、最新ページの上端を表示し、そのページを操作対象にする。生成中の追加入力は同じページに残し、回答の更新だけでは過去を読んでいるページへ割り込まない。ページごとのスクロール位置は保持する。
 
 実装：[AgentBookExchangeView.swift](../../whub/Features/AgentBook/View/Exchange/AgentBookExchangeView.swift)、[AgentBookInputView.swift](../../whub/Features/AgentBook/View/Controls/AgentBookInputView.swift)、[AgentBookTextView.swift](../../whub/Features/AgentBook/View/Exchange/Page/AgentBookTextView.swift)
 

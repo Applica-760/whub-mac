@@ -42,27 +42,74 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
     func isReading(in window: NSWindow?) -> Bool {
         guard let window, self.window === window, !isHiddenOrHasHiddenAncestor else { return false }
         if window.firstResponder === self { return true }
-        guard let text = window.firstResponder as? NSTextView, !text.isHiddenOrHasHiddenAncestor else { return false }
-        return text.isDescendant(of: self)
+        guard let view = window.firstResponder as? NSView, !view.isHiddenOrHasHiddenAncestor else { return false }
+        return view.isDescendant(of: self)
+    }
+
+    private func selectResponderPage() {
+        guard let responder = window?.firstResponder as? NSView, responder !== self else { return }
+        for (index, model) in book.pages.enumerated() {
+            guard let scroll = pages[model.id], !scroll.isHidden else { continue }
+            if responder === scroll || responder.isDescendant(of: scroll) {
+                book.selectPage(index)
+                return
+            }
+        }
     }
 
     private var activePage: AgentBookNativeTextView? {
-        if let text = window?.firstResponder as? AgentBookNativeTextView,
-           text.isDescendant(of: self), !text.isHiddenOrHasHiddenAncestor { return text }
-        return book.pages.dropFirst(book.spread * 2).prefix(2).compactMap {
-            pages[$0.id]?.documentView as? AgentBookNativeTextView
-        }.first
+        guard book.pages.indices.contains(book.selectedPage) else { return nil }
+        return pages[book.pages[book.selectedPage].id]?.documentView as? AgentBookNativeTextView
     }
 
     func activateReading() {
         guard !isHiddenOrHasHiddenAncestor else { return }
-        window?.makeFirstResponder(activePage ?? self)
+        selectResponderPage()
+        window?.makeFirstResponder(self)
     }
 
-    override func mouseDown(with event: NSEvent) { activateReading() }
-    @objc func copy(_ sender: Any?) { activePage?.copy(sender) }
+    func movePage(_ offset: Int) {
+        selectResponderPage()
+        book.move(offset)
+        window?.makeFirstResponder(self)
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
+
+    func scrollPage(_ offset: Int) {
+        selectResponderPage()
+        layoutSubtreeIfNeeded()
+        let first = (book.selectedPage / 2) * 2
+        guard book.pages.indices.contains(first) else { return }
+        let lineHeight = book.pages[first].manager.defaultLineHeight(for: NSFont.systemFont(ofSize: 15)) + 4
+        let distance = CGFloat(offset) * 3 * lineHeight
+        for model in book.pages.dropFirst(first).prefix(2) {
+            guard let scroll = pages[model.id], !scroll.isHidden else { continue }
+            var target = scroll.contentView.bounds
+            target.origin.y += distance
+            scroll.contentView.scroll(to: scroll.contentView.constrainBoundsRect(target).origin)
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+        window?.makeFirstResponder(self)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        for (index, model) in book.pages.enumerated() {
+            if let scroll = pages[model.id], !scroll.isHidden, scroll.frame.contains(point) {
+                book.selectPage(index)
+                break
+            }
+        }
+        window?.makeFirstResponder(self)
+    }
+    @objc func copy(_ sender: Any?) {
+        selectResponderPage()
+        activePage?.copy(sender)
+    }
 
     override func selectAll(_ sender: Any?) {
+        selectResponderPage()
         guard let page = activePage else { return }
         page.setSelectedRange(NSRange(location: 0, length: page.textStorage?.length ?? 0))
         activateReading()
@@ -100,7 +147,7 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
         }
         controlViews.values.forEach { $0.isHidden = true }
         codeViews.values.forEach { $0.isHidden = true }
-        let firstPage = book.spread * 2
+        let firstPage = (book.selectedPage / 2) * 2
         for (index, model) in book.pages.enumerated() {
             let visible = (firstPage..<firstPage + 2).contains(index)
             guard visible || pages[model.id] != nil else { continue }

@@ -72,7 +72,7 @@ struct AgentBookExchangeView: View {
             if let error = book.layoutError { Text(error).font(.caption).foregroundStyle(.secondary) }
         }
         .background(AgentBookPageKeys(focus: focus, isActive: { canInteract },
-                                      activateInput: focus.activateInput, move: book.move))
+                                      activateInput: focus.activateInput, move: focus.movePage, scroll: focus.scrollPage))
         .padding(.bottom, 64)
         .onReceive(store.$exchanges.throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)) {
             updateBook($0)
@@ -159,6 +159,7 @@ private struct AgentBookPageKeys: NSViewRepresentable {
     let isActive: () -> Bool
     let activateInput: () -> Void
     let move: (Int) -> Void
+    let scroll: (Int) -> Void
 
     func handle(_ event: NSEvent) -> Bool {
         guard isActive(), let window = event.window, window.attachedSheet == nil,
@@ -168,11 +169,13 @@ private struct AgentBookPageKeys: NSViewRepresentable {
               (window.firstResponder as? NSTextView)?.hasMarkedText() != true else { return false }
         switch (event.keyCode, event.charactersIgnoringModifiers) {
         case (123, _), (_, "h"):
-            focus.activateReading()
             move(-1)
         case (124, _), (_, "l"):
-            focus.activateReading()
             move(1)
+        case (_, "j"):
+            scroll(1)
+        case (_, "k"):
+            scroll(-1)
         case (49, _):
             activateInput()
         case (53, _):
@@ -186,11 +189,11 @@ private struct AgentBookPageKeys: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = EventView()
-        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) {
             [weak view, weak coordinator = context.coordinator] event in
             guard let view, let window = view.window, window.isKeyWindow, window.attachedSheet == nil,
                   event.window === window, !view.isHiddenOrHasHiddenAncestor else { return event }
-            return coordinator?.handle?(event) == true ? nil : event
+            return coordinator?.process(event) == true ? nil : event
         }
         return view
     }
@@ -202,6 +205,21 @@ private struct AgentBookPageKeys: NSViewRepresentable {
     final class Coordinator {
         var monitor: Any?
         var handle: ((NSEvent) -> Bool)?
+        private var consumedKeys: Set<UInt16> = []
+
+        func process(_ event: NSEvent) -> Bool {
+            if event.type == .keyUp {
+                consumedKeys.remove(event.keyCode)
+                return false
+            }
+            if !event.isARepeat { consumedKeys.remove(event.keyCode) }
+            if handle?(event) == true {
+                consumedKeys.insert(event.keyCode)
+                return true
+            }
+            // A key held in Book mode must not repeat into the draft after Space.
+            return event.isARepeat && consumedKeys.contains(event.keyCode)
+        }
     }
     private final class EventView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }

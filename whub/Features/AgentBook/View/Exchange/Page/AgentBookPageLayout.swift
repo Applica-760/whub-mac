@@ -20,6 +20,7 @@ final class AgentBookPageLayout: ObservableObject {
     private(set) var promptControls: [Header] = []
     private(set) var contentBottoms: [CGFloat] = []
     private(set) var navigationRevision = 0
+    private(set) var selectedPage = 0
 
     struct Header: Identifiable {
         let id: UUID
@@ -146,11 +147,19 @@ final class AgentBookPageLayout: ObservableObject {
         revision += 1
     }
 
-    func move(_ offset: Int) {
-        let next = min(max(0, spread + offset), spreadCount - 1)
-        guard next != spread else { return }
+    func selectPage(_ index: Int) {
+        let next = min(max(0, index), max(0, pages.count - 1))
+        guard next != selectedPage || spread != next / 2 else { return }
+        selectedPage = next
         navigationRevision += 1
-        spread = next
+        spread = next / 2
+    }
+
+    func move(_ offset: Int) {
+        let current = selectedPage / 2
+        let next = min(max(0, current + offset), max(0, (pages.count - 1) / 2))
+        guard next != current else { return }
+        selectPage(next * 2)
     }
 
     @discardableResult
@@ -159,7 +168,7 @@ final class AgentBookPageLayout: ObservableObject {
               viewport.width > 112, viewport.height > 112 else { return false }
         let size = CGSize(width: floor((viewport.width - AgentBookPageStyle.pageGap) / 2), height: floor(viewport.height))
         guard renderedRevision != revision || pageSize != size || appearance != colorScheme else { return false }
-        let readingID = rendered.indices.contains(spread * 2) ? rendered[spread * 2].input.id : nil
+        let readingID = rendered.indices.contains(selectedPage) ? rendered[selectedPage].input.id : nil
         let addedExchange = inputs.count > rendered.count
         let changedSize = pageSize != size || appearance != colorScheme
         pageSize = size
@@ -168,14 +177,15 @@ final class AgentBookPageLayout: ObservableObject {
                              height: max(1, size.height - 2 * AgentBookPageStyle.pageInset))
         updateDocument(content: content, colorScheme: colorScheme, rebuild: changedSize)
         updateControlFrames(content: content)
-        var nextSpread = min(spread, max(0, (inputs.count - 1) / 2))
-        if addedExchange { nextSpread = max(0, (inputs.count - 1) / 2) }
-        else if let readingID, let index = inputs.firstIndex(where: { $0.id == readingID }) { nextSpread = index / 2 }
+        var nextPage = min(selectedPage, max(0, inputs.count - 1))
+        if addedExchange { nextPage = max(0, inputs.count - 1) }
+        else if let readingID, let index = inputs.firstIndex(where: { $0.id == readingID }) { nextPage = index }
         if let pendingPromptID, let control = promptControls.first(where: { $0.id == pendingPromptID }) {
-            nextSpread = control.page / 2
+            nextPage = control.page
         }
+        selectedPage = nextPage
         pendingPromptID = nil
-        publish(pageCount: max(1, pages.count), spread: nextSpread, error: nil)
+        publish(pageCount: max(1, pages.count), spread: nextPage / 2, error: nil)
         return true
     }
 
@@ -218,11 +228,12 @@ final class AgentBookPageLayout: ObservableObject {
     private func publish(pageCount: Int, spread: Int, error: String?) {
         publication += 1
         let version = publication
+        let navigation = navigationRevision
         // SwiftUI observes page navigation; defer publication until AppKit's layout pass has ended.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.publication == version else { return }
             self.pageCount = pageCount
-            self.spread = spread
+            if self.navigationRevision == navigation { self.spread = spread }
             self.layoutError = error
         }
     }

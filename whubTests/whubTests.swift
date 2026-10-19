@@ -692,7 +692,26 @@ struct AgentBookReadingTests {
         book.update([exchange, testExchange("Next input")], agentName: "Codex")
         book.prepare(viewport: viewport, colorScheme: .dark)
         #expect(book.pages.count == 2)
+        #expect(book.selectedPage == 1)
         #expect(book.pages[1].prompts.first?.text.string.contains("Next input") == true)
+        book.selectPage(0)
+        #expect(book.selectedPage == 0 && book.spread == 0)
+        exchange.outputs = testExchange(answer: "Further answer update").outputs
+        book.update([exchange, testExchange("Next input")], agentName: "Codex")
+        book.prepare(viewport: viewport, colorScheme: .dark)
+        #expect(book.selectedPage == 0)
+        book.selectPage(1)
+        #expect(book.selectedPage == 1 && book.spread == 0)
+        let third = testExchange("Third input")
+        book.update([exchange, testExchange("Next input"), third], agentName: "Codex")
+        book.prepare(viewport: viewport, colorScheme: .dark)
+        #expect(book.selectedPage == 2)
+        book.move(-1)
+        #expect(book.selectedPage == 0 && book.spread == 0)
+        book.move(1)
+        #expect(book.selectedPage == 2 && book.spread == 1)
+        book.move(1)
+        #expect(book.selectedPage == 2)
         book.update([], agentName: "Codex")
         book.prepare(viewport: viewport, colorScheme: .dark)
         #expect(book.pages.isEmpty)
@@ -733,7 +752,8 @@ struct AgentBookReadingTests {
         let focus = AgentBookFocus()
         focus.readingView = surface
         focus.activateReading()
-        let text = try #require(window.firstResponder as? NSTextView)
+        #expect(window.firstResponder === surface)
+        let text = try #require(surface.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSTextView }.first)
         text.setSelectedRange(NSRange(location: 0, length: 5))
         exchange.outputs = testExchange(answer: "appended answer").outputs
         book.update([exchange], agentName: "Codex")
@@ -895,7 +915,7 @@ struct AgentBookReadingTests {
         for index in 0..<3 {
             await store.send([.text("question \(index)")])
             backend.emit(.output(.message(AgentMessage(id: "a", role: .answer, title: "Answer",
-                content: .markdown("Answer \(index)"), status: .completed))))
+                content: .markdown(String(repeating: "Answer \(index).\n\n", count: 100)), status: .completed))))
             backend.emit(.completed)
             #expect(await testEventually { !store.isBusy })
         }
@@ -927,8 +947,23 @@ struct AgentBookReadingTests {
         #expect(await testEventually { spread == initial - 1 })
         NSApplication.shared.sendEvent(try testKey(window, code: 37, characters: "l", modifiers: .command))
         #expect(spread == initial - 1)
+        let surface = try #require(focus.readingView as? AgentBookTextSurface)
+        let visiblePages = surface.subviews.compactMap { $0 as? NSScrollView }
+            .filter { !$0.isHidden }.sorted { $0.frame.minX < $1.frame.minX }
+        try #require(visiblePages.count == 2)
+        let leftY = visiblePages[0].contentView.bounds.minY
+        let rightY = visiblePages[1].contentView.bounds.minY
+        NSApplication.shared.sendEvent(try testKey(window, code: 38, characters: "j"))
+        #expect(visiblePages[1].contentView.bounds.minY > rightY)
+        #expect(visiblePages[0].contentView.bounds.minY > leftY)
+        #expect(abs((visiblePages[0].contentView.bounds.minY - leftY) - (visiblePages[1].contentView.bounds.minY - rightY)) < 1)
+        NSApplication.shared.sendEvent(try testKey(window, code: 40, characters: "k"))
+        #expect(abs(visiblePages[1].contentView.bounds.minY - rightY) < 1)
+        #expect(abs(visiblePages[0].contentView.bounds.minY - leftY) < 1)
         NSApplication.shared.sendEvent(try testKey(window, code: 49, characters: " "))
         #expect(window.firstResponder === input)
+        NSApplication.shared.sendEvent(try testKey(window, code: 40, characters: "k", isRepeat: true))
+        #expect(input.string == "draft")
         #expect(input.string == "draft" && input.selectedRange() == NSRange(location: 2, length: 0))
         NSApplication.shared.sendEvent(try testKey(window, code: 37, characters: "l"))
         #expect(spread == initial - 1)

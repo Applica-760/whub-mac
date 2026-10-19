@@ -139,7 +139,7 @@ struct AgentBookInputView: View {
                             }
                             .onChange(of: candidateIndex) { _, index in proxy.scrollTo(index) }
                         }
-                        .frame(maxHeight: 160)
+                        .frame(maxHeight: showsResume ? 480 : 160)
                     }
                     .font(.callout)
                 }
@@ -385,6 +385,8 @@ private extension AgentSlashCommand {
 protocol AgentBookReadingSurface: AnyObject {
     func isReading(in window: NSWindow?) -> Bool
     func activateReading()
+    func movePage(_ offset: Int)
+    func scrollPage(_ offset: Int)
 }
 
 @MainActor
@@ -394,6 +396,8 @@ final class AgentBookFocus {
 
     func isReading(in window: NSWindow) -> Bool { readingView?.isReading(in: window) == true }
     func activateReading() { readingView?.activateReading() }
+    func movePage(_ offset: Int) { readingView?.movePage(offset) }
+    func scrollPage(_ offset: Int) { readingView?.scrollPage(offset) }
     func activateInput() {
         guard let inputView, !inputView.isHiddenOrHasHiddenAncestor else { return }
         inputView.window?.makeFirstResponder(inputView)
