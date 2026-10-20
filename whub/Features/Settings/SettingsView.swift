@@ -22,7 +22,7 @@ struct SettingsView: View {
                 .padding()
                 .tabItem { Label("Categories", systemImage: "tag") }
         }
-        .frame(width: 720, height: 480)
+        .frame(width: 960, height: 640)
         .onExitCommand { dismissWindow() }
     }
 }

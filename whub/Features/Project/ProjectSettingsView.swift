@@ -14,6 +14,13 @@ struct ProjectSettingsView: View {
         EditableTable(
             rows: projects.map { ProjectRow($0) },
             columns: [
+                .init(id: "isVisibleInExplorer", title: "", value: { _ in "" }, content: { row in
+                    AnyView(
+                        Toggle("Show in Explorer", isOn: row.isVisibleInExplorer)
+                            .toggleStyle(.checkbox)
+                            .labelsHidden()
+                    )
+                }, minWidth: 24, idealWidth: 24, maxWidth: 24),
                 .init(id: "name", title: "Name", value: { $0.name }, text: \.name),
                 .init(id: "gitURL", title: "Git URL", value: { $0.gitURL }, text: \.gitURL,
                       minWidth: 160, idealWidth: 320, maxWidth: 500),
@@ -64,10 +71,12 @@ struct ProjectSettingsView: View {
         let gitURL = row.gitURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let store = ProjectStore(context: context)
         if let project = row.project {
-            try store.edit(project, name: row.name, gitURL: gitURL.isEmpty ? nil : gitURL, host: host)
+            try store.edit(project, name: row.name, gitURL: gitURL.isEmpty ? nil : gitURL, host: host,
+                           isVisibleInExplorer: row.isVisibleInExplorer)
             return row.id
         }
-        let project = try store.add(name: row.name, gitURL: gitURL.isEmpty ? nil : gitURL, host: host)
+        let project = try store.add(name: row.name, gitURL: gitURL.isEmpty ? nil : gitURL, host: host,
+                                    isVisibleInExplorer: row.isVisibleInExplorer)
         return String(describing: project.persistentModelID)
     }
 
@@ -94,6 +103,7 @@ private struct ProjectRow: Identifiable {
     var name: String
     var gitURL: String
     var hostID: PersistentIdentifier
+    var isVisibleInExplorer = true
 
     init(_ project: Project) {
         id = String(describing: project.persistentModelID)
@@ -101,6 +111,7 @@ private struct ProjectRow: Identifiable {
         name = project.name
         gitURL = project.gitURL ?? ""
         hostID = project.host.persistentModelID
+        isVisibleInExplorer = project.isVisibleInExplorer
     }
 
     init(host: WhubCore.Host) {

@@ -69,7 +69,7 @@ final class ExplorerStore: ObservableObject {
 
     func updateID(projects: [Project], hosts: [WhubCore.Host], connections: RemoteConnectionStore,
                   refreshID: Int) -> UpdateID {
-        let local = projects.filter { $0.host is LocalHost }
+        let local = projects.filter { $0.host is LocalHost && $0.isVisibleInExplorer }
         let sources = RemoteWorkspaceStore.connectedSources(
             hosts: hosts.compactMap { $0 as? RemoteHost }, projects: projects, connections: connections
         )
@@ -84,6 +84,23 @@ final class ExplorerStore: ObservableObject {
 
     func update(projects: [Project], hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore,
                 refreshID: Int, context: ModelContext) async {
+        if let selectedLocation,
+           let hidden = projects.first(where: { project in
+               guard !project.isVisibleInExplorer else { return false }
+               let matchesHost: Bool
+               switch selectedLocation {
+               case .local: matchesHost = project.host is LocalHost
+               case let .remote(hostID, _): matchesHost = project.host.persistentModelID == hostID
+               }
+               return matchesHost && (selectedLocation.path == project.path
+                   || project.worktreeIssueNumber(for: selectedLocation.path) != nil)
+           }) {
+            if hidden.host is LocalHost {
+                self.selectedLocation = .local(URL(fileURLWithPath: hidden.host.basePath))
+            } else {
+                self.selectedLocation = .remote(hostID: hidden.host.persistentModelID, path: hidden.host.basePath)
+            }
+        }
         let id = updateID(projects: projects, hosts: hosts, connections: connections, refreshID: refreshID)
         self.hosts = hosts.compactMap { $0 as? RemoteHost }
         await localWorkspace.update(host: hosts.compactMap { $0 as? LocalHost }.first,

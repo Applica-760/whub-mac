@@ -52,7 +52,9 @@ public struct ProjectStore {
         for host: Host,
         listDirectories: (String) async throws -> [String]
     ) async throws -> Workspace {
-        let registered = try fetchProjects().filter { $0.host.persistentModelID == host.persistentModelID }
+        let registered = try fetchProjects().filter {
+            $0.host.persistentModelID == host.persistentModelID && $0.isVisibleInExplorer
+        }
         guard !registered.isEmpty else { return Workspace(projects: [], worktrees: []) }
 
         let projectNames = Set(try await listDirectories(host.projectsPath))
@@ -73,19 +75,21 @@ public struct ProjectStore {
     }
 
     @discardableResult
-    public func add(name: String, gitURL: String?, host: Host) throws -> Project {
+    public func add(name: String, gitURL: String?, host: Host, isVisibleInExplorer: Bool = true) throws -> Project {
         let name = try validate(name: name, host: host)
         let project = Project(name: name, gitURL: gitURL, host: host)
+        project.isVisibleInExplorer = isVisibleInExplorer
         context.insert(project)
         try context.save()
         return project
     }
 
-    public func edit(_ project: Project, name: String, gitURL: String?, host: Host) throws {
+    public func edit(_ project: Project, name: String, gitURL: String?, host: Host, isVisibleInExplorer: Bool) throws {
         let name = try validate(name: name, host: host, excluding: project)
         project.name = name
         project.gitURL = gitURL
         project.host = host
+        project.isVisibleInExplorer = isVisibleInExplorer
         try context.save()
     }
 

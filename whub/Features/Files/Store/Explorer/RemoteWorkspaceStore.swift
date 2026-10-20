@@ -45,7 +45,9 @@ final class RemoteWorkspaceStore: ObservableObject {
                          projectsPath: host.projectsPath, worktreesPath: host.worktreesPath,
                          sessionID: ObjectIdentifier(connection),
                          serverURL: RemoteServerStore.currentEnvironment == .dev ? host.devServerURL : host.prodServerURL,
-                         projectNames: projects.filter { $0.host.persistentModelID == host.persistentModelID }.map(\.name))
+                         projectNames: projects.filter {
+                             $0.host.persistentModelID == host.persistentModelID && $0.isVisibleInExplorer
+                         }.map(\.name))
         }
     }
 

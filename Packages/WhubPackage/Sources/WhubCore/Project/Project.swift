@@ -8,6 +8,7 @@ public final class Project {
     public internal(set) var name: String
     public internal(set) var gitURL: String?
     public internal(set) var host: Host
+    public internal(set) var isVisibleInExplorer: Bool = true
 
     init(name: String, gitURL: String?, host: Host) {
         self.name = name

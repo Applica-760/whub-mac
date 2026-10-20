@@ -71,10 +71,15 @@ final class AgentBookStore: ObservableObject {
     }
 
     func add() {
-        let tab = AgentBookTabStore(kind: selectedTab.store.agentKind, target: selectedTab.store.target)
+        let tab = AgentBookTabStore(kind: selectedTab.store.agentKind, target: localTarget)
         tabs.append(tab)
         observe(tab)
         select(tab.id)
+    }
+
+    private var localTarget: AgentExecutionTarget {
+        let host = try? HostStore(context: context).fetchHosts().first { $0 is LocalHost } as? LocalHost
+        return .local(host: host, runtime: runtime)
     }
 
     func canChangeKind(in id: AgentBookTabStore.ID) -> Bool {
@@ -134,10 +139,9 @@ final class AgentBookStore: ObservableObject {
     func remove(_ id: AgentBookTabStore.ID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let kind = tabs[index].store.agentKind
-        let target = tabs[index].store.target
         close(tabs[index])
         if tabs.count == 1 {
-            let replacement = AgentBookTabStore(kind: kind, target: target)
+            let replacement = AgentBookTabStore(kind: kind, target: localTarget)
             tabs[index] = replacement
             observe(replacement)
         } else {
