@@ -32,7 +32,7 @@ struct AgentBookNavigationView: View {
                         .font(.system(size: 16))
                         .foregroundStyle(canGoBack ? .primary : .tertiary)
                     Divider().frame(height: 16)
-                    Text("\(firstPage)")
+                    Text(canGoBack ? "\(firstPage - 1)" : "—")
                         .font(.system(size: 16).monospacedDigit())
                         .frame(minWidth: 24)
                         .contentTransition(.numericText())
@@ -44,14 +44,14 @@ struct AgentBookNavigationView: View {
             .glassEffect(.regular, in: .capsule)
             .disabled(!canInteract || !canGoBack)
             .accessibilityLabel(backLabel)
-            .accessibilityValue("\(firstPage) / \(pageCount) ページ")
+            .accessibilityValue(canGoBack ? "\(firstPage - 1) / \(pageCount) ページ" : "前のページなし")
             .help(backLabel)
 
             Spacer()
 
             Button { move(1) } label: {
                 HStack(spacing: 8) {
-                    Text("\(pageCount)")
+                    Text(canGoForward ? "\(firstPage + 1)" : "—")
                         .font(.system(size: 16).monospacedDigit())
                         .frame(minWidth: 24)
                         .contentTransition(.numericText())
@@ -68,7 +68,7 @@ struct AgentBookNavigationView: View {
             .glassEffect(.regular, in: .capsule)
             .disabled(!canInteract || !canGoForward)
             .accessibilityLabel(forwardLabel)
-            .accessibilityValue("\(firstPage) / \(pageCount) ページ")
+            .accessibilityValue(canGoForward ? "\(firstPage + 1) / \(pageCount) ページ" : "次のページなし")
             .help(forwardLabel)
         }
         .padding(.horizontal, 16)
