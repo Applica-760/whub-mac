@@ -28,8 +28,8 @@ struct AgentBookTabView: View {
                     pageCountChanged: { pageCount = $0 }, focus: bookFocus,
                     featureActivity: featureActivity
                 )
-                // Reserve navigation space outside Exchange’s existing input inset.
-                .padding(.bottom, AgentBookNavigationView.rowHeight)
+                // Keep a small gap above the input area.
+                .padding(.bottom, 8)
                 .overlay(alignment: .bottom) {
                     AgentBookNavigationView(
                         spread: $spread, pageCount: pageCount, isGenerating: store.isBusy,
@@ -47,8 +47,7 @@ struct AgentBookTabView: View {
                         resume: { await bookStore.resume($0, replacing: tab.id) },
                         isResuming: bookStore.isResuming, resumeError: bookStore.resumeError
                     )
-                    .padding(.leading, 232)
-                    .padding(.trailing, AgentBookOptionControlView.inputInset)
+                    .padding(.horizontal, AgentBookOptionControlView.inputInset)
                 }
                 .overlay(alignment: .bottomLeading) {
                     AgentBookTabButton(

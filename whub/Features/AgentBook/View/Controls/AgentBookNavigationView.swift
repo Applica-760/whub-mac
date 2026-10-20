@@ -19,7 +19,10 @@ struct AgentBookNavigationView: View {
     private var canInteract: Bool { isActive && sessionActive && featureActive }
 
     private var canGoBack: Bool { spread > 0 }
-    private var canGoForward: Bool { spread < (pageCount - 1) / 2 }
+    private var canGoForward: Bool { spread < pageCount - 1 }
+    private var firstPage: Int { spread + 1 }
+    private var backLabel: String { "前のページ" }
+    private var forwardLabel: String { "次のページ" }
 
     var body: some View {
         HStack {
@@ -29,7 +32,7 @@ struct AgentBookNavigationView: View {
                         .font(.system(size: 16))
                         .foregroundStyle(canGoBack ? .primary : .tertiary)
                     Divider().frame(height: 16)
-                    Text("\(spread * 2 + 1)")
+                    Text("\(firstPage)")
                         .font(.system(size: 16).monospacedDigit())
                         .frame(minWidth: 24)
                         .contentTransition(.numericText())
@@ -40,15 +43,15 @@ struct AgentBookNavigationView: View {
             .buttonStyle(.plain)
             .glassEffect(.regular, in: .capsule)
             .disabled(!canInteract || !canGoBack)
-            .accessibilityLabel("前の見開き")
-            .accessibilityValue("\(spread * 2 + 1) / \(pageCount) ページ")
-            .help("前の見開き")
+            .accessibilityLabel(backLabel)
+            .accessibilityValue("\(firstPage) / \(pageCount) ページ")
+            .help(backLabel)
 
             Spacer()
 
             Button { move(1) } label: {
                 HStack(spacing: 8) {
-                    Text(spread * 2 + 1 < pageCount ? "\(spread * 2 + 2)" : "—")
+                    Text("\(pageCount)")
                         .font(.system(size: 16).monospacedDigit())
                         .frame(minWidth: 24)
                         .contentTransition(.numericText())
@@ -64,9 +67,9 @@ struct AgentBookNavigationView: View {
             .buttonStyle(.plain)
             .glassEffect(.regular, in: .capsule)
             .disabled(!canInteract || !canGoForward)
-            .accessibilityLabel("次の見開き")
-            .accessibilityValue(spread * 2 + 1 < pageCount ? "\(spread * 2 + 2) / \(pageCount) ページ" : "右ページなし")
-            .help("次の見開き")
+            .accessibilityLabel(forwardLabel)
+            .accessibilityValue("\(firstPage) / \(pageCount) ページ")
+            .help(forwardLabel)
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 64)
@@ -74,7 +77,8 @@ struct AgentBookNavigationView: View {
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(true).eraseToAnyPublisher()) { sessionActive = $0 }
         .onReceive(featureActivity?.isActive.eraseToAnyPublisher() ?? Just(true).eraseToAnyPublisher()) { featureActive = $0 }
         .onChange(of: pageCount) { old, new in
-            if canInteract && isGenerating && canGoForward && (new + 1) / 2 > (old + 1) / 2 {
+            if canInteract && isGenerating && canGoForward
+                && new > old {
                 continuationRevision += 1
             }
         }
@@ -82,6 +86,6 @@ struct AgentBookNavigationView: View {
     private func move(_ offset: Int) {
         guard canInteract else { return }
         focus.activateReading()
-        spread = min(max(0, spread + offset), max(0, (pageCount - 1) / 2))
+        spread = min(max(0, spread + offset), max(0, pageCount - 1))
     }
 }

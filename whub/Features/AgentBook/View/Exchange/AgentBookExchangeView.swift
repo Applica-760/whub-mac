@@ -12,11 +12,25 @@ struct AgentBookExchangeView: View {
     var featureActivity: RetainedPageActivity? = nil
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
-    @StateObject private var book = AgentBookPageLayout()
+    @StateObject private var book: AgentBookPageLayout
     @State private var sessionActive = true
     @State private var featureActive = true
 
-    private var visiblePages: Range<Int> { (book.spread * 2)..<min(book.pageCount, book.spread * 2 + 2) }
+    init(store: AgentStore, agentName: String, spread: Binding<Int>,
+         pageCountChanged: @escaping (Int) -> Void, focus: AgentBookFocus,
+         featureActivity: RetainedPageActivity? = nil) {
+        self.store = store
+        self.agentName = agentName
+        self._spread = spread
+        self.pageCountChanged = pageCountChanged
+        self.focus = focus
+        self.featureActivity = featureActivity
+        self._book = StateObject(wrappedValue: AgentBookPageLayout())
+    }
+
+    private var latestPageIsInteractive: Bool {
+        book.selectedPage == book.pageCount - 1
+    }
     private var canInteract: Bool { isActive && sessionActive && featureActive }
     private var approval: AgentRequest? {
         store.exchanges.last(where: { $0.status == .running })?.pendingRequests.first(where: \.isApproval)
@@ -44,27 +58,22 @@ struct AgentBookExchangeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 )
             })
-                .overlay(alignment: .top) {
-                    GeometryReader { geometry in
-                        Rectangle().fill(.secondary.opacity(0.18))
-                            .frame(width: 1, height: max(0, geometry.size.height - 20))
-                            .position(x: geometry.size.width / 2, y: 20 + max(0, geometry.size.height - 20) / 2)
-                    }
-                    .allowsHitTesting(false)
-                }
                 .overlay(alignment: .topLeading) {
-                    ZStack(alignment: .topLeading) {
+                    GeometryReader { geometry in
                         if let contentBottom = book.contentBottoms.last {
                             AgentBookApprovalEntryView(request: approval,
                                 pageSize: book.pageSize, contentBottom: contentBottom, scale: 1,
-                                isActive: canInteract && store.isConnected && visiblePages.contains(book.pageCount - 1),
+                                isActive: canInteract && store.isConnected && latestPageIsInteractive,
                                 sessionActivity: activity, featureActivity: featureActivity,
                                 isResponding: approval.map { store.respondingRequestIDs.contains($0.id) } ?? false,
                                 decide: { request, allow in
                                     guard canInteract else { return }
                                     Task { await store.respond(to: request.id, with: .approval(allow: allow)) }
                                 })
-                                .offset(x: pageX(book.pageCount - 1))
+                                .offset(x: book.pageOrigin(book.pageCount - 1, viewport: geometry.size).x,
+                                        y: book.pageOrigin(book.pageCount - 1, viewport: geometry.size).y)
+                                .opacity(latestPageIsInteractive ? 1 : 0)
+                                .allowsHitTesting(latestPageIsInteractive)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -95,10 +104,6 @@ struct AgentBookExchangeView: View {
         }
         .onReceive(book.$spread.removeDuplicates()) { spread = $0 }
         .onReceive(book.$pageCount.removeDuplicates()) { pageCountChanged($0) }
-    }
-
-    private func pageX(_ page: Int) -> CGFloat {
-        CGFloat(page - book.spread * 2) * (book.pageSize.width + AgentBookPageStyle.pageGap)
     }
 
     private func updateBook(_ exchanges: [AgentExchange]) {

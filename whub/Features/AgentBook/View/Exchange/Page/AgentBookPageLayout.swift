@@ -5,7 +5,11 @@ import WhubAgent
 
 enum AgentBookPageStyle {
     static let pageInset: CGFloat = 28
+    static let horizontalInset: CGFloat = 16
     static let pageGap: CGFloat = 32
+    static let previewAngle: CGFloat = 20 * .pi / 180
+
+    static func perspectiveDistance(pageWidth: CGFloat) -> CGFloat { max(1000, pageWidth * 1.5) }
 }
 
 @MainActor
@@ -102,13 +106,45 @@ final class AgentBookPageLayout: ObservableObject {
     private struct RenderedExchange {
         let input: Input
         let page: Page
+        let size: CGSize
     }
 
     private var rendered: [RenderedExchange] = []
     private var renderedRevision = -1
+    private var renderedNavigation = -1
+    private var viewportSize = CGSize.zero
+    private(set) var subpageSize = CGSize.zero
     private var appearance: ColorScheme?
     private var publication = 0
-    var spreadCount: Int { max(1, (pageCount + 1) / 2) }
+    var spreadCount: Int { max(1, pageCount) }
+
+    var visiblePages: Range<Int> {
+        let margin = subpageSize.width >= 220 ? 1 : 0
+        return max(0, selectedPage - margin)..<min(pages.count, selectedPage + margin + 1)
+    }
+
+    func size(for index: Int) -> CGSize {
+        pageSize
+    }
+
+    func displaySize(for index: Int) -> CGSize {
+        index == selectedPage ? pageSize : subpageSize
+    }
+
+    func pageOrigin(_ index: Int, viewport: CGSize) -> CGPoint {
+        let centerX = (viewport.width - pageSize.width) / 2
+        let halfWidth = subpageSize.width / 2
+        let angle = AgentBookPageStyle.previewAngle
+        let distance = AgentBookPageStyle.perspectiveDistance(pageWidth: pageSize.width)
+        // Pin the projected outer edge, rather than the unrotated view's frame, to the margin.
+        let projectedHalfWidth = halfWidth * cos(angle) / (1 + halfWidth * sin(angle) / distance)
+        let leftX = 8 - (halfWidth - projectedHalfWidth)
+        let x: CGFloat
+        if index < selectedPage { x = leftX }
+        else if index > selectedPage { x = viewport.width - leftX - subpageSize.width }
+        else { x = centerX }
+        return CGPoint(x: floor(x), y: floor((viewport.height - displaySize(for: index).height) / 2))
+    }
 
     func update(_ exchanges: [AgentExchange], agentName: String) {
         expandedPrompts.formIntersection(exchanges.map(\.id))
@@ -149,69 +185,75 @@ final class AgentBookPageLayout: ObservableObject {
 
     func selectPage(_ index: Int) {
         let next = min(max(0, index), max(0, pages.count - 1))
-        guard next != selectedPage || spread != next / 2 else { return }
+        guard next != selectedPage || spread != next else { return }
         selectedPage = next
         navigationRevision += 1
-        spread = next / 2
+        spread = next
     }
 
     func move(_ offset: Int) {
-        let current = selectedPage / 2
-        let next = min(max(0, current + offset), max(0, (pages.count - 1) / 2))
+        let current = selectedPage
+        let next = min(max(0, current + offset), max(0, pages.count - 1))
         guard next != current else { return }
-        selectPage(next * 2)
+        selectPage(next)
     }
 
     @discardableResult
     func prepare(viewport: CGSize, colorScheme: ColorScheme) -> Bool {
         guard viewport.width.isFinite, viewport.height.isFinite,
               viewport.width > 112, viewport.height > 112 else { return false }
-        let size = CGSize(width: floor((viewport.width - AgentBookPageStyle.pageGap) / 2), height: floor(viewport.height))
-        guard renderedRevision != revision || pageSize != size || appearance != colorScheme else { return false }
+        let width = min(1000, viewport.width >= 1200 ? viewport.width * 0.58 : viewport.width - 32)
+        let size = CGSize(width: floor(width), height: floor(viewport.height - 16))
+        guard renderedRevision != revision || renderedNavigation != navigationRevision
+            || viewportSize != viewport || appearance != colorScheme else { return false }
         let readingID = rendered.indices.contains(selectedPage) ? rendered[selectedPage].input.id : nil
         let addedExchange = inputs.count > rendered.count
-        let changedSize = pageSize != size || appearance != colorScheme
+        let changedSize = viewportSize != viewport || appearance != colorScheme
         pageSize = size
+        viewportSize = viewport
+        let availableWidth = max(0, (viewport.width - size.width) / 2 - 40)
+        let scale = min(0.82, min(0.76, availableWidth / size.width) * 1.08)
+        subpageSize = CGSize(width: size.width * scale, height: size.height * scale)
         appearance = colorScheme
-        let content = CGSize(width: max(1, size.width - 2 * AgentBookPageStyle.pageInset),
-                             height: max(1, size.height - 2 * AgentBookPageStyle.pageInset))
-        updateDocument(content: content, colorScheme: colorScheme, rebuild: changedSize)
-        updateControlFrames(content: content)
         var nextPage = min(selectedPage, max(0, inputs.count - 1))
         if addedExchange { nextPage = max(0, inputs.count - 1) }
         else if let readingID, let index = inputs.firstIndex(where: { $0.id == readingID }) { nextPage = index }
-        if let pendingPromptID, let control = promptControls.first(where: { $0.id == pendingPromptID }) {
-            nextPage = control.page
-        }
+        if let pendingPromptID, let index = inputs.firstIndex(where: { $0.id == pendingPromptID }) { nextPage = index }
         selectedPage = nextPage
+        updateDocument(colorScheme: colorScheme, rebuild: changedSize)
+        updateControlFrames()
         pendingPromptID = nil
-        publish(pageCount: max(1, pages.count), spread: nextPage / 2, error: nil)
+        publish(pageCount: max(1, pages.count), spread: nextPage, error: nil)
         return true
     }
 
-    private func updateDocument(content: CGSize, colorScheme: ColorScheme, rebuild: Bool) {
+    private func updateDocument(colorScheme: ColorScheme, rebuild: Bool) {
         let previous = Dictionary(uniqueKeysWithValues: rendered.map { ($0.input.id, $0) })
         rendered = inputs.enumerated().map { index, input in
             let cached = previous[input.id]
+            let size = size(for: index)
+            let content = CGSize(width: max(1, size.width - 2 * AgentBookPageStyle.horizontalInset),
+                                 height: max(1, size.height - 2 * AgentBookPageStyle.pageInset))
             let page = cached?.page ?? Page(id: input.id.uuidString)
-            if rebuild || cached?.input != input {
+            if rebuild || cached?.input != input || cached?.size != size {
                 page.update(render(exchanges[index], input: input, content: content, colorScheme: colorScheme), width: content.width)
             }
-            return RenderedExchange(input: input, page: page)
+            return RenderedExchange(input: input, page: page, size: size)
         }
         pages = rendered.map(\.page)
         renderedRevision = revision
+        renderedNavigation = navigationRevision
     }
 
-    private func updateControlFrames(content: CGSize) {
-        contentBottoms = pages.map {
-            min(pageSize.height - 16, AgentBookPageStyle.pageInset + $0.manager.usedRect(for: $0.container).maxY)
+    private func updateControlFrames() {
+        contentBottoms = pages.enumerated().map { index, page in
+            min(size(for: index).height - 16, AgentBookPageStyle.pageInset + page.manager.usedRect(for: page.container).maxY)
         }
-        headers = controlFrames(for: .agentBookHeaderExchangeID, content: content)
-        promptControls = controlFrames(for: .agentBookPromptExchangeID, content: content)
+        headers = controlFrames(for: .agentBookHeaderExchangeID)
+        promptControls = controlFrames(for: .agentBookPromptExchangeID)
     }
 
-    private func controlFrames(for key: NSAttributedString.Key, content: CGSize) -> [Header] {
+    private func controlFrames(for key: NSAttributedString.Key) -> [Header] {
         var controls: [Header] = []
         for (index, page) in pages.enumerated() {
             page.storage.enumerateAttribute(key, in: NSRange(location: 0, length: page.storage.length)) { value, range, _ in
@@ -219,7 +261,7 @@ final class AgentBookPageLayout: ObservableObject {
                 let glyph = page.manager.glyphIndexForCharacter(at: range.location)
                 let line = page.manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
                 controls.append(Header(id: id, page: index,
-                                      frame: CGRect(x: AgentBookPageStyle.pageInset, y: AgentBookPageStyle.pageInset + line.minY, width: content.width, height: 20)))
+                                      frame: CGRect(x: AgentBookPageStyle.horizontalInset, y: AgentBookPageStyle.pageInset + line.minY, width: max(1, size(for: index).width - 2 * AgentBookPageStyle.horizontalInset), height: 20)))
             }
         }
         return controls
@@ -277,7 +319,7 @@ final class AgentBookPageLayout: ObservableObject {
         }
         let attachment = NSTextAttachment()
         attachment.bounds = CGRect(x: 0, y: 0, width: content.width,
-                                   height: max(1, pageSize.height * 0.15))
+                                   height: max(1, (content.height + 2 * AgentBookPageStyle.pageInset) * 0.15))
         attachment.attachmentCell = AgentBookContentCell()
         let result = NSMutableAttributedString(attachment: attachment)
         result.addAttributes([.agentBookPromptSource: output, .agentBookPromptID: id], range: NSRange(location: 0, length: 1))

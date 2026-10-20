@@ -678,7 +678,7 @@ struct AgentBookReadingTests {
         #expect(page.prompts.count == 1)
         #expect(input.text.string.contains(prompt))
         #expect(input.text.string.contains("additional prompt"))
-        #expect(input.size.height == viewport.height * 0.15)
+        #expect(input.size.height == book.pageSize.height * 0.15)
         #expect((input.text.string as NSString).range(of: prompt).location < (input.text.string as NSString).range(of: "additional prompt").location)
         #expect((page.storage.string as NSString).range(of: "before additional").location < (page.storage.string as NSString).range(of: "after additional").location)
         let short = AgentBookPageLayout()
@@ -701,15 +701,15 @@ struct AgentBookReadingTests {
         book.prepare(viewport: viewport, colorScheme: .dark)
         #expect(book.selectedPage == 0)
         book.selectPage(1)
-        #expect(book.selectedPage == 1 && book.spread == 0)
+        #expect(book.selectedPage == 1 && book.spread == 1)
         let third = testExchange("Third input")
         book.update([exchange, testExchange("Next input"), third], agentName: "Codex")
         book.prepare(viewport: viewport, colorScheme: .dark)
         #expect(book.selectedPage == 2)
         book.move(-1)
-        #expect(book.selectedPage == 0 && book.spread == 0)
+        #expect(book.selectedPage == 1 && book.spread == 1)
         book.move(1)
-        #expect(book.selectedPage == 2 && book.spread == 1)
+        #expect(book.selectedPage == 2 && book.spread == 2)
         book.move(1)
         #expect(book.selectedPage == 2)
         book.update([], agentName: "Codex")
@@ -777,7 +777,7 @@ struct AgentBookReadingTests {
         surface.needsLayout = true
         surface.layoutSubtreeIfNeeded()
         let originalPages = surface.subviews.compactMap { $0 as? NSScrollView }
-        try #require(originalPages.count == 2)
+        try #require(originalPages.count == 1)
         let input = NSTextView(frame: content.bounds)
         input.string = "draft"
         content.addSubview(input)
@@ -950,16 +950,13 @@ struct AgentBookReadingTests {
         let surface = try #require(focus.readingView as? AgentBookTextSurface)
         let visiblePages = surface.subviews.compactMap { $0 as? NSScrollView }
             .filter { !$0.isHidden }.sorted { $0.frame.minX < $1.frame.minX }
-        try #require(visiblePages.count == 2)
-        let leftY = visiblePages[0].contentView.bounds.minY
-        let rightY = visiblePages[1].contentView.bounds.minY
+        let page = try #require(visiblePages.first)
+        try #require(visiblePages.count == 1)
+        let originalY = page.contentView.bounds.minY
         NSApplication.shared.sendEvent(try testKey(window, code: 38, characters: "j"))
-        #expect(visiblePages[1].contentView.bounds.minY > rightY)
-        #expect(visiblePages[0].contentView.bounds.minY > leftY)
-        #expect(abs((visiblePages[0].contentView.bounds.minY - leftY) - (visiblePages[1].contentView.bounds.minY - rightY)) < 1)
+        #expect(page.contentView.bounds.minY > originalY)
         NSApplication.shared.sendEvent(try testKey(window, code: 40, characters: "k"))
-        #expect(abs(visiblePages[1].contentView.bounds.minY - rightY) < 1)
-        #expect(abs(visiblePages[0].contentView.bounds.minY - leftY) < 1)
+        #expect(abs(page.contentView.bounds.minY - originalY) < 1)
         NSApplication.shared.sendEvent(try testKey(window, code: 49, characters: " "))
         #expect(window.firstResponder === input)
         NSApplication.shared.sendEvent(try testKey(window, code: 40, characters: "k", isRepeat: true))
