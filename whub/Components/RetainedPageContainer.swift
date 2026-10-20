@@ -19,6 +19,7 @@ extension EnvironmentValues {
 struct RetainedPageContainer<Page: Hashable, Content: View>: NSViewRepresentable {
     let selection: Page
     var availablePages: [Page]? = nil
+    var focus: TabPaneFocus? = nil
     @ViewBuilder let content: (Page) -> Content
     @Environment(\.self) private var environment
     @Environment(\.colorScheme) private var colorScheme
@@ -28,6 +29,7 @@ struct RetainedPageContainer<Page: Hashable, Content: View>: NSViewRepresentable
     func makeNSView(context: Context) -> NSView { NSView() }
 
     func updateNSView(_ container: NSView, context: Context) {
+        focus?.view = container
         context.coordinator.update(container, selection: selection, availablePages: availablePages,
                                    isActive: environment.isRetainedPageActive, rootView: rootView)
     }

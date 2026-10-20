@@ -5,23 +5,30 @@ import WhubCore
 struct ExplorerDiffView: View {
     @ObservedObject var git: GitStore
     @ObservedObject var editor: EditorStore
+    let focus: ExplorerFocusNavigation
     let onPreview: (FileLocation) -> Void
     let onOpen: (FileLocation) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Git差分 · HEAD ↔ 保存済み").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Text("Git差分 · HEAD ↔ 保存済み").font(.caption).foregroundStyle(.secondary)
+                ProgressView()
+                    .controlSize(.mini)
+                    .opacity(git.isLoadingDiff ? 1 : 0)
+                    .accessibilityLabel("変更ファイルを読み込み中")
+                    .accessibilityHidden(!git.isLoadingDiff)
+            }
             if let error = git.diffError {
                 Text(error).foregroundStyle(.secondary)
             } else if git.isLoadingDiff && git.diffChanges.isEmpty {
-                ProgressView("変更ファイルを読み込み中…")
+                Text("変更ファイルを読み込み中…").foregroundStyle(.secondary)
             } else if !git.isRepository {
                 Text("Gitリポジトリを選択してください").foregroundStyle(.secondary)
             } else if git.diffChanges.isEmpty {
                 Text("未コミットの差分はありません").foregroundStyle(.secondary)
             } else if let root = git.rootURL {
-                if git.isLoadingDiff { ProgressView().controlSize(.small) }
-                DiffFileList(changes: git.diffChanges, root: root, selectedTab: editor.selectedTab,
+                DiffFileList(changes: git.diffChanges, root: root, selectedTab: editor.selectedTab, focus: focus,
                              onPreview: onPreview, onOpen: onOpen)
             }
         }
@@ -34,6 +41,7 @@ private struct DiffFileList: NSViewRepresentable {
     let changes: [URL: GitChange]
     let root: URL
     let selectedTab: EditorTab?
+    let focus: ExplorerFocusNavigation
     let onPreview: (FileLocation) -> Void
     let onOpen: (FileLocation) -> Void
 
@@ -41,6 +49,11 @@ private struct DiffFileList: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let table = DiffTableControl()
+        focus.attachList(table)
+        table.onOpenSelection = { [weak coordinator = context.coordinator, weak table] in
+            guard let coordinator, let table, coordinator.urls.indices.contains(table.selectedRow) else { return }
+            coordinator.parent.onOpen(.local(coordinator.urls[table.selectedRow]))
+        }
         table.backgroundColor = .clear
         let column = NSTableColumn(identifier: .init("path"))
         table.addTableColumn(column)
@@ -68,6 +81,7 @@ private struct DiffFileList: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let table = scroll.documentView as? NSTableView else { return }
+        focus.list = table
         context.coordinator.update(self, table: table)
     }
 
@@ -126,6 +140,12 @@ private struct DiffFileList: NSViewRepresentable {
 
 private final class DiffTableControl: NSTableView {
     var menuForRow: ((Int) -> NSMenu?)?
+    var onOpenSelection: () -> Void = {}
+
+    override func keyDown(with event: NSEvent) {
+        if handleExplorerNavigation(event, open: onOpenSelection) { return }
+        super.keyDown(with: event)
+    }
     override func menu(for event: NSEvent) -> NSMenu? {
         menuForRow?(row(at: convert(event.locationInWindow, from: nil)))
     }

@@ -9,6 +9,7 @@ struct EditorView: View {
     @Environment(\.retainedPageActivity) private var activity
     @EnvironmentObject private var store: EditorStore
     @EnvironmentObject private var files: FilesStore
+    @Environment(\.explorerFocusNavigation) private var explorerFocus
     @State private var editorID = UUID().uuidString
 
     var body: some View {
@@ -51,10 +52,12 @@ struct EditorView: View {
         guard activity?.isActive.value ?? isActive, let editor = currentEditor,
               editor.fileStore?.editorPositions[editorID] != nil, let window = editor.window else { return }
         let tab = store.selectedTab
+        guard explorerFocus?.containsExplorer(window) != true else { return }
         let responder = window.firstResponder
         DispatchQueue.main.async {
             guard activity?.isActive.value != false, store.selectedTab == tab,
                   window.isKeyWindow, window.attachedSheet == nil,
+                  explorerFocus?.containsExplorer(window) != true,
                   window.firstResponder === responder || window.firstResponder === window || window.firstResponder == nil,
                   editor.window === window, !editor.isHiddenOrHasHiddenAncestor else { return }
             if window.makeFirstResponder(editor) { editor.restorePosition() }

@@ -8,6 +8,81 @@ import WhubCore
 
 @Suite @MainActor
 struct ExplorerStoreTests {
+    @Test func explorerKeysMoveSelectionOpenAndLeaveTextEditingAlone() throws {
+        final class Rows: NSObject, NSTableViewDataSource {
+            func numberOfRows(in tableView: NSTableView) -> Int { 4 }
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let table = NSTableView(frame: window.contentView!.bounds)
+        let rows = Rows()
+        table.addTableColumn(NSTableColumn(identifier: .init("file")))
+        table.dataSource = rows
+        window.contentView?.addSubview(table)
+        table.reloadData()
+        #expect(window.makeFirstResponder(table))
+        var opened = 0
+        func send(_ key: String, code: UInt16 = 0, modifiers: NSEvent.ModifierFlags = []) throws -> Bool {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: modifiers, timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, characters: key, charactersIgnoringModifiers: key, isARepeat: false, keyCode: code))
+            return table.handleExplorerNavigation(event, canSelect: { $0 != 1 }, open: { opened += 1 })
+        }
+        #expect(try send("j"))
+        #expect(table.selectedRow == 0)
+        #expect(try send("j"))
+        #expect(table.selectedRow == 2)
+        #expect(try send("k"))
+        #expect(table.selectedRow == 0)
+        #expect(try send("k"))
+        #expect(table.selectedRow == 0)
+        #expect(try send("\r", code: 36))
+        #expect(opened == 1)
+        #expect(window.firstResponder === table)
+        #expect(try !send("j", modifiers: .command))
+        let input = NSTextView(frame: .zero)
+        window.contentView?.addSubview(input)
+        #expect(window.makeFirstResponder(input))
+        #expect(try !send("j"))
+        #expect(try !send("\r", code: 36))
+        #expect(opened == 1)
+    }
+
+    @Test func explorerFocusReturnsToEditorBodyAndPreservesCursor() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = NSView(frame: NSRect(x: 100, y: 0, width: 300, height: 300))
+        let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 300))
+        window.contentView?.addSubview(content)
+        window.contentView?.addSubview(sidebar)
+        let header = NSTextView(frame: NSRect(x: 0, y: 250, width: 300, height: 50))
+        let editor = CodeTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 250))
+        editor.string = "cursor position"
+        editor.setSelectedRange(NSRange(location: 4, length: 0))
+        content.addSubview(header)
+        content.addSubview(editor)
+        let table = NSTableView(frame: sidebar.bounds)
+        table.addTableColumn(NSTableColumn(identifier: .init("file")))
+        sidebar.addSubview(table)
+        let focus = ExplorerFocusNavigation()
+        focus.sidebar.view = sidebar
+        focus.content.view = content
+        focus.list = table
+        #expect(window.makeFirstResponder(header))
+        focus.toggle(prefersEditor: true)
+        #expect(window.firstResponder === table)
+        focus.toggle(prefersEditor: true)
+        #expect(window.firstResponder === editor)
+        focus.toggle(prefersEditor: true)
+        focus.toggle(prefersEditor: true)
+        #expect(window.firstResponder === editor)
+        #expect(editor.selectedRange() == NSRange(location: 4, length: 0))
+    }
+
     @Test func contextMenuTargetsClickedFileAndRestrictsDiffToLocalFiles() throws {
         let url = URL(fileURLWithPath: "/repo/src/file.swift")
         var opened: FileLocation?
@@ -432,18 +507,29 @@ struct ExplorerStoreTests {
             check(!send(document.body, 'j') && window.scrollY === 120, 'j down');
             check(!send(document.body, 'j', { repeat: true }) && window.scrollY === 240, 'held j');
             check(!send(document.body, 'k') && window.scrollY === 120, 'k up');
+            check(!send(document.body, 'J', { shiftKey: true }) && window.scrollY === 480, 'shift j down');
+            check(!send(document.body, 'J', { shiftKey: true, repeat: true }) && window.scrollY === 840, 'held shift j');
+            check(!send(document.body, 'K', { shiftKey: true }) && window.scrollY === 480, 'shift k up');
+            check(!send(document.body, 'j') && window.scrollY === 600, 'j after shift released');
+            check(!send(document.body, 'k') && window.scrollY === 480, 'k after shift released');
+            window.scrollTo(0, 120);
             for (const id of ['input', 'textarea', 'select', 'nested']) {
                 const element = document.getElementById(id);
                 element.focus({ preventScroll: true });
                 check(send(element, 'j') && window.scrollY === 120, id);
+                check(send(element, 'J', { shiftKey: true }) && window.scrollY === 120, id + ' shift');
             }
-            for (const flag of ['isComposing', 'metaKey', 'ctrlKey', 'altKey', 'shiftKey']) {
+            for (const flag of ['isComposing', 'metaKey', 'ctrlKey', 'altKey']) {
                 check(send(document.body, 'j', { [flag]: true }) && window.scrollY === 120, flag);
+                check(send(document.body, 'J', { shiftKey: true, [flag]: true }) && window.scrollY === 120, flag + ' shift');
             }
             check(send(document.body, 'j', { keyCode: 229 }) && window.scrollY === 120, 'IME keyCode');
+            check(send(document.body, 'J', { shiftKey: true, keyCode: 229 }) && window.scrollY === 120, 'IME keyCode shift');
             check(send(document.body, 'x') && window.scrollY === 120, 'other key');
             const pane = document.getElementById('pane');
             check(!send(pane, 'j') && pane.scrollTop === 120 && window.scrollY === 120, 'nested scroll');
+            check(!send(pane, 'J', { shiftKey: true }) && pane.scrollTop === 480 && window.scrollY === 120, 'nested shift j');
+            check(!send(pane, 'K', { shiftKey: true }) && pane.scrollTop === 120 && window.scrollY === 120, 'nested shift k');
             return failures;
             """)
         #expect(try #require(result as? [String]).isEmpty)

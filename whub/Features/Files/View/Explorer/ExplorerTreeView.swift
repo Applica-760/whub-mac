@@ -5,6 +5,7 @@ import WhubCore
 struct ExplorerTreeView: View {
     @ObservedObject var store: ExplorerStore
     @ObservedObject var gitStore: GitStore
+    let focus: ExplorerFocusNavigation
     let onFilePreview: (FileLocation) -> Void
     let onFileOpen: (FileLocation) -> Void
     let onShowDiff: (FileLocation) -> Void
@@ -32,7 +33,7 @@ struct ExplorerTreeView: View {
                     RemoteFileTreeStatusView(states: store.remoteTree.states)
                 }
                 ExplorerOutlineView(
-                    store: store, basePath: store.treeBasePath, gitChanges: gitStore.changes,
+                    store: store, basePath: store.treeBasePath, gitChanges: gitStore.changes, focus: focus,
                     onFilePreview: onFilePreview, onFileOpen: onFileOpen, onShowDiff: onShowDiff, onAction: onAction, onCommitName: onCommitName
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -46,6 +47,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
     @ObservedObject var store: ExplorerStore
     let basePath: String?
     let gitChanges: [URL: GitChange]
+    let focus: ExplorerFocusNavigation
     let onFilePreview: (FileLocation) -> Void
     let onFileOpen: (FileLocation) -> Void
     let onShowDiff: (FileLocation) -> Void
@@ -62,6 +64,10 @@ struct ExplorerOutlineView: NSViewRepresentable {
         outlineView.store = store
         outlineView.onShowDiff = onShowDiff
         outlineView.onAction = onAction
+        outlineView.onOpenSelection = { [weak coordinator = context.coordinator] in
+            coordinator?.openSelection()
+        }
+        focus.attachList(outlineView)
         outlineView.onEdit = { [weak coordinator = context.coordinator] action, item in
             coordinator?.beginEditing(action, item: item)
         }
@@ -91,6 +97,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        focus.list = scrollView.documentView as? NSTableView
         (scrollView.documentView as? FileOutlineControl)?.onShowDiff = onShowDiff
         (scrollView.documentView as? FileOutlineControl)?.onAction = onAction
         context.coordinator.onCommitName = onCommitName
@@ -284,6 +291,16 @@ struct ExplorerOutlineView: NSViewRepresentable {
             onFileOpen(item.location)
         }
 
+        func openSelection() {
+            guard nameEdit == nil, let outlineView,
+                  let item = outlineView.item(atRow: outlineView.selectedRow) as? ExplorerItem,
+                  !store.isUnavailable(item) else { return }
+            if item.isDirectory {
+                if outlineView.isItemExpanded(item) { outlineView.collapseItem(item) }
+                else { outlineView.expandItem(item) }
+            } else { onFileOpen(item.location) }
+        }
+
         func outlineView(
             _ outlineView: NSOutlineView,
             viewFor tableColumn: NSTableColumn?,
@@ -310,6 +327,16 @@ private final class FileOutlineControl: NSOutlineView {
     var onAction: (ExplorerContextMenu.Action, FileLocation) -> Void = { _, _ in }
 
     var onEdit: (ExplorerStore.NameEdit.Operation, ExplorerItem) -> Void = { _, _ in }
+    var onOpenSelection: () -> Void = {}
+
+    override func keyDown(with event: NSEvent) {
+        if store?.nameEdit == nil,
+           handleExplorerNavigation(event, canSelect: { row in
+               guard let item = self.item(atRow: row) as? ExplorerItem else { return false }
+               return self.store?.isUnavailable(item) != true
+           }, open: onOpenSelection) { return }
+        super.keyDown(with: event)
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
@@ -337,12 +364,38 @@ private final class FileOutlineControl: NSOutlineView {
             return
         }
         guard store?.isUnavailable(item) != true else { return }
+        window?.makeFirstResponder(self)
         selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         if isItemExpanded(item) {
             collapseItem(item)
         } else {
             expandItem(item)
         }
+    }
+}
+
+extension NSTableView {
+    func handleExplorerNavigation(_ event: NSEvent, canSelect: (Int) -> Bool = { _ in true },
+                                  open: () -> Void) -> Bool {
+        guard window?.firstResponder === self,
+              event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty else { return false }
+        if event.keyCode == 36 || event.keyCode == 76 {
+            open()
+            return true
+        }
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        guard key == "j" || key == "k" else { return false }
+        let offset = key == "j" ? 1 : -1
+        var row = selectedRow >= 0 ? selectedRow + offset : (offset > 0 ? 0 : numberOfRows - 1)
+        while row >= 0 && row < numberOfRows {
+            if canSelect(row) {
+                selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                scrollRowToVisible(row)
+                break
+            }
+            row += offset
+        }
+        return true
     }
 }
 

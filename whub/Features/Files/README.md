@@ -60,6 +60,8 @@ Files/
 
 `FilesStore.activeEditor` は、選択中のワークスペースに対応する `EditorStore` を指す。ワークスペースを切り替えても、各EditorStoreのタブ状態は保持する。
 
+`ExplorerView.swift` の `ExplorerFocusNavigation` は、ウィンドウ内のExplorer一覧とFeature領域への参照を保持する。⌘⇧Eでフォーカスを往復し、FileEditorでは表示中の本文を優先する。⌘⇧Dは通常／Diff Explorerを切り替える。一覧のJ/Kは自動プレビューを伴う行移動、Enterはファイルの確定オープンまたはディレクトリの開閉で、一覧にフォーカスを残す。名前入力中はこれらの一覧操作を処理しない。
+
 ## 共通部品の参照先
 
 - [TabBarContainer](../../Components/TabBarContainer.swift)：タブの選択・閉じる操作の受付、並べ替えなどの共通動作。

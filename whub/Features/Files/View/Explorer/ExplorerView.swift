@@ -6,10 +6,12 @@ import WhubCore
 struct ExplorerSidebar: View {
     let onFileSelect: () -> Void
     let onOpenInBrowser: (URL) -> Void
+    let focus: ExplorerFocusNavigation
     @EnvironmentObject private var files: FilesStore
 
     var body: some View {
-        ExplorerView(onFileSelect: onFileSelect, onOpenInBrowser: onOpenInBrowser, store: files.explorer)
+        ExplorerView(onFileSelect: onFileSelect, onOpenInBrowser: onOpenInBrowser, store: files.explorer,
+                     focus: focus)
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 640)
     }
 }
@@ -25,18 +27,21 @@ struct ExplorerView: View {
     @EnvironmentObject private var files: FilesStore
     @EnvironmentObject private var gitStore: GitStore
     @ObservedObject var store: ExplorerStore
+    let focus: ExplorerFocusNavigation
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ExplorerPulldownView(store: store)
             if store.showsDiff, store.selectedLocation?.localURL != nil {
                 ExplorerDiffView(git: gitStore, editor: files.activeEditor,
+                                 focus: focus,
                                  onPreview: { openDiff($0, preview: true) },
                                  onOpen: { openDiff($0, preview: false) })
             } else {
                 ExplorerTreeView(
                     store: store,
                     gitStore: gitStore,
+                    focus: focus,
                     onFilePreview: { location in
                         files.preview(location, hosts: hosts, connections: connections, servers: servers)
                         onFileSelect()
@@ -52,12 +57,14 @@ struct ExplorerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(TabPaneFocusView(focus: focus.sidebar))
         .overlay(alignment: .topTrailing) {
             ExplorerMenuView(canRefresh: store.canRefresh, canShowDiff: store.selectedLocation?.localURL != nil,
-                             showsDiff: $store.showsDiff) {
+                             showsDiff: Binding(get: { store.showsDiff }, set: setShowsDiff)) {
                 files.refresh()
             }
         }
+        .focusedSceneValue(\.toggleExplorerDiff, { setShowsDiff(!store.showsDiff) })
         .onChange(of: store.showsDiff, initial: true) { gitStore.setDiffEnabled(store.showsDiff) }
         .onAppear { store.startWatching() }
         .onDisappear { store.stopWatching() }
@@ -87,8 +94,89 @@ struct ExplorerView: View {
         }
     }
 
+    private func setShowsDiff(_ value: Bool) {
+        if let window = focus.sidebar.view?.window, focus.containsExplorer(window) {
+            focus.sidebar.activate()
+        }
+        store.showsDiff = value
+    }
+
     private func openDiff(_ location: FileLocation, preview: Bool) {
         files.openDiff(location, preview: preview)
         onFileSelect()
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var explorerFocusNavigation: ExplorerFocusNavigation? = nil
+}
+
+private struct ToggleExplorerFocusKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct ToggleExplorerDiffKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+extension FocusedValues {
+    var toggleExplorerDiff: (() -> Void)? {
+        get { self[ToggleExplorerDiffKey.self] }
+        set { self[ToggleExplorerDiffKey.self] = newValue }
+    }
+    var toggleExplorerFocus: (() -> Void)? {
+        get { self[ToggleExplorerFocusKey.self] }
+        set { self[ToggleExplorerFocusKey.self] = newValue }
+    }
+}
+
+final class ExplorerFocusNavigation {
+    let sidebar = TabPaneFocus()
+    let content = TabPaneFocus()
+    weak var list: NSTableView?
+    private weak var previousContentResponder: NSView?
+
+    func attachList(_ table: NSTableView) {
+        list = table
+        DispatchQueue.main.async { [weak self, weak table] in
+            guard let self, let table, self.list === table,
+                  let window = table.window, !table.isHiddenOrHasHiddenAncestor,
+                  window.firstResponder === self.sidebar.view else { return }
+            window.makeFirstResponder(table)
+        }
+    }
+
+    func containsExplorer(_ window: NSWindow) -> Bool {
+        if let list, window.firstResponder === list { return true }
+        return sidebar.contains(window)
+    }
+
+    func toggle(prefersEditor: Bool) {
+        guard let window = content.view?.window, window.attachedSheet == nil else { return }
+        if containsExplorer(window) {
+            guard let root = content.view else { return }
+            let remembered = previousContentResponder.flatMap {
+                $0.isDescendant(of: root) && !$0.isHiddenOrHasHiddenAncestor ? $0 : nil
+            }
+            let target = prefersEditor
+                ? (remembered as? CodeTextView) ?? find(in: root, matching: { $0 is CodeTextView }) ?? remembered
+                : remembered
+            if let target = target ?? find(in: root, matching: { $0.acceptsFirstResponder }) {
+                window.makeFirstResponder(target)
+            }
+        } else {
+            if content.contains(window) { previousContentResponder = window.firstResponder as? NSView }
+            if let list, list.window === window, !list.isHiddenOrHasHiddenAncestor {
+                window.makeFirstResponder(list)
+            } else { sidebar.activate() }
+        }
+    }
+
+    private func find(in view: NSView, matching predicate: (NSView) -> Bool) -> NSView? {
+        guard !view.isHiddenOrHasHiddenAncestor else { return nil }
+        for child in view.subviews {
+            if let match = find(in: child, matching: predicate) { return match }
+        }
+        return predicate(view) ? view : nil
     }
 }

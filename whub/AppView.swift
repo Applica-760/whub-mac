@@ -47,17 +47,21 @@ struct AppView: View {
     @EnvironmentObject private var browser: BrowserStore
     @EnvironmentObject private var agentBook: AgentBookStore
     @Binding var section: Section
+    @State private var explorerFocus = ExplorerFocusNavigation()
 
     var body: some View {
         NavigationSplitView {
-            ExplorerSidebar(onFileSelect: { section = .file }, onOpenInBrowser: openInBrowser)
+            ExplorerSidebar(onFileSelect: { section = .file }, onOpenInBrowser: openInBrowser,
+                            focus: explorerFocus)
         } detail: {
-            RetainedPageContainer(selection: section) { page in
+            RetainedPageContainer(selection: section, focus: explorerFocus.content) { page in
                 page.content(agentBook: agentBook)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(section.label)
+        .environment(\.explorerFocusNavigation, explorerFocus)
+        .focusedSceneValue(\.toggleExplorerFocus, { explorerFocus.toggle(prefersEditor: section == .file) })
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 1000, minHeight: 550)
         .toolbar {
