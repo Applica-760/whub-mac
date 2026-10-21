@@ -20,7 +20,7 @@ struct AgentBookView: View {
             ids: store.tabs.map(\.id), selection: store.selectedTabID,
             select: select, close: requestClose,
             canClose: { _ in true },
-            isShortcutTarget: { _ in pendingCloseID == nil },
+            isShortcutTarget: { window in pendingCloseID == nil && tabFocus.contains(window) },
             handlesNumberKeys: false
         ))
         .alert("このタブを閉じますか？", isPresented: Binding(

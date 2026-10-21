@@ -14,12 +14,12 @@ struct AppCommands: Commands {
                 switch section {
                 case .terminal: terminalStore.add()
                 case .browser: browserStore.add()
-                case .agentBook: agentBookStore.add()
+                case .agentBook, .workspace: agentBookStore.add()
                 default: break
                 }
             }
             .keyboardShortcut("t", modifiers: .command)
-            .disabled(section != .terminal && section != .browser && section != .agentBook)
+            .disabled(section != .terminal && section != .browser && section != .agentBook && section != .workspace)
         }
         FilesCommands()
         CommandGroup(replacing: .sidebar) {
@@ -33,7 +33,7 @@ struct AppCommands: Commands {
                 Button(destination.label) { section = destination }
             }
             Divider()
-            AgentBookTabMenu(store: agentBookStore, isActive: section == .agentBook)
+            AgentBookTabMenu(store: agentBookStore, isActive: section == .agentBook || section == .workspace)
             Divider()
             Button("Previous Page") { moveSection(by: -1) }
                 .keyboardShortcut("h", modifiers: [.command, .shift])

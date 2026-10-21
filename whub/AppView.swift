@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AppView: View {
     enum Section: CaseIterable, Hashable {
+        case workspace
         case file
         case agentBook
         case browser
@@ -11,6 +12,7 @@ struct AppView: View {
 
         var label: String {
             switch self {
+            case .workspace: "Workspace"
             case .file: "File"
             case .terminal: "Terminal"
             case .browser: "Browser"
@@ -22,6 +24,7 @@ struct AppView: View {
 
         var systemImage: String {
             switch self {
+            case .workspace: "rectangle.split.2x1"
             case .file: "doc.text"
             case .terminal: "terminal"
             case .browser: "globe"
@@ -34,6 +37,7 @@ struct AppView: View {
         @ViewBuilder
         func content(agentBook: AgentBookStore) -> some View {
             switch self {
+            case .workspace: WorkspaceView()
             case .overview: OverviewView()
             case .file: EditorView()
             case .terminal: TerminalView()
@@ -51,7 +55,9 @@ struct AppView: View {
 
     var body: some View {
         NavigationSplitView {
-            ExplorerSidebar(onFileSelect: { section = .file }, onOpenInBrowser: openInBrowser,
+            ExplorerSidebar(onFileSelect: {
+                if section != .workspace { section = .file }
+            }, onOpenInBrowser: openInBrowser,
                             focus: explorerFocus)
         } detail: {
             RetainedPageContainer(selection: section, focus: explorerFocus.content) { page in
