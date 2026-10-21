@@ -57,7 +57,7 @@ struct EditorView: View {
         .onReceive(files.$activeEditor) { nextStore in
             guard nextStore !== store, activity?.isActive.value ?? isActive else { return }
             focusRequest = UUID()
-            currentEditor?.savePosition()
+            currentEditor?.savePosition(includingUnfocused: true)
         }
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) { active in
             guard active != wasActive else { return }
@@ -65,7 +65,7 @@ struct EditorView: View {
             if active { restoreEditorFocus() }
             else {
                 focusRequest = UUID()
-                currentEditor?.savePosition()
+                currentEditor?.savePosition(includingUnfocused: true)
             }
         }
         .onChange(of: ObjectIdentifier(store)) { _, _ in restoreEditorFocus() }
@@ -96,12 +96,16 @@ struct EditorView: View {
                   files.activeEditor === store, store.selectedTab == tab,
                   let view = tabFocus.view, !view.isHiddenOrHasHiddenAncestor, let window = view.window,
                   window.isKeyWindow, window.attachedSheet == nil,
-                  explorerFocus?.containsExplorer(window) != true,
                   window.firstResponder === responder || window.firstResponder === window || window.firstResponder == nil
             else { return }
+            let editor = currentEditor
+            if let editor, explorerFocus?.inheritEditorPosition(editor) == true {
+                editor.restorePosition()
+            }
+            guard explorerFocus?.containsExplorer(window) != true else { return }
             // A project change must not take focus from the other Workspace pane.
             if explorerFocus?.content.contains(window) == true, !tabFocus.contains(window) { return }
-            if let editor = currentEditor, editor.window === window, !editor.isHiddenOrHasHiddenAncestor {
+            if let editor, editor.window === window, !editor.isHiddenOrHasHiddenAncestor {
                 if window.makeFirstResponder(editor) { editor.restorePosition() }
             } else {
                 tabFocus.activate()

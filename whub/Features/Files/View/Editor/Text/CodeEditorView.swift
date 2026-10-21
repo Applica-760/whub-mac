@@ -8,6 +8,7 @@ import WhubCore
 struct CodeEditorView: NSViewRepresentable {
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.explorerFocusNavigation) private var explorerFocus
     let state: FileStore
     let editorID: String
     let onEdit: () -> Void
@@ -103,6 +104,7 @@ struct CodeEditorView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.observe(state.textStorage)
         guard let textView = scrollView.documentView as? CodeTextView else { return }
+        textView.explorerFocus = explorerFocus
         textView.onEdit = onEdit
         textView.diffLines = diffLines
         guard isActive else { return }
@@ -188,23 +190,26 @@ private final class CodeScrollView: NSScrollView {
 
 final class CodeTextView: NSTextView {
     weak var fileStore: FileStore?
+    weak var explorerFocus: ExplorerFocusNavigation?
     var editorID: String?
     var onEdit: (() -> Void)?
     var diffLines: [DiffLine]?
 
-    func savePosition() {
+    func savePosition(includingUnfocused: Bool = false) {
         guard isEditable, !isHiddenOrHasHiddenAncestor, let editorID, let fileStore,
-              window?.firstResponder === self || fileStore.editorPositions[editorID] != nil,
+              includingUnfocused || window?.firstResponder === self || fileStore.editorPositions[editorID] != nil,
               let scrollView = enclosingScrollView else { return }
         fileStore.editorPositions[editorID] = FileStore.EditorPosition(
             selectedRanges: selectedRanges.map(\.rangeValue),
             scrollOrigin: scrollView.contentView.bounds.origin
         )
+        explorerFocus?.rememberEditorPosition(self)
     }
 
     func restorePosition() {
-        guard !isHiddenOrHasHiddenAncestor, let editorID,
-              let position = fileStore?.editorPositions[editorID] else { return }
+        guard !isHiddenOrHasHiddenAncestor, let editorID else { return }
+        explorerFocus?.inheritEditorPosition(self)
+        guard let position = fileStore?.editorPositions[editorID] else { return }
         let length = (string as NSString).length
         let ranges = position.selectedRanges.map { range in
             let start = min(max(0, range.location), length)

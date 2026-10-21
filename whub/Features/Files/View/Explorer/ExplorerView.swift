@@ -143,6 +143,27 @@ final class ExplorerFocusNavigation {
     let content = TabPaneFocus()
     weak var list: NSTableView?
     private weak var previousContentResponder: NSView?
+    private let lastEditors = NSMapTable<FileStore, CodeTextView>(
+        keyOptions: [.weakMemory, .objectPointerPersonality], valueOptions: .weakMemory
+    )
+
+    func rememberEditorPosition(_ editor: CodeTextView) {
+        guard let document = editor.fileStore, let window = content.view?.window,
+              editor.window === window else { return }
+        lastEditors.setObject(editor, forKey: document)
+    }
+
+    @discardableResult
+    func inheritEditorPosition(_ editor: CodeTextView) -> Bool {
+        guard let document = editor.fileStore, let editorID = editor.editorID,
+              let window = content.view?.window, editor.window === window,
+              let previous = lastEditors.object(forKey: document), previous !== editor,
+              let previousID = previous.editorID,
+              let position = document.editorPositions[previousID] else { return false }
+        document.editorPositions[editorID] = position
+        lastEditors.setObject(editor, forKey: document)
+        return true
+    }
 
     func attachList(_ table: NSTableView) {
         list = table

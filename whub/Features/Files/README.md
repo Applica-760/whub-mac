@@ -60,6 +60,8 @@ Files/
 
 `FilesStore.activeEditor` は、選択中のワークスペースに対応する `EditorStore` を指す。ワークスペースを切り替えても、各EditorStoreのタブ状態は保持する。
 
+FileとWorkspaceは同じタブ・本文を共有し、同じウィンドウ内ではカーソル・スクロール位置も引き継ぐ。各表示の本文Viewは別々に保持し、位置は既存の `FileStore.editorPositions` を使う。`ExplorerFocusNavigation` は文書ごとに直近の位置を保存したEditorへの弱参照だけを保持し、表示先へ位置を渡す。文書とウィンドウごとに管理するため、別プロジェクトの文書や別ウィンドウの位置は混ぜない。Explorerにフォーカスを残したままでも位置を引き継ぎ、⌘数字・⌘⇧Eの動作は変更しない。
+
 ローカルの `.md` は、エディタ右上の「Show Preview」またはExplorerの右クリックメニューから、左にソース・右に描画結果を表示できる。「Hide Preview」で閉じる。境界はドラッグで調整でき、未保存の編集内容も反映する。開閉状態は `EditorStore.markdownPreviews` がファイルごとに保持し、タブを閉じると破棄する。一時タブを表す既存の `previewTab` とは別の状態で、アプリ再起動後には復元しない。
 
 プレビューは共通の [`MarkdownView`](../../Components/Markdown/MarkdownView.swift) を使う。表・コード・数式は既存の描画部品で表示し、コードは横スクロール・コピーできる。Mermaidはコードとして表示する。画像・相対リンクの解決、リモートファイルの描画プレビューは未対応。
