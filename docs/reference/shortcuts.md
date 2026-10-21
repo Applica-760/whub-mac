@@ -11,7 +11,7 @@
 | ⇧⌘L | 次のページへ移動（先頭へ循環） |
 | ⌘Q | 確認後、「終了」でアプリ終了 |
 
-ページの順序は File → AgentBook → Browser → Terminal → Overview → Motion。
+ページの順序は Workspace → File → AgentBook → Browser → Terminal → Overview → Motion。
 
 終了確認のEnterはキャンセル。アプリメニュー・Dockからの通常終了も同じ確認を使う。
 
@@ -21,10 +21,10 @@
 
 | ショートカット | 操作 | 作用対象 |
 | --- | --- | --- |
-| ⌘T | 表示ページに新規タブを作成（Fileメニューでも可） | Terminal / AgentBook / Browser |
+| ⌘T | 新規タブを作成。WorkspaceではAgentBookに追加（Fileメニューでも可） | Workspace / Terminal / AgentBook / Browser |
 | ⌘W | 選択タブを閉じる | File / Terminal / AgentBook / Browser |
 | ⌘R | 選択ページを再読込 | Browser |
-| ⌘1〜⌘9 | 番号のタブへ移動 | フォーカス中の File・Terminal・Browser、AgentBookページ（表示順） |
+| ⌘1〜⌘9 | 番号のタブへ移動 | フォーカス中の File・Terminal・Browser、AgentBook（Workspace内を含む。表示順） |
 
 Terminal／Browserは最後の1タブを閉じられない。Terminalはコマンド実行中、AgentBookは常に閉じる前に確認する。Fileの未保存タブは保存・破棄・キャンセルを選べる。
 
@@ -77,7 +77,7 @@ H・J・K・L・Space・Escは修飾キーなし。先頭・末尾で循環し�
 | ⌘Z | Undo |
 | ⇧⌘Z | Redo |
 
-SSH接続先は読み取り専用。保存対象はローカルのテキストファイル。
+保存対象はローカル・リモートの既存テキストファイル。
 
 実装：[CodeEditorView.swift](../../whub/Features/Files/View/Editor/Text/CodeEditorView.swift)、[whubApp.swift](../../whub/whubApp.swift)。
 
@@ -85,6 +85,8 @@ SSH接続先は読み取り専用。保存対象はローカルのテキスト�
 
 | ショートカット | 操作 |
 | --- | --- |
+| ⇧⌘D | 通常／Diff Explorerを切り替え（ローカル選択時のみ。名前入力中は無効） |
+| ⇧⌘E | ExplorerとFeatureのフォーカスを往復（名前入力中は無効） |
 | ⇧⌘R | Project / Worktree・ファイル一覧・Git状態を更新 |
 | ⇧⌘K | 前のProject / Worktreeへ移動 |
 | ⇧⌘J | 次のProject / Worktreeへ移動 |

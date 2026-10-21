@@ -39,7 +39,7 @@ AgentBook/
 
 `AgentBookTabStore` は `AgentStore`・`AgentHistoryStore`・`AgentSkillStore` を保持する。会話本文・下書き・接続／実行状態はAgent側、用途・完了通知・通知日時はタブ側に置く。履歴やスキルの一覧をView内に別途保持しない。
 
-`AgentBookStore.resume` は再開先を別のタブとして準備し、成功後に元のタブを置き換える。同じエージェント種別・会話IDのタブが開いていれば再利用する。再開失敗時に元の会話を失わないため、Viewから先に元タブを消さない。
+`AgentBookStore.resume` は再開先を別のタブとして準備し、成功後に元のタブを置き換える。同じHost・エージェント種別・会話IDのタブが開いていれば再利用する。再開失敗時に元の会話を失わないため、Viewから先に元タブを消さない。
 
 ## ページ配置は会話データから作る表示状態
 
@@ -57,6 +57,6 @@ AgentBook/
 
 - タブの追加・削除・会話の新規作成・再開・エージェント種別の変更は `AgentBookStore` を通す。最後のタブを閉じても1つ残し、選択IDが実在する状態を保つ。
 - タブ切り替えには共通の [RetainedPageContainer](../../Components/RetainedPageContainer.swift) を使う。非表示になっただけで会話を切断しない。非表示タブ・Featureの承認操作やキー入力は無効にする。
-- 接続先の作業ディレクトリは `AgentBookStore.connect` で決める。履歴のディレクトリ、Local HostのBase Path、ホームの順に使う。Viewや入力欄で別の決定処理を作らない。
+- 接続先の作業ディレクトリは `AgentBookStore.connect` で決める。履歴のディレクトリ、選択HostのBase Path、Macのホームの順に使う。Viewや入力欄で別の決定処理を作らない。
 - 本文更新はExchangeViewで間引き、再表示時に最新の会話を渡す。ページ配置を変える際は、未変更ページの再利用と、リサイズ・更新時の読書位置／選択範囲の復元を維持する。
 - タブ操作とページ内操作は別に扱う。ページ移動は読書フォーカス、送信は入力フォーカスとの関係を確認し、非表示の画面がショートカットを受け取らないようにする。境界を変えたら、このREADMEも更新する。
