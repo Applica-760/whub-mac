@@ -88,6 +88,10 @@ struct AgentBookExchangeView: View {
         }
         .onChange(of: store.id) { _, _ in updateBook(store.exchanges) }
         .onChange(of: agentName) { _, _ in updateBook(store.exchanges) }
+        .onChange(of: approval?.id) { previous, next in
+            guard previous != nil, next == nil, canInteract else { return }
+            focus.activateInput()
+        }
         .onChange(of: isActive) { _, active in if active { updateBook(store.exchanges) } }
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(true).eraseToAnyPublisher()) {
             sessionActive = $0
