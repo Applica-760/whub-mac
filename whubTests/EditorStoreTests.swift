@@ -119,6 +119,76 @@ struct EditorStoreTests {
         #expect(window.firstResponder !== text)
     }
 
+    @Test func fileEditorFocusFollowsProjectSwitchAndPreservesPosition() async throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = FilesStore()
+        let locations = ["one.txt", "two.txt"].map { FileLocation.local(directory.appendingPathComponent($0)) }
+        var stores: [EditorStore] = []
+        for location in locations {
+            try Data((0..<100).map { "line \($0) 日本語😀\n" }.joined().utf8).write(to: #require(location.localURL))
+            files.explorer.selectedLocation = location
+            files.activeEditor.local.load(location)
+            files.activeEditor.open(.file(location))
+            stores.append(files.activeEditor)
+        }
+        let window = EditorFocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 450),
+                                          styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let activity = RetainedPageActivity()
+        activity.setActive(true)
+        func root() -> AnyView {
+            AnyView(EditorView().environmentObject(files.activeEditor).environmentObject(files)
+                .environmentObject(files.git).environment(\.retainedPageActivity, activity))
+        }
+        files.explorer.selectedLocation = locations[0]
+        let host = NSHostingView(rootView: root())
+        window.contentView = host
+        let firstFile = try #require(stores[0].file(for: locations[0]))
+        try await eventually {
+            host.layoutSubtreeIfNeeded()
+            return firstFile.editorViews.views.values.first?.documentView === window.firstResponder
+                && window.firstResponder is CodeTextView
+        }
+        let scroll = try #require(firstFile.editorViews.views.values.first)
+        let first = try #require(scroll.documentView as? CodeTextView)
+        let selection = (first.string as NSString).range(of: "line 25")
+        first.setSelectedRange(selection)
+        first.scrollRangeToVisible(selection)
+        let origin = scroll.contentView.bounds.origin
+
+        files.explorer.selectedLocation = locations[1]
+        host.rootView = root()
+        let secondFile = try #require(stores[1].file(for: locations[1]))
+        try await eventually {
+            host.layoutSubtreeIfNeeded()
+            return secondFile.editorViews.views.values.first?.documentView === window.firstResponder
+                && window.firstResponder is CodeTextView
+        }
+        first.setSelectedRange(NSRange(location: 0, length: 0))
+        files.explorer.selectedLocation = locations[0]
+        host.rootView = root()
+        try await eventually {
+            host.layoutSubtreeIfNeeded()
+            return window.firstResponder === first
+        }
+        #expect(first.selectedRange() == selection)
+        #expect(abs(scroll.contentView.bounds.origin.y - origin.y) < 1)
+        #expect(stores[0].selectedTab == .file(locations[0]))
+
+        files.explorer.selectedLocation = locations[1]
+        host.rootView = root()
+        host.layoutSubtreeIfNeeded()
+        files.explorer.selectedLocation = locations[0]
+        host.rootView = root()
+        activity.setActive(false)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(window.firstResponder !== secondFile.editorViews.views.values.first?.documentView)
+    }
+
     @Test func editorPositionsAreSeparateAndClampAfterShorterContent() async throws {
         let first = FileStore(content: .text("日本語😀 first file"), isEditable: true)
         let second = FileStore(content: .text("second file"), isEditable: true)
