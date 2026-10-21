@@ -89,8 +89,10 @@ struct ExplorerStoreTests {
         let menu = ExplorerContextMenu(location: .local(url), isDirectory: false, basePath: "/repo") { opened = $0 }
         #expect(menu.items.map { $0.isSeparatorItem ? "---" : $0.title } == ["New File", "New Folder", "---", "Copy path", "Copy relative path", "---", "View Diffs", "Rename", "Move to Trash"])
         #expect(menu.items[6].isEnabled)
-        #expect(menu.items[3].representedObject as? String == url.path)
-        #expect(menu.items[4].representedObject as? String == "src/file.swift")
+        menu.performActionForItem(at: 3)
+        #expect(NSPasteboard.general.string(forType: .string) == url.path)
+        menu.performActionForItem(at: 4)
+        #expect(NSPasteboard.general.string(forType: .string) == "src/file.swift")
         menu.performActionForItem(at: 6)
         #expect(opened == .local(url))
         let directory = ExplorerContextMenu(location: .local(url), isDirectory: true, basePath: nil) { _ in }
@@ -240,19 +242,19 @@ struct ExplorerStoreTests {
         let menu = ExplorerContextMenu(location: .local(url), isDirectory: false, basePath: "/repo",
             onEdit: { edited = $0 }, onAction: { received = ($0, $1) }, onShowDiff: { _ in })
         #expect(menu.items.map { $0.isSeparatorItem ? "---" : $0.title } == ["New File", "New Folder", "---", "Copy path", "Copy relative path", "---", "View Diffs", "Rename", "Move to Trash", "Open in Browser"])
-        for action in [ExplorerContextMenu.Action.trash, .openInBrowser] {
-            let index = try #require(menu.items.firstIndex { $0.title == action.rawValue })
+        for (action, title) in [(ExplorerContextMenu.Action.trash, "Move to Trash"), (.openInBrowser, "Open in Browser")] {
+            let index = try #require(menu.items.firstIndex { $0.title == title })
             menu.performActionForItem(at: index)
             #expect(received?.0 == action)
             #expect(received?.1 == .local(url))
         }
-        for operation in [ExplorerStore.NameEdit.Operation.newFile, .newFolder, .rename] {
-            let index = try #require(menu.items.firstIndex { $0.title == operation.title })
+        for (operation, title) in [(ExplorerStore.NameEdit.Operation.newFile, "New File"), (.newFolder, "New Folder"), (.rename, "Rename")] {
+            let index = try #require(menu.items.firstIndex { $0.title == title })
             menu.performActionForItem(at: index)
             #expect(edited == operation)
         }
         let folder = ExplorerContextMenu(location: .local(url), isDirectory: true, basePath: nil, onShowDiff: { _ in })
-        #expect(!folder.items.contains { $0.title == ExplorerContextMenu.Action.openInBrowser.rawValue })
+        #expect(!folder.items.contains { $0.title == "Open in Browser" })
         let blocked = ExplorerContextMenu(location: .local(url), isDirectory: true, basePath: nil,
                                           allowsActions: false, onShowDiff: { _ in })
         #expect(blocked.items.count == 4)
