@@ -60,6 +60,10 @@ Files/
 
 `FilesStore.activeEditor` は、選択中のワークスペースに対応する `EditorStore` を指す。ワークスペースを切り替えても、各EditorStoreのタブ状態は保持する。
 
+ローカルの `.md` は、エディタ右上の「Show Preview」またはExplorerの右クリックメニューから、左にソース・右に描画結果を表示できる。「Hide Preview」で閉じる。境界はドラッグで調整でき、未保存の編集内容も反映する。開閉状態は `EditorStore.markdownPreviews` がファイルごとに保持し、タブを閉じると破棄する。一時タブを表す既存の `previewTab` とは別の状態で、アプリ再起動後には復元しない。
+
+プレビューは共通の [`MarkdownView`](../../Components/Markdown/MarkdownView.swift) を使う。表・コード・数式は既存の描画部品で表示し、コードは横スクロール・コピーできる。Mermaidはコードとして表示する。画像・相対リンクの解決、リモートファイルの描画プレビューは未対応。
+
 `ExplorerView.swift` の `ExplorerFocusNavigation` は、ウィンドウ内のExplorer一覧とFeature領域への参照を保持する。⌘⇧Eでフォーカスを往復し、FileEditorでは表示中の本文を優先する。⌘⇧Dは通常／Diff Explorerを切り替える。一覧のJ/Kは自動プレビューを伴う行移動、Enterはファイルの確定オープンまたはディレクトリの開閉で、一覧にフォーカスを残す。名前入力中はこれらの一覧操作を処理しない。
 
 ## 共通部品の参照先

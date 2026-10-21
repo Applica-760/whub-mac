@@ -17,7 +17,8 @@ struct EditorView: View {
             if case let .diff(url) = store.selectedTab, let state = store.local.diffStores[url] {
                 DiffContent(state: state).id(url)
             } else if case let .file(location) = store.selectedTab, let state = store.local.fileStores[location] {
-                FileContent(state: state, editorID: editorID, refreshID: files.refreshID) { [weak store] in
+                FileContent(state: state, editorID: editorID, refreshID: files.refreshID,
+                            showsMarkdownPreview: store.markdownPreviews.contains(location)) { [weak store] in
                     if store?.previewTab == .file(location) { store?.open(.file(location)) }
                 }
                 .id(location)
@@ -29,7 +30,24 @@ struct EditorView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } header: {
-            EditorTabBarView(tabFocus: tabFocus, editorID: editorID)
+            HStack(spacing: 8) {
+                EditorTabBarView(tabFocus: tabFocus, editorID: editorID)
+                if let location = store.markdownPreviewLocation {
+                    let visible = store.markdownPreviews.contains(location)
+                    Button(visible ? "Hide Preview" : "Show Preview", systemImage: "rectangle.split.2x1") {
+                        let editor = currentEditor
+                        editor?.savePosition()
+                        store.setMarkdownPreviewVisible(!visible, for: location)
+                        DispatchQueue.main.async {
+                            guard let editor, let window = editor.window, !editor.isHiddenOrHasHiddenAncestor else { return }
+                            window.makeFirstResponder(editor)
+                        }
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+                    .disabled(!isActive)
+                }
+            }
             if let message = store.local.watchError {
                 Text(message).foregroundStyle(.orange)
             }
@@ -69,6 +87,7 @@ private struct FileContent: View {
     @ObservedObject var state: LocalFileStore
     let editorID: String
     let refreshID: Int
+    let showsMarkdownPreview: Bool
     let onEdit: () -> Void
 
     var body: some View {
@@ -85,8 +104,16 @@ private struct FileContent: View {
     @ViewBuilder private var fileContent: some View {
         switch state.document.content {
         case let .text(source):
-            LocalCodeEditorView(fileURL: state.fileURL, source: source, refreshID: refreshID,
-                               state: state, editorID: editorID, onEdit: onEdit)
+            HSplitView {
+                LocalCodeEditorView(fileURL: state.fileURL, source: source, refreshID: refreshID,
+                                   state: state, editorID: editorID, onEdit: onEdit)
+                    .frame(minWidth: 180)
+                if showsMarkdownPreview {
+                    MarkdownView(source: source)
+                        .frame(minWidth: 180)
+                        .background(Color(nsColor: .textBackgroundColor))
+                }
+            }
         case .binary:
             BinaryView(fileURL: state.fileURL)
         case let .error(message):

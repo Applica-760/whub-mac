@@ -36,7 +36,8 @@ struct ExplorerView: View {
                 ExplorerDiffView(git: gitStore, editor: files.activeEditor,
                                  focus: focus,
                                  onPreview: { openDiff($0, preview: true) },
-                                 onOpen: { openDiff($0, preview: false) })
+                                 onOpen: { openDiff($0, preview: false) },
+                                 onShowMarkdownPreview: showMarkdownPreview)
             } else {
                 ExplorerTreeView(
                     store: store,
@@ -81,6 +82,8 @@ struct ExplorerView: View {
             switch action {
             case .openInBrowser:
                 onOpenInBrowser(url)
+            case .showPreview:
+                showMarkdownPreview(location)
             case .trash:
                 let alert = NSAlert()
                 alert.messageText = "\(url.lastPathComponent)をゴミ箱に移動しますか？"
@@ -92,6 +95,11 @@ struct ExplorerView: View {
         } catch {
             EditorDialogs.show(error: error)
         }
+    }
+
+    private func showMarkdownPreview(_ location: FileLocation) {
+        files.openMarkdownPreview(location)
+        onFileSelect()
     }
 
     private func setShowsDiff(_ value: Bool) {

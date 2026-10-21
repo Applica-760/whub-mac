@@ -12,6 +12,41 @@ import WhubClient
 
 @Suite @MainActor
 struct EditorStoreTests {
+    @Test func markdownPreviewReusesDocumentsAndTracksEachOpenFile() throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = FileLocation.local(directory.appendingPathComponent("first.MD"))
+        let second = FileLocation.local(directory.appendingPathComponent("second.md"))
+        let plain = FileLocation.local(directory.appendingPathComponent("plain.txt"))
+        let binary = FileLocation.local(directory.appendingPathComponent("binary.md"))
+        for location in [first, second, plain] { try Data("# Saved".utf8).write(to: #require(location.localURL)) }
+        try Data([0, 255]).write(to: #require(binary.localURL))
+        let files = FilesStore()
+        let editor = files.activeEditor
+        files.openMarkdownPreview(first)
+        let document = try #require(editor.file(for: first))
+        #expect(editor.selectedTab == .file(first) && editor.previewTab == nil)
+        #expect(editor.markdownPreviewLocation == first && editor.markdownPreviews == [first])
+        document.content = .text("# Unsaved")
+        editor.setMarkdownPreviewVisible(false, for: first)
+        files.openMarkdownPreview(first)
+        #expect(editor.file(for: first) === document && document.hasUnsavedChanges)
+        if case let .text(source) = document.content { #expect(source == "# Unsaved") }
+        else { Issue.record("Markdown source must remain editable text") }
+        files.openMarkdownPreview(second)
+        #expect(editor.markdownPreviews == [first, second])
+        editor.setMarkdownPreviewVisible(false, for: first)
+        #expect(editor.markdownPreviews == [second])
+        editor.close(.file(second))
+        #expect(editor.markdownPreviews.isEmpty)
+        files.openMarkdownPreview(plain)
+        #expect(!editor.tabs.contains(.file(plain)))
+        files.openMarkdownPreview(binary)
+        #expect(editor.markdownPreviewLocation == nil && !editor.markdownPreviews.contains(binary))
+    }
+
     @Test func fileEditorRestoresFocusAndPositionAfterFeatureSwitch() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)

@@ -4,6 +4,7 @@ final class ExplorerContextMenu: NSMenu {
     enum Action {
         case trash
         case openInBrowser
+        case showPreview
     }
 
     fileprivate enum Item {
@@ -15,6 +16,7 @@ final class ExplorerContextMenu: NSMenu {
         case rename
         case trash
         case openInBrowser
+        case showPreview
 
         var label: String {
             switch self {
@@ -26,6 +28,7 @@ final class ExplorerContextMenu: NSMenu {
             case .rename: "Rename"
             case .trash: "Move to Trash"
             case .openInBrowser: "Open in Browser"
+            case .showPreview: "Show Preview"
             }
         }
 
@@ -39,6 +42,7 @@ final class ExplorerContextMenu: NSMenu {
             case .rename: #selector(ExplorerContextMenu.rename)
             case .trash: #selector(ExplorerContextMenu.trash)
             case .openInBrowser: #selector(ExplorerContextMenu.openInBrowser)
+            case .showPreview: #selector(ExplorerContextMenu.showPreview)
             }
         }
     }
@@ -81,6 +85,8 @@ final class ExplorerContextMenu: NSMenu {
             add(.trash)
             if !isDirectory, ["html", "htm"].contains((location.path as NSString).pathExtension.lowercased()) {
                 add(.openInBrowser)
+            } else if !isDirectory, EditorStore.supportsMarkdownPreview(location) {
+                add(.showPreview)
             }
         }
     }
@@ -109,6 +115,8 @@ final class ExplorerContextMenu: NSMenu {
     @objc private func trash() { onAction(.trash, location) }
 
     @objc private func openInBrowser() { onAction(.openInBrowser, location) }
+
+    @objc private func showPreview() { onAction(.showPreview, location) }
 
     private func copyPath(_ path: String?) {
         guard let path else { return }

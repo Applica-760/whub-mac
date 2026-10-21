@@ -8,6 +8,29 @@ import WhubCore
 
 @Suite @MainActor
 struct ExplorerStoreTests {
+    @Test func markdownPreviewMenuTargetsOnlyAvailableLocalMarkdownFiles() throws {
+        let url = URL(fileURLWithPath: "/repo/notes.MD")
+        var received: (ExplorerContextMenu.Action, FileLocation)?
+        let menu = ExplorerContextMenu(location: .local(url), isDirectory: false, basePath: "/repo",
+            onAction: { received = ($0, $1) }, onShowDiff: { _ in })
+        let index = try #require(menu.items.firstIndex { $0.title == "Show Preview" })
+        #expect(index == menu.items.count - 1)
+        menu.performActionForItem(at: index)
+        #expect(received?.0 == .showPreview && received?.1 == .local(url))
+        for (path, directory, allowed) in [("/repo/page.html", false, true), ("/repo/notes.md", true, true),
+                                            ("/repo/notes.md", false, false)] {
+            let other = ExplorerContextMenu(location: .local(URL(fileURLWithPath: path)), isDirectory: directory,
+                                            basePath: "/repo", allowsActions: allowed, onShowDiff: { _ in })
+            #expect(!other.items.contains { $0.title == "Show Preview" })
+        }
+        let container = try modelContainer()
+        let host = try HostStore(context: container.mainContext).addRemote(
+            name: "server", basePath: "/repo", hostname: "unused", user: "test", identityFile: "")
+        let remote = ExplorerContextMenu(location: .remote(hostID: host.persistentModelID, path: url.path),
+                                         isDirectory: false, basePath: "/repo", onShowDiff: { _ in })
+        #expect(!remote.items.contains { $0.title == "Show Preview" })
+    }
+
     @Test func explorerKeysMoveSelectionOpenAndLeaveTextEditingAlone() throws {
         final class Rows: NSObject, NSTableViewDataSource {
             func numberOfRows(in tableView: NSTableView) -> Int { 4 }
