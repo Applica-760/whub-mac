@@ -1,15 +1,57 @@
 import AppKit
 
 final class ExplorerContextMenu: NSMenu {
-    enum Action: String {
-        case trash = "Move to Trash"
-        case openInBrowser = "Open in Browser"
+    enum Action {
+        case trash
+        case openInBrowser
+        case showPreview
+    }
+
+    fileprivate enum Item {
+        case newFile
+        case newFolder
+        case copyPath
+        case copyRelativePath
+        case showDiff
+        case rename
+        case trash
+        case openInBrowser
+        case showPreview
+
+        var label: String {
+            switch self {
+            case .newFile: "New File"
+            case .newFolder: "New Folder"
+            case .copyPath: "Copy path"
+            case .copyRelativePath: "Copy relative path"
+            case .showDiff: "View Diffs"
+            case .rename: "Rename"
+            case .trash: "Move to Trash"
+            case .openInBrowser: "Open in Browser"
+            case .showPreview: "Show Preview"
+            }
+        }
+
+        var selector: Selector {
+            switch self {
+            case .newFile: #selector(ExplorerContextMenu.createFile)
+            case .newFolder: #selector(ExplorerContextMenu.createFolder)
+            case .copyPath: #selector(ExplorerContextMenu.copyAbsolutePath)
+            case .copyRelativePath: #selector(ExplorerContextMenu.copyRelativePath)
+            case .showDiff: #selector(ExplorerContextMenu.showDiff)
+            case .rename: #selector(ExplorerContextMenu.rename)
+            case .trash: #selector(ExplorerContextMenu.trash)
+            case .openInBrowser: #selector(ExplorerContextMenu.openInBrowser)
+            case .showPreview: #selector(ExplorerContextMenu.showPreview)
+            }
+        }
     }
 
     private let onEdit: (ExplorerStore.NameEdit.Operation) -> Void
     private let onAction: (Action, FileLocation) -> Void
     private let location: FileLocation
     private let onShowDiff: (FileLocation) -> Void
+    private let relativePath: String?
 
     init(location: FileLocation, isDirectory: Bool, basePath: String?, allowsActions: Bool = true,
          onEdit: @escaping (ExplorerStore.NameEdit.Operation) -> Void = { _ in },
@@ -19,71 +61,65 @@ final class ExplorerContextMenu: NSMenu {
         self.onAction = onAction
         self.location = location
         self.onShowDiff = onShowDiff
+        if let basePath {
+            let base = URL(fileURLWithPath: basePath, isDirectory: true).standardizedFileURL.path
+            let prefix = base == "/" ? "/" : base + "/"
+            relativePath = location.path.hasPrefix(prefix) ? String(location.path.dropFirst(prefix.count)) : nil
+        } else {
+            relativePath = nil
+        }
         super.init(title: "")
         autoenablesItems = false
         let localActions = location.localURL != nil && allowsActions
         if localActions {
-            addNameAction(.newFile)
-            addNameAction(.newFolder)
+            add(.newFile)
+            add(.newFolder)
             addItem(.separator())
         }
-        let absolute = NSMenuItem(title: "Copy path", action: #selector(copyPath(_:)), keyEquivalent: "")
-        absolute.target = self
-        absolute.representedObject = location.path
-        addItem(absolute)
-        let relative = NSMenuItem(title: "Copy relative path", action: #selector(copyPath(_:)), keyEquivalent: "")
-        relative.target = self
-        if let basePath {
-            let base = URL(fileURLWithPath: basePath, isDirectory: true).standardizedFileURL.path
-            let prefix = base == "/" ? "/" : base + "/"
-            relative.representedObject = location.path.hasPrefix(prefix) ? String(location.path.dropFirst(prefix.count)) : nil
-        }
-        relative.isEnabled = relative.representedObject != nil
-        addItem(relative)
+        add(.copyPath)
+        add(.copyRelativePath, enabled: relativePath != nil)
         addItem(.separator())
-        let diff = NSMenuItem(title: "View Diffs", action: #selector(showDiff), keyEquivalent: "")
-        diff.target = self
-        diff.isEnabled = location.localURL != nil && !isDirectory
-        addItem(diff)
+        add(.showDiff, enabled: location.localURL != nil && !isDirectory)
         if localActions {
-            addNameAction(.rename)
-            addAction(.trash)
+            add(.rename)
+            add(.trash)
             if !isDirectory, ["html", "htm"].contains((location.path as NSString).pathExtension.lowercased()) {
-                addAction(.openInBrowser)
+                add(.openInBrowser)
+            } else if !isDirectory, EditorStore.supportsMarkdownPreview(location) {
+                add(.showPreview)
             }
         }
     }
 
-    private func addNameAction(_ operation: ExplorerStore.NameEdit.Operation) {
-        let item = NSMenuItem(title: operation.title, action: #selector(editName(_:)), keyEquivalent: "")
+    private func add(_ entry: Item, enabled: Bool = true) {
+        let item = NSMenuItem(title: entry.label, action: entry.selector, keyEquivalent: "")
         item.target = self
-        item.representedObject = operation
-        addItem(item)
-    }
-
-    @objc private func editName(_ sender: NSMenuItem) {
-        guard let operation = sender.representedObject as? ExplorerStore.NameEdit.Operation else { return }
-        onEdit(operation)
-    }
-
-    private func addAction(_ action: Action) {
-        let item = NSMenuItem(title: action.rawValue, action: #selector(performAction(_:)), keyEquivalent: "")
-        item.target = self
-        item.representedObject = action.rawValue
+        item.isEnabled = enabled
         addItem(item)
     }
 
     required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    @objc private func performAction(_ sender: NSMenuItem) {
-        guard let value = sender.representedObject as? String, let action = Action(rawValue: value) else { return }
-        onAction(action, location)
-    }
+    @objc private func createFile() { onEdit(.newFile) }
+
+    @objc private func createFolder() { onEdit(.newFolder) }
+
+    @objc private func copyAbsolutePath() { copyPath(location.path) }
+
+    @objc private func copyRelativePath() { copyPath(relativePath) }
 
     @objc private func showDiff() { onShowDiff(location) }
 
-    @objc private func copyPath(_ sender: NSMenuItem) {
-        guard let path = sender.representedObject as? String else { return }
+    @objc private func rename() { onEdit(.rename) }
+
+    @objc private func trash() { onAction(.trash, location) }
+
+    @objc private func openInBrowser() { onAction(.openInBrowser, location) }
+
+    @objc private func showPreview() { onAction(.showPreview, location) }
+
+    private func copyPath(_ path: String?) {
+        guard let path else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(path, forType: .string)
     }
@@ -92,9 +128,9 @@ final class ExplorerContextMenu: NSMenu {
 extension ExplorerStore.NameEdit.Operation {
     var title: String {
         switch self {
-        case .newFile: "New File"
-        case .newFolder: "New Folder"
-        case .rename: "Rename"
+        case .newFile: ExplorerContextMenu.Item.newFile.label
+        case .newFolder: ExplorerContextMenu.Item.newFolder.label
+        case .rename: ExplorerContextMenu.Item.rename.label
         }
     }
 }

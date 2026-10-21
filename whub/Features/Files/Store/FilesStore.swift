@@ -74,6 +74,13 @@ final class FilesStore: ObservableObject {
         else { activeEditor.open(.diff(fileURL)) }
     }
 
+    func openMarkdownPreview(_ location: FileLocation) {
+        guard EditorStore.supportsMarkdownPreview(location) else { return }
+        activeEditor.local.load(location)
+        activeEditor.open(.file(location))
+        activeEditor.setMarkdownPreviewVisible(true, for: location)
+    }
+
     private func prepare(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore) {
         switch location {
         case .local:

@@ -8,6 +8,7 @@ struct ExplorerDiffView: View {
     let focus: ExplorerFocusNavigation
     let onPreview: (FileLocation) -> Void
     let onOpen: (FileLocation) -> Void
+    let onShowMarkdownPreview: (FileLocation) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -29,7 +30,7 @@ struct ExplorerDiffView: View {
                 Text("未コミットの差分はありません").foregroundStyle(.secondary)
             } else if let root = git.rootURL {
                 DiffFileList(changes: git.diffChanges, root: root, selectedTab: editor.selectedTab, focus: focus,
-                             onPreview: onPreview, onOpen: onOpen)
+                             onPreview: onPreview, onOpen: onOpen, onShowMarkdownPreview: onShowMarkdownPreview)
             }
         }
         .padding(.horizontal)
@@ -44,6 +45,7 @@ private struct DiffFileList: NSViewRepresentable {
     let focus: ExplorerFocusNavigation
     let onPreview: (FileLocation) -> Void
     let onOpen: (FileLocation) -> Void
+    let onShowMarkdownPreview: (FileLocation) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -66,7 +68,10 @@ private struct DiffFileList: NSViewRepresentable {
         table.menuForRow = { [weak coordinator = context.coordinator] row in
             guard let coordinator, coordinator.urls.indices.contains(row) else { return nil }
             return ExplorerContextMenu(location: .local(coordinator.urls[row]), isDirectory: false,
-                                       basePath: coordinator.parent.root.path, onShowDiff: coordinator.parent.onOpen)
+                                       basePath: coordinator.parent.root.path,
+                                       onAction: { [weak coordinator] action, location in
+                                           if case .showPreview = action { coordinator?.parent.onShowMarkdownPreview(location) }
+                                       }, onShowDiff: coordinator.parent.onOpen)
         }
         table.setAccessibilityLabel("未コミットの変更ファイル")
         let scroll = NSScrollView()

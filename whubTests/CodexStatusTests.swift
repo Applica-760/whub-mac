@@ -18,7 +18,7 @@ struct CodexAgentStatusTests {
         let source = "value\n```\ninjected\n````"
         let markdown = AgentContent.code(source).agentBookMarkdown
         #expect(markdown.hasPrefix("`````\n") && markdown.hasSuffix("\n`````"))
-        let document = AgentBookMarkdownDocument(source: markdown, width: 600, colorScheme: .dark)
+        let document = MarkdownDocument(source: markdown, width: 600, colorScheme: .dark)
         #expect(document.codes.map(\.text).joined().trimmingCharacters(in: .newlines) == source)
     }
 

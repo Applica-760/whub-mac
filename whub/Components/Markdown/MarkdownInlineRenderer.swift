@@ -2,21 +2,21 @@ import AppKit
 import SwiftMath
 import SwiftUI
 
-nonisolated struct AgentBookFormula: Hashable, Sendable {
+nonisolated struct MarkdownFormula: Hashable, Sendable {
     let source: String
     let latex: String?
     let display: Bool
 }
 
-nonisolated enum AgentBookFormulaAttribute: AttributedStringKey {
-    typealias Value = AgentBookFormula
+nonisolated enum MarkdownFormulaAttribute: AttributedStringKey {
+    typealias Value = MarkdownFormula
     static let name = "whub.formula"
 }
 
 /// Protect LaTeX from Markdown's underscore, backslash and line-break processing.
-struct AgentBookMathSource {
+struct MarkdownMathSource {
     let markdown: String
-    private let formulas: [(token: String, formula: AgentBookFormula)]
+    private let formulas: [(token: String, formula: MarkdownFormula)]
 
     init(_ source: String) {
         guard source.contains("$") else { markdown = source; formulas = []; return }
@@ -39,7 +39,7 @@ struct AgentBookMathSource {
         var prefix = "WHUBMATH"
         while source.contains(prefix) { prefix += "X" }
         var output: [UInt8] = []
-        var found: [(String, AgentBookFormula)] = []
+        var found: [(String, MarkdownFormula)] = []
         var index = 0
         while index < bytes.count {
             if let range = protected.first(where: { $0.contains(index) }) {
@@ -79,7 +79,7 @@ struct AgentBookMathSource {
             let original = String(decoding: bytes[index..<finish], as: UTF8.self)
             let latex = closing.map { String(decoding: bytes[start..<$0], as: UTF8.self) }
             let token = "\(prefix)\(found.count)END"
-            found.append((token, AgentBookFormula(source: original, latex: latex, display: display)))
+            found.append((token, MarkdownFormula(source: original, latex: latex, display: display)))
             output.append(contentsOf: token.utf8)
             index = finish
         }
@@ -93,14 +93,14 @@ struct AgentBookMathSource {
             guard let range = result.range(of: token) else { continue }
             var replacement = AttributedString(formula.source)
             if let attributes = result[range].runs.first?.attributes { replacement.mergeAttributes(attributes) }
-            replacement[AgentBookFormulaAttribute.self] = formula
+            replacement[MarkdownFormulaAttribute.self] = formula
             result.replaceSubrange(range, with: replacement)
         }
         return result
     }
 }
 
-struct AgentBookMathRenderer {
+struct MarkdownInlineRenderer {
     var fontSize: CGFloat = 15
     var weight: NSFont.Weight = .light
     var alignment: NSTextAlignment = .left
@@ -114,12 +114,12 @@ struct AgentBookMathRenderer {
         paragraph.alignment = alignment
         paragraph.lineSpacing = lineSpacing
         for run in source.runs {
-            if let formula = run[AgentBookFormulaAttribute.self], let rendered = render(formula, size: display || formula.display ? 22 : fontSize) {
+            if let formula = run[MarkdownFormulaAttribute.self], let rendered = render(formula, size: display || formula.display ? 22 : fontSize) {
                 let attachment = NSTextAttachment()
                 attachment.image = rendered.image
                 attachment.bounds = CGRect(x: 0, y: -rendered.descent, width: rendered.image.size.width, height: rendered.image.size.height)
                 let part = NSMutableAttributedString(attachment: attachment)
-                part.addAttribute(.agentBookFormulaSource, value: formula.source, range: NSRange(location: 0, length: part.length))
+                part.addAttribute(.markdownFormulaSource, value: formula.source, range: NSRange(location: 0, length: part.length))
                 result.append(part)
                 continue
             }
@@ -134,7 +134,7 @@ struct AgentBookMathRenderer {
             if intent.contains(.code) {
                 let background = NSColor.secondaryLabelColor.withAlphaComponent(0.16)
                 attributes[.backgroundColor] = background
-                attributes[.agentBookInlineCodeBackground] = background
+                attributes[.markdownInlineCodeBackground] = background
             }
             if let link = run.link { attributes[.link] = link }
             result.append(NSAttributedString(string: String(source[run.range].characters), attributes: attributes))
@@ -155,7 +155,7 @@ struct AgentBookMathRenderer {
         return cache
     }()
 
-    private func render(_ formula: AgentBookFormula, size: CGFloat) -> Rendered? {
+    private func render(_ formula: MarkdownFormula, size: CGFloat) -> Rendered? {
         guard let latex = formula.latex, !latex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let key = "\(size):\(colorScheme):\(formula.display):\(latex)" as NSString
         if let cached = Self.cache.object(forKey: key) { return cached }
@@ -175,6 +175,6 @@ struct AgentBookMathRenderer {
 }
 
 extension NSAttributedString.Key {
-    static let agentBookFormulaSource = NSAttributedString.Key("whub.formulaSource")
-    static let agentBookInlineCodeBackground = NSAttributedString.Key("whub.inlineCodeBackground")
+    static let markdownFormulaSource = NSAttributedString.Key("whub.formulaSource")
+    static let markdownInlineCodeBackground = NSAttributedString.Key("whub.inlineCodeBackground")
 }

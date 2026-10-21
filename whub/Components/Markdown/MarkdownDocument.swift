@@ -1,14 +1,8 @@
 import AppKit
 import SwiftUI
 
-enum AgentBookCodeStyle {
-    static let codeInset: CGFloat = 12
-    static let codeFont = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
-    static var codeLineHeight: CGFloat { ceil(codeFont.ascender - codeFont.descender + codeFont.leading) }
-}
-
 /// Keep Markdown containers so nested lists and multi-paragraph quotes stay together.
-struct AgentBookMarkdown {
+struct MarkdownSource {
     let source: String
 
     struct Block: Identifiable, Hashable {
@@ -30,7 +24,7 @@ struct AgentBookMarkdown {
     }
 
     var blocks: [Block] {
-        let math = AgentBookMathSource(source)
+        let math = MarkdownMathSource(source)
         guard let markdown = try? AttributedString(markdown: math.markdown, options: .init(interpretedSyntax: .full)) else {
             return [Block(id: 0, kind: .paragraph, text: AttributedString(source))]
         }
@@ -55,7 +49,7 @@ struct AgentBookMarkdown {
 
 }
 
-struct AgentBookMarkdownDocument {
+struct MarkdownDocument {
     let text: NSAttributedString
     let codes: [Code]
 
@@ -69,7 +63,7 @@ struct AgentBookMarkdownDocument {
         let output = NSMutableAttributedString(string: "")
         var codes: [Code] = []
         var afterTable = false
-        let renderer = AgentBookMathRenderer(weight: .regular, colorScheme: colorScheme)
+        let renderer = MarkdownInlineRenderer(weight: .regular, colorScheme: colorScheme)
         var separator = NSColor.separatorColor
         NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
             separator = NSColor.separatorColor.usingColorSpace(.deviceRGB) ?? .separatorColor
@@ -91,7 +85,7 @@ struct AgentBookMarkdownDocument {
             afterTable = false
         }
 
-        func render(_ block: AgentBookMarkdown.Block, indent: CGFloat = 0,
+        func render(_ block: MarkdownSource.Block, indent: CGFloat = 0,
                     ordered: Bool = false, decorations: [NSTextBlock] = []) {
             switch block.kind {
             case .orderedList, .unorderedList:
@@ -114,17 +108,17 @@ struct AgentBookMarkdownDocument {
                 for child in block.children { render(child, indent: indent, decorations: decorations + [quote]) }
             case .header(let level):
                 let size = [25.0, 22, 20, 18, 16, 15][min(max(level, 1), 6) - 1]
-                paragraph(AgentBookMathRenderer(fontSize: size, weight: .regular, colorScheme: colorScheme).attributed(block.text),
+                paragraph(MarkdownInlineRenderer(fontSize: size, weight: .regular, colorScheme: colorScheme).attributed(block.text),
                           indent: indent, blocks: decorations, before: level <= 2 ? 10 : 4)
             case .codeBlock:
                 let code = String(block.text.characters)
                 let lines = code.components(separatedBy: "\n")
-                let lineHeight = AgentBookCodeStyle.codeLineHeight
-                let size = CGSize(width: max(1, width - indent), height: CGFloat(max(1, lines.count)) * lineHeight + 2 * AgentBookCodeStyle.codeInset)
+                let lineHeight = MarkdownCodeStyle.codeLineHeight
+                let size = CGSize(width: max(1, width - indent), height: CGFloat(max(1, lines.count)) * lineHeight + 2 * MarkdownCodeStyle.codeInset)
                 let attachment = NSTextAttachment()
                 attachment.bounds = CGRect(origin: .zero, size: size)
                 let part = NSMutableAttributedString(attachment: attachment)
-                part.addAttribute(.agentBookCodeSource, value: code, range: NSRange(location: 0, length: 1))
+                part.addAttribute(.markdownCodeSource, value: code, range: NSRange(location: 0, length: 1))
                 codes.append(Code(range: NSRange(location: output.length, length: 1), text: code, size: size))
                 paragraph(part, indent: indent, blocks: decorations)
             case .table(let columns):
@@ -182,9 +176,9 @@ struct AgentBookMarkdownDocument {
                 }
             }
         }
-        for block in AgentBookMarkdown(source: source).blocks { render(block) }
+        for block in MarkdownSource(source: source).blocks { render(block) }
         assert(codes.allSatisfy {
-            output.attribute(.agentBookCodeSource, at: $0.range.location, effectiveRange: nil) as? String == $0.text
+            output.attribute(.markdownCodeSource, at: $0.range.location, effectiveRange: nil) as? String == $0.text
         }, "Code attachments must retain their complete, unwrapped source for copying")
         text = output
         self.codes = codes
@@ -192,5 +186,5 @@ struct AgentBookMarkdownDocument {
 }
 
 extension NSAttributedString.Key {
-    static let agentBookCodeSource = NSAttributedString.Key("whub.book.codeSource")
+    static let markdownCodeSource = NSAttributedString.Key("whub.book.codeSource")
 }

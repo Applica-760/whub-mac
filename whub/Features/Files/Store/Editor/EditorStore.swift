@@ -5,6 +5,7 @@ final class EditorStore: ObservableObject {
     @Published private(set) var tabs: [EditorTab] = []
     @Published private(set) var selectedTab: EditorTab?
     @Published private(set) var previewTab: EditorTab?
+    @Published private(set) var markdownPreviews: Set<FileLocation> = []
     let local = LocalEditorStore()
     let remote = RemoteEditorStore()
     private var changes: AnyCancellable?
@@ -17,6 +18,26 @@ final class EditorStore: ObservableObject {
 
     func file(for location: FileLocation) -> FileStore? {
         local.fileStores[location]?.document ?? remote.file(for: location)
+    }
+
+    static func supportsMarkdownPreview(_ location: FileLocation) -> Bool {
+        location.localURL?.pathExtension.lowercased() == "md"
+    }
+
+    var markdownPreviewLocation: FileLocation? {
+        guard case let .file(location) = selectedTab, Self.supportsMarkdownPreview(location),
+              case .text = file(for: location)?.content else { return nil }
+        return location
+    }
+
+    func setMarkdownPreviewVisible(_ visible: Bool, for location: FileLocation) {
+        if visible {
+            guard Self.supportsMarkdownPreview(location), tabs.contains(.file(location)),
+                  case .text = file(for: location)?.content else { return }
+            markdownPreviews.insert(location)
+        } else {
+            markdownPreviews.remove(location)
+        }
     }
 
     func refresh() {
@@ -123,6 +144,7 @@ final class EditorStore: ObservableObject {
     private func release(_ tab: EditorTab) {
         switch tab {
         case let .file(location):
+            markdownPreviews.remove(location)
             local.close(location)
             remote.close(location)
         case let .diff(url): local.closeDiff(at: url)
