@@ -155,12 +155,18 @@ struct EditorStoreTests {
         }
         let scroll = try #require(firstFile.editorViews.views.values.first)
         let first = try #require(scroll.documentView as? CodeTextView)
-        let selection = (first.string as NSString).range(of: "line 25")
+        let remembered = (first.string as NSString).range(of: "line 10")
+        first.setSelectedRange(remembered)
+        first.savePosition()
+        let selection = (first.string as NSString).range(of: "line 20")
         first.setSelectedRange(selection)
         first.scrollRangeToVisible(selection)
         let origin = scroll.contentView.bounds.origin
 
         files.explorer.selectedLocation = locations[1]
+        let editorID = try #require(first.editorID)
+        #expect(firstFile.editorPositions[editorID]?.selectedRanges == [selection])
+        #expect(firstFile.editorPositions[editorID]?.scrollOrigin == origin)
         host.rootView = root()
         let secondFile = try #require(stores[1].file(for: locations[1]))
         try await eventually {

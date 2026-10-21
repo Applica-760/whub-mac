@@ -54,6 +54,11 @@ struct EditorView: View {
             }
         }
         .background(TabPaneFocusView(focus: tabFocus))
+        .onReceive(files.$activeEditor) { nextStore in
+            guard nextStore !== store, activity?.isActive.value ?? isActive else { return }
+            focusRequest = UUID()
+            currentEditor?.savePosition()
+        }
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) { active in
             guard active != wasActive else { return }
             wasActive = active
