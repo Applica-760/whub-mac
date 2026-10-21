@@ -6,62 +6,38 @@
 
 ## できること
 
-- **File**：ローカルのファイル編集、Gitの変更一覧・差分表示、SSH接続先のファイル閲覧。
+- **File**：ローカルのファイル編集・Git差分表示、リモートの既存ファイルの閲覧・編集・保存。
 - **Terminal / Browser**：複数タブのターミナルとブラウザ、ブックマーク管理。
-- **AgentBook**：Codexとの対話を本の見開きで表示。会話の再開、モデル選択、コマンドやファイル変更の承認。
-- **Overview**：Todoと活動時間の記録・表示。
+- **AgentBook**：Local／RemoteでCodexを実行。会話を中央ページと前後のプレビューで表示し、再開・モデル選択・実行承認に対応。
+- **Overview**：Todo・活動時間の記録、リモートServerの管理。
 - **Motion**：カメラ映像から手指を認識する実験機能。
-
-SSH接続先のファイルは閲覧のみです。AgentBookはローカルでCodex CLIを起動します。
 
 ## 必要な環境
 
 | 用途 | 条件 |
 | --- | --- |
 | アプリの実行 | macOS 26.5以降（プロジェクト設定上の最低バージョン） |
-| ビルド | Xcode。Xcode 27.0 / macOS 27.0.1でDebugビルドを確認済み |
-| WhubCore / CLI | Swift tools 6.2以降、macOS 26以降 |
-| アプリのテスト | テスト対象の最低OSはmacOS 27.0 |
-| AgentBook | ローカルにインストール・認証済みのCodex CLI |
-| リモートファイル閲覧 | SSH公開鍵認証、接続先で実行できるPython 3 |
+| ビルド | Xcode、Swift tools 6.2以降 |
+| AgentBook | 実行先のMacまたはLinuxにインストール・認証済みのCodex CLI |
+| リモート利用 | SSH公開鍵認証、Linux上のWhubServer、HostのDev／Prod Server URL設定 |
 
 最低OSでの実行と、クリーン環境でのビルドは未検証です。Codex CLIの対応バージョンはまだ固定していません。
 
-## ソースからビルドする
-
-リポジトリのルートで実行します。初回はSwift Packageの依存を取得するため、ネットワーク接続が必要です。
-
-```sh
-xcodebuild build \
-  -project whub.xcodeproj \
-  -scheme 'whub (whub project)' \
-  -configuration Debug \
-  -destination 'platform=macOS' \
-  -derivedDataPath "$PWD/DerivedData" \
-  CODE_SIGNING_ALLOWED=NO
-```
-
-プロジェクトには開発者の署名設定が入っています。このコマンドは署名を無効にしてビルドします。ビルド成功後、次のコマンドで起動します。署名なしでの起動は未検証です。
-
-```sh
-open -n "$PWD/DerivedData/Build/Products/Debug/whub.app"
-```
-
-署名付きビルド、CLIのビルド、Archiveは[ビルド運用](docs/operations/build.md)を参照してください。
+ビルド・起動・Archiveは[ビルド手順](docs/operations/build.md)を参照してください。
 
 ## 最初にHostとProjectを登録する
 
-Hostは作業するMacやSSH接続先、ProjectはそのHost上のプロジェクトです。ファイル一覧には登録したProjectと、そのGit worktreeが表示されます。
+Hostは作業するMacやSSH接続先、ProjectはそのHost上のプロジェクトです。
 
-1. Settingsの「Hosts」でLocalのHostを追加し、Base Pathを作業ディレクトリの絶対パスに設定します。
+1. Settingsの「Hosts」でHostを追加し、Base PathをそのHost上の作業ディレクトリの絶対パスに設定します。
 2. Base Pathの下にある `projects/<プロジェクト名>` に、対象のディレクトリを用意します。
 3. Settingsの「Projects」で、そのディレクトリ名とHostを登録します。
 
-worktree用のディレクトリは `worktrees/<プロジェクト名>-<Issue番号>` です。Project登録時にGit URLを指定しても、自動でcloneはしません。
+Explorerは表示対象のProjectと、その `worktrees/<プロジェクト名>-<Issue番号>` を表示します。Project登録時に自動cloneはしません。
 
-RemoteのHostでは接続先、ユーザー名、ポート、必要に応じて秘密鍵ファイルのパスを設定します。ファイル閲覧は対話なしのSSH認証を使うため、事前に通常のSSH接続で認証とホスト鍵を確認してください。
+Remote HostはSSH接続情報とDev／Prod Server URLを設定します。事前に通常のSSH接続で認証とホスト鍵を確認してください。Serverの準備は[Server運用](docs/operations/server-releases.md)を参照してください。
 
-AgentBookはLocal HostのBase Pathを作業ディレクトリに使います。未登録の場合はホームディレクトリを使い、会話の再開時はその会話の作業ディレクトリを使います。Codex CLIはログインシェルのPATHから探します。
+AgentBookは選択HostのBase Pathで実行し、履歴再開時はその会話の作業ディレクトリを使います。Host未設定のLocal実行ではMacのホームディレクトリを使います。
 
 ## 保存データと権限
 
@@ -71,9 +47,7 @@ Host、Project、活動記録などは `~/Library/Application Support/whub/works
 
 ## 操作・開発の参照先
 
-- [キーボードショートカット](docs/reference/shortcuts.md)
-- [ビルド・起動・Archive](docs/operations/build.md)
-- [Swift / SwiftUIの実装メモ](docs/reference/swift-and-swiftui-concepts.md)
+- [ドキュメント一覧](docs/README.md)：設計・API・操作・運用と、各Package／FeatureのREADME。
 - [不具合報告・要望](https://github.com/Applica-760/whub-mac/issues)
 
 ## ライセンス

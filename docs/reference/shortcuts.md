@@ -1,19 +1,19 @@
 # キーボードショートカット
 
-作用対象ごとの一覧。追加・変更時はこの文書も更新する。
+作用対象別の一覧。キーの追加・変更時に更新する。
 
 ## アプリ・ウィンドウ
 
 | ショートカット | 操作 |
 | --- | --- |
-| ⌃⌘F | フルスクリーンを切り替える |
-| ⇧⌘H | 一つ前のページに移動する（末尾へ循環） |
-| ⇧⌘L | 一つ後のページに移動する（先頭へ循環） |
-| ⌘Q | 確認アラートを表示し、「終了」を選んだ場合にアプリを終了する |
+| ⌃⌘F | フルスクリーン切り替え |
+| ⇧⌘H | 前のページへ移動（末尾へ循環） |
+| ⇧⌘L | 次のページへ移動（先頭へ循環） |
+| ⌘Q | 確認後、「終了」でアプリ終了 |
 
 ページの順序は File → AgentBook → Browser → Terminal → Overview → Motion。
 
-終了確認では Enter の既定動作はキャンセル。アプリメニューや Dock からの通常終了でも同じ確認を表示する。
+終了確認のEnterはキャンセル。アプリメニュー・Dockからの通常終了も同じ確認を使う。
 
 実装：[whubApp.swift](../../whub/whubApp.swift)
 
@@ -21,14 +21,14 @@
 
 | ショートカット | 操作 | 作用対象 |
 | --- | --- | --- |
-| ⌘T | 表示中のページに新規タブを作る（Fileメニューからも実行可能） | Terminal / AgentBook / Browser |
-| ⌘W | 選択中のタブを閉じる | File / Terminal / AgentBook / Browser |
-| ⌘R | 選択中のページを再読み込みする | Browser |
-| ⌘1〜⌘9 | 番号に対応するタブに移動する | フォーカス中の File・Terminal・Browser、AgentBookページ（表示順） |
+| ⌘T | 表示ページに新規タブを作成（Fileメニューでも可） | Terminal / AgentBook / Browser |
+| ⌘W | 選択タブを閉じる | File / Terminal / AgentBook / Browser |
+| ⌘R | 選択ページを再読込 | Browser |
+| ⌘1〜⌘9 | 番号のタブへ移動 | フォーカス中の File・Terminal・Browser、AgentBookページ（表示順） |
 
-TerminalとBrowserは最後の1タブを閉じられない。Terminalでコマンド実行中のタブを閉じる場合と、AgentBookのタブを閉じる場合は確認を表示する。Fileの未保存タブを閉じる場合は、保存・破棄・キャンセルを選べる。
+Terminal／Browserは最後の1タブを閉じられない。Terminalはコマンド実行中、AgentBookは常に閉じる前に確認する。Fileの未保存タブは保存・破棄・キャンセルを選べる。
 
-File・Terminal・Browserのタブは同じ列内でドラッグして並べ替えられる。左右端では自動スクロールする。選択は維持し、Fileのプレビュータブは並べ替え確定時に通常タブへ昇格する。順序は起動中のみ保持する。タブの中クリックでも閉じられる。
+File／Terminal／Browserは同じ列内でドラッグして並べ替える。左右端では自動スクロールし、選択を維持する。Fileのプレビュータブは並べ替え確定時に通常タブになる。順序の保持は起動中のみ。中クリックでも閉じられる。
 
 実装：[whubApp.swift](../../whub/whubApp.swift)、[TabBarContainer.swift](../../whub/Components/TabBarContainer.swift)、[EditorTabBarView.swift](../../whub/Features/Files/View/Editor/EditorTabBarView.swift)、[TerminalView.swift](../../whub/Features/Terminal/TerminalView.swift)、[BrowserView.swift](../../whub/Features/Browser/BrowserView.swift)、[AgentBookView.swift](../../whub/Features/AgentBook/View/AgentBookView.swift)、[AgentBookTabButton.swift](../../whub/Features/AgentBook/View/Controls/AgentBookTabButton.swift)
 
@@ -36,48 +36,48 @@ File・Terminal・Browserのタブは同じ列内でドラッグして並べ替�
 
 | キー | 操作 | 作用対象 |
 | --- | --- | --- |
-| ⌘Enter | 入力内容を送信する（作業中は追加指示として送る） | 入力欄 |
-| ↑ / ↓ | 補完候補・会話・モデルの選択を移動する | 候補表示中の入力欄 |
-| Enter / Tab | 選択中の候補を確定する（モデル選択はEnterのみ） | 候補表示中の入力欄 |
-| Esc | 候補を閉じて本文へフォーカスを移す | 入力欄 |
-| Enter / Esc | 実行・ファイル変更の要求を承認 / 拒否する | 要求を表示中のAgentBook |
+| ⌘Enter | 送信（作業中は追加指示） | 入力欄 |
+| ↑ / ↓ | 補完候補・会話・モデルの選択移動 | 候補表示中の入力欄 |
+| Enter / Tab | 候補を確定（モデルはEnterのみ） | 候補表示中の入力欄 |
+| Esc | 候補を閉じ、本文へフォーカス | 入力欄 |
+| Enter / Esc | 実行・ファイル変更を承認 / 拒否 | 要求を表示中のAgentBook |
 
-通常のEnterは改行する。入力欄の `/` でコマンド、`$` でスキルの候補を表示する。承認キーは修飾キーなしで使用し、日本語変換中は作用しない。
+通常のEnterは改行。`/`はコマンド、`$`はスキル候補を表示する。承認キーは修飾キーなし。日本語変換中は無効。
 
 実装：[AgentBookInputView.swift](../../whub/Features/AgentBook/View/Controls/AgentBookInputView.swift)、[AgentBookResponseView.swift](../../whub/Features/AgentBook/View/Exchange/AgentBookResponseView.swift)
 
 ## AgentBookの本文
 
-本文をクリックするか、入力欄でEscを押すと有効。Book全体を1つの操作エリアとして扱い、操作対象のページは内部で保持する。ページ枠やページ番号の強調は表示しない。
+本文クリックか入力欄のEscで有効になる。Book全体を1つの操作エリアとし、対象ページを内部で保持する。ページ枠・ページ番号は強調しない。
 
 | キー | 操作 |
 | --- | --- |
-| H / ← | 前のページへ移動する |
-| L / → | 次のページへ移動する |
-| J / K | 中央のページを下／上へ約3行分スクロールする。端に達したら止まる。長押しに対応 |
-| Space | 入力欄へ戻る。下書きとカーソル位置を保持し、空白は入力しない |
-| Esc | 本文フォーカスを維持する。連打してもフルスクリーンを解除しない |
+| H / ← | 前のページへ移動 |
+| L / → | 次のページへ移動 |
+| J / K | 中央ページを下／上へ約3行スクロール。端で停止。長押し可 |
+| Space | 入力欄へ戻る。下書き・カーソル位置を保持。空白は入力しない |
+| Esc | 本文フォーカスを維持。連打してもフルスクリーンを解除しない |
 
-H・J・K・L・Space・Escは修飾キーなしで使用する。先頭・末尾では循環しない。入力欄では通常の文字入力・カーソル移動として扱い、入力欄内の/は既存のコマンド補完に使う。日本語変換中・ダイアログ表示中は本文操作を行わない。Enter/Escによる既存の承認操作は変更しない。HJKLの長押し中でもSpaceで入力欄、EscでBookへ切り替えられる。Book操作として受け取ったキーのリピートは、入力欄へ切り替えた後の文字入力として流さない。
+H・J・K・L・Space・Escは修飾キーなし。先頭・末尾で循環しない。入力欄では通常入力・カーソル移動となり、/はコマンド補完に使う。日本語変換中・ダイアログ表示中の本文操作は無効。Enter/Escの承認操作は維持する。HJKL長押し中もSpaceで入力欄、EscでBookへ切り替えられる。Bookで受けたキーのリピートは、切り替え後の入力欄へ流さない。
 
-新しいやり取りが追加されると、最新ページの上端を表示し、そのページを操作対象にする。生成中の追加入力は同じページに残し、回答の更新だけでは過去を読んでいるページへ割り込まない。ページごとのスクロール位置は保持する。
+新しいやり取りは最新ページの上端を表示し、操作対象にする。生成中の追加入力は同じページに残る。回答更新だけでは読書中の過去ページへ割り込まない。各ページのスクロール位置は保持する。
 
 実装：[AgentBookExchangeView.swift](../../whub/Features/AgentBook/View/Exchange/AgentBookExchangeView.swift)、[AgentBookInputView.swift](../../whub/Features/AgentBook/View/Controls/AgentBookInputView.swift)、[AgentBookTextView.swift](../../whub/Features/AgentBook/View/Exchange/Page/AgentBookTextView.swift)
 
 ## ファイル編集
 
-エディタにフォーカスがあるときに作用する。
+エディタにフォーカスがあるとき有効。
 
 | ショートカット | 操作 |
 | --- | --- |
-| ⌘S | 編集中のファイルを保存する |
-| ⌘F | 検索欄を表示する |
+| ⌘S | 編集中のファイルを保存 |
+| ⌘F | 検索欄を表示 |
 | ⌘C / ⌘V / ⌘X | コピー / 貼り付け / 切り取り |
-| ⌘A | 全選択する |
+| ⌘A | 全選択 |
 | ⌘Z | Undo |
 | ⇧⌘Z | Redo |
 
-SSH接続先のファイルは読み取り専用。保存はローカルのテキストファイルが対象。
+SSH接続先は読み取り専用。保存対象はローカルのテキストファイル。
 
 実装：[CodeEditorView.swift](../../whub/Features/Files/View/Editor/Text/CodeEditorView.swift)、[whubApp.swift](../../whub/whubApp.swift)。
 
@@ -85,8 +85,8 @@ SSH接続先のファイルは読み取り専用。保存はローカルのテ�
 
 | ショートカット | 操作 |
 | --- | --- |
-| ⇧⌘R | Project / Worktree の一覧、ファイル一覧、Git 状態を更新する |
-| ⇧⌘K | 一つ前の Project / Worktree に移動する |
-| ⇧⌘J | 一つ後の Project / Worktree に移動する |
+| ⇧⌘R | Project / Worktree・ファイル一覧・Git状態を更新 |
+| ⇧⌘K | 前のProject / Worktreeへ移動 |
+| ⇧⌘J | 次のProject / Worktreeへ移動 |
 
 実装：[whubApp.swift](../../whub/whubApp.swift)、[ExplorerPulldownView.swift](../../whub/Features/Files/View/Explorer/Menu/ExplorerPulldownView.swift)、[ExplorerView.swift](../../whub/Features/Files/View/Explorer/ExplorerView.swift)
