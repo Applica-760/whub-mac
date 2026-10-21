@@ -12,7 +12,7 @@ struct whubApp: App {
     @StateObject private var agentBookStore: AgentBookStore
     @StateObject private var remoteConnections: RemoteConnectionStore
     @StateObject private var remoteServers: RemoteServerStore
-    @State private var section = AppView.Section.agentBook
+    @State private var section = AppView.Section.workspace
     private let workspaceContainer: ModelContainer
 
     init() {
