@@ -154,7 +154,7 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
             controlViews.removeValue(forKey: id)?.removeFromSuperview()
         }
         controlViews.values.forEach { $0.isHidden = true }
-        codeViews.values.forEach { $0.isHidden = true }
+        var visibleCodeIDs = Set<String>()
         for (index, model) in book.pages.enumerated() {
             let visible = book.visiblePages.contains(index)
             guard visible || pages[model.id] != nil else { continue }
@@ -275,6 +275,7 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
                 inner.isHidden = false
             }
             for code in model.codes {
+                visibleCodeIDs.insert(code.id)
                 let view: NSHostingView<AgentBookCodeBlock>
                 if let existing = codeViews[code.id] {
                     view = existing
@@ -289,8 +290,11 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
                 view.frame = NSRect(x: rect.minX + page.textContainerOrigin.x,
                                     y: rect.minY + page.textContainerOrigin.y,
                                     width: code.size.width, height: code.size.height)
-                view.isHidden = false
             }
+        }
+        for (id, view) in codeViews {
+            let hidden = !visibleCodeIDs.contains(id)
+            if view.isHidden != hidden { view.isHidden = hidden }
         }
         readingPageID = book.pages.indices.contains(book.selectedPage) ? book.pages[book.selectedPage].id : nil
         if wasReading && !isReading(in: window) { activateReading() }
@@ -461,7 +465,12 @@ private struct AgentBookCodeScroll: NSViewRepresentable {
         guard let layout = text.layoutManager, let container = text.textContainer else { return }
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
-        text.frame.size = NSSize(width: ceil(used.width) + 2 * AgentBookCodeStyle.codeInset, height: ceil(used.height) + 2 * AgentBookCodeStyle.codeInset)
+        var width: CGFloat = 0
+        // With a trailing newline, usedRect can include the oversized extra line fragment.
+        layout.enumerateLineFragments(forGlyphRange: layout.glyphRange(for: container)) { _, used, _, _, _ in
+            width = max(width, used.maxX)
+        }
+        text.frame.size = NSSize(width: ceil(width) + 2 * AgentBookCodeStyle.codeInset, height: ceil(used.height) + 2 * AgentBookCodeStyle.codeInset)
         assert(text.string == code, "Horizontal scrolling must not insert line breaks into the source")
     }
 }
