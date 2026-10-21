@@ -38,7 +38,7 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
     var promptContent: ((UUID) -> AnyView)?
     private var controlViews: [String: NSHostingView<AnyView>] = [:]
     private var promptViews: [UUID: NSScrollView] = [:]
-    private var codeViews: [String: NSHostingView<AgentBookCodeBlock>] = [:]
+    private var codeViews: [String: NSHostingView<MarkdownCodeBlock>] = [:]
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
@@ -276,12 +276,12 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
             }
             for code in model.codes {
                 visibleCodeIDs.insert(code.id)
-                let view: NSHostingView<AgentBookCodeBlock>
+                let view: NSHostingView<MarkdownCodeBlock>
                 if let existing = codeViews[code.id] {
                     view = existing
-                    if view.rootView.code != code.text { view.rootView = AgentBookCodeBlock(code: code.text) }
+                    if view.rootView.code != code.text { view.rootView = MarkdownCodeBlock(code: code.text) }
                 } else {
-                    view = NSHostingView(rootView: AgentBookCodeBlock(code: code.text))
+                    view = NSHostingView(rootView: MarkdownCodeBlock(code: code.text))
                     codeViews[code.id] = view
                 }
                 if view.superview !== page { page.addSubview(view) }
@@ -393,100 +393,11 @@ private final class AgentBookNativeTextView: NSTextView {
         for value in selectedRanges {
             storage.enumerateAttributes(in: value.rangeValue) { attributes, range, _ in
                 text += (attributes[.agentBookPromptSource] as? NSAttributedString)?.string
-                    ?? attributes[.agentBookFormulaSource] as? String
-                    ?? attributes[.agentBookCodeSource] as? String
+                    ?? attributes[.markdownFormulaSource] as? String
+                    ?? attributes[.markdownCodeSource] as? String
                     ?? (storage.string as NSString).substring(with: range)
             }
         }
         return pasteboard.setString(text, forType: .string)
-    }
-}
-
-// Keep the existing code-block chrome; AppKit owns text selection and horizontal scrolling.
-private struct AgentBookCodeBlock: View {
-    let code: String
-
-    var body: some View {
-        AgentBookCodeScroll(code: code)
-            .padding(.trailing, 36)
-            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(alignment: .topTrailing) {
-                Button("コードをコピー", systemImage: "doc.on.doc") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(code, forType: .string)
-                }
-                .labelStyle(.iconOnly).buttonStyle(.plain)
-                .help("コードをコピー")
-                .padding(AgentBookCodeStyle.codeInset)
-            }
-    }
-}
-
-private struct AgentBookCodeScroll: NSViewRepresentable {
-    let code: String
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scroll = AgentBookCodeScrollView()
-        scroll.drawsBackground = false
-        scroll.hasHorizontalScroller = true
-        scroll.hasVerticalScroller = false
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
-        let text = NSTextView(frame: .zero)
-        text.isEditable = false
-        text.isSelectable = true
-        text.isRichText = false
-        text.font = AgentBookCodeStyle.codeFont
-        text.textColor = .labelColor
-        text.drawsBackground = false
-        text.textContainerInset = NSSize(width: AgentBookCodeStyle.codeInset, height: AgentBookCodeStyle.codeInset)
-        text.textContainer?.lineFragmentPadding = 0
-        text.textContainer?.widthTracksTextView = false
-        text.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
-                                                  height: CGFloat.greatestFiniteMagnitude)
-        scroll.documentView = text
-        return scroll
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
-        proposal.replacingUnspecifiedDimensions()
-    }
-
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let text = scroll.documentView as? NSTextView else { return }
-        if text.string != code {
-            let selection = text.selectedRange()
-            let origin = scroll.contentView.bounds.origin
-            text.string = code
-            let start = min(selection.location, (code as NSString).length)
-            text.setSelectedRange(NSRange(location: start, length: min(selection.length, (code as NSString).length - start)))
-            scroll.contentView.scroll(to: origin)
-        }
-        guard let layout = text.layoutManager, let container = text.textContainer else { return }
-        layout.ensureLayout(for: container)
-        let used = layout.usedRect(for: container)
-        var width: CGFloat = 0
-        // With a trailing newline, usedRect can include the oversized extra line fragment.
-        layout.enumerateLineFragments(forGlyphRange: layout.glyphRange(for: container)) { _, used, _, _, _ in
-            width = max(width, used.maxX)
-        }
-        text.frame.size = NSSize(width: ceil(width) + 2 * AgentBookCodeStyle.codeInset, height: ceil(used.height) + 2 * AgentBookCodeStyle.codeInset)
-        assert(text.string == code, "Horizontal scrolling must not insert line breaks into the source")
-    }
-}
-
-private final class AgentBookCodeScrollView: NSScrollView {
-    override func scrollWheel(with event: NSEvent) {
-        if abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX), !event.modifierFlags.contains(.shift) {
-            var ancestor = superview
-            while let view = ancestor {
-                if let scroll = view as? NSScrollView {
-                    scroll.scrollWheel(with: event)
-                    return
-                }
-                ancestor = view.superview
-            }
-        }
-        super.scrollWheel(with: event)
     }
 }

@@ -31,13 +31,8 @@ AgentBook/
         └── Page/
             ├── AgentBookPageLayout.swift
             │                      // 表示文書・ページ範囲・選択ページ・操作部品の座標を保持
-            ├── AgentBookTextView.swift
-            │                      // AppKitのページ・コード表示を配置し、選択・コピーを担当
-            └── Markdown/
-                ├── AgentBookMarkdownDocument.swift
-                │                  // Markdownの段落・表・コードを表示用の属性付き文字列へ変換
-                └── AgentBookMathRenderer.swift
-                                   // 数式の元ソースを保持し、数式画像・本文装飾を生成
+            └── AgentBookTextView.swift
+                                   // AppKitのページ・コード表示を配置し、選択・コピーを担当
 ```
 
 ## タブの状態と会話の状態を分ける
@@ -48,7 +43,7 @@ AgentBook/
 
 ## ページ配置は会話データから作る表示状態
 
-`AgentBookExchangeView` が `AgentBookPageLayout` を保持する。Markdownの見た目は `AgentBookMarkdownDocument`、ページへの配置は `AgentBookPageLayout`、実際のAppKit Viewの配置は `AgentBookTextSurface`（AgentBookTextView.swift内）が担当する。ページ内スクロールのために `AgentStore.exchanges` を加工しない。
+`AgentBookExchangeView` が `AgentBookPageLayout` を保持する。Markdownの見た目は共通コンポーネントの [`MarkdownDocument`](../../Components/Markdown/MarkdownDocument.swift)、ページへの配置は `AgentBookPageLayout`、実際のAppKit Viewの配置は `AgentBookTextSurface`（AgentBookTextView.swift内）が担当する。コードブロックの表示とインラインコード背景の描画も `Components/Markdown` に置く。共通側は会話・ページ・読書位置の管理を持たない。ページ内スクロールのために `AgentStore.exchanges` を加工しない。
 
 1回のやり取りを1ページに表示し、次のやり取りは次のページから始める。各ページは独立して縦スクロールし、本文の長さでは改ページしない。最初の入力と追加入力はページ高の15％の固定領域にまとめ、その中で全文をスクロールできる。直下に作業履歴の操作部と区切り線、8ptの余白を置いて回答を表示する。
 

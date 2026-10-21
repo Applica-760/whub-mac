@@ -814,7 +814,7 @@ struct AgentBookReadingTests {
     }
 
     @Test func markdownParserPreservesStructuredBlocks() throws {
-        let blocks = AgentBookMarkdown(source: "# Heading\n\n| A | B |\n| --- | --- |\n| one | two |\n\n```swift\nlet x = 1\n```\n").blocks
+        let blocks = MarkdownSource(source: "# Heading\n\n| A | B |\n| --- | --- |\n| one | two |\n\n```swift\nlet x = 1\n```\n").blocks
         try #require(blocks.count == 3)
         #expect(blocks.first?.kind == .header(level: 1))
         if case .table(let columns) = blocks[1].kind {

@@ -49,7 +49,7 @@ final class AgentBookPageLayout: ObservableObject {
     final class Page {
         let id: String
         let storage = NSTextStorage()
-        let manager: NSLayoutManager = AgentBookLayoutManager()
+        let manager: NSLayoutManager = MarkdownLayoutManager()
         let container = NSTextContainer()
         private(set) var codes: [Code] = []
         private(set) var prompts: [Prompt] = []
@@ -68,7 +68,7 @@ final class AgentBookPageLayout: ObservableObject {
             storage.setAttributedString(text)
             manager.ensureLayout(for: container)
             codes = []
-            storage.enumerateAttribute(.agentBookCodeSource, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            storage.enumerateAttribute(.markdownCodeSource, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
                 guard let text = value as? String,
                       let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment,
                       let id = storage.attribute(.agentBookCodeID, at: range.location, effectiveRange: nil) as? String else { return }
@@ -347,7 +347,7 @@ final class AgentBookPageLayout: ObservableObject {
                 attachment.bounds = CGRect(origin: .zero, size: code.size)
                 attachment.attachmentCell = AgentBookContentCell()
                 let replacement = NSMutableAttributedString(attachment: attachment)
-                replacement.addAttributes([.agentBookCodeSource: code.text,
+                replacement.addAttributes([.markdownCodeSource: code.text,
                                            .agentBookCodeID: "\(turn.id)/\(answerIndex)/\(codeIndex)"],
                                           range: NSRange(location: 0, length: 1))
                 if let style = text.attribute(.paragraphStyle, at: code.range.location, effectiveRange: nil) {
@@ -357,7 +357,7 @@ final class AgentBookPageLayout: ObservableObject {
             }
             text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
                 guard let attachment = value as? NSTextAttachment,
-                      text.attribute(.agentBookCodeSource, at: range.location, effectiveRange: nil) == nil else { return }
+                      text.attribute(.markdownCodeSource, at: range.location, effectiveRange: nil) == nil else { return }
                 let size = attachment.bounds.size
                 let scale = min(1, content.width / max(1, size.width))
                 if scale < 1 {
@@ -399,23 +399,6 @@ private final class AgentBookPromptBlock: NSTextTableBlock {
     }
 }
 
-private final class AgentBookLayoutManager: NSLayoutManager {
-    override func fillBackgroundRectArray(_ rectArray: UnsafePointer<NSRect>, count rectCount: Int,
-                                          forCharacterRange charRange: NSRange, color: NSColor) {
-        guard let storage = textStorage, charRange.location < storage.length,
-              let background = storage.attribute(.agentBookInlineCodeBackground, at: charRange.location,
-                                                 effectiveRange: nil) as? NSColor,
-              background == color else {
-            super.fillBackgroundRectArray(rectArray, count: rectCount, forCharacterRange: charRange, color: color)
-            return
-        }
-        // Selection and other backgrounds retain AppKit's standard drawing.
-        for index in 0..<rectCount {
-            NSBezierPath(roundedRect: rectArray[index], xRadius: 4, yRadius: 4).fill()
-        }
-    }
-}
-
 extension NSAttributedString.Key {
     static let agentBookPromptSource = NSAttributedString.Key("whub.book.promptSource")
     static let agentBookPromptID = NSAttributedString.Key("whub.book.promptID")
@@ -426,16 +409,16 @@ extension NSAttributedString.Key {
 
 private struct AgentBookRenderedContent {
     let text: NSAttributedString
-    let codes: [AgentBookMarkdownDocument.Code]
+    let codes: [MarkdownDocument.Code]
 
     init(content: AgentContent, width: CGFloat, colorScheme: ColorScheme) {
         switch content {
         case .markdown(let source):
-            let document = AgentBookMarkdownDocument(source: source, width: width, colorScheme: colorScheme)
+            let document = MarkdownDocument(source: source, width: width, colorScheme: colorScheme)
             text = document.text
             codes = document.codes
         case .code:
-            let document = AgentBookMarkdownDocument(source: content.agentBookMarkdown, width: width, colorScheme: colorScheme)
+            let document = MarkdownDocument(source: content.agentBookMarkdown, width: width, colorScheme: colorScheme)
             text = document.text
             codes = document.codes
         case .text(let source):
