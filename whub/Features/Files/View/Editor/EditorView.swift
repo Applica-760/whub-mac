@@ -5,6 +5,7 @@ import WhubCore
 struct EditorView: View {
     @State private var tabFocus = TabPaneFocus()
     @State private var wasActive = false
+    @State private var focusRequest = UUID()
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
     @EnvironmentObject private var store: EditorStore
@@ -53,12 +54,30 @@ struct EditorView: View {
             }
         }
         .background(TabPaneFocusView(focus: tabFocus))
+        .onReceive(files.$activeEditor) { nextStore in
+            guard nextStore !== store, activity?.isActive.value ?? isActive else { return }
+            focusRequest = UUID()
+            currentEditor?.savePosition(includingUnfocused: true)
+        }
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) { active in
             guard active != wasActive else { return }
             wasActive = active
             if active { restoreEditorFocus() }
-            else { currentEditor?.savePosition() }
+            else {
+                focusRequest = UUID()
+                currentEditor?.savePosition(includingUnfocused: true)
+            }
         }
+        .onChange(of: ObjectIdentifier(store)) { _, _ in restoreEditorFocus() }
+        .onChange(of: currentDocumentID) { _, _ in
+            guard let window = tabFocus.view?.window, tabFocus.contains(window) else { return }
+            restoreEditorFocus()
+        }
+    }
+
+    private var currentDocumentID: ObjectIdentifier? {
+        guard case let .file(location) = store.selectedTab else { return nil }
+        return store.file(for: location).map(ObjectIdentifier.init)
     }
 
     private var currentEditor: CodeTextView? {
@@ -67,18 +86,30 @@ struct EditorView: View {
     }
 
     private func restoreEditorFocus() {
-        guard activity?.isActive.value ?? isActive, let editor = currentEditor,
-              editor.fileStore?.editorPositions[editorID] != nil, let window = editor.window else { return }
+        let request = UUID()
+        focusRequest = request
+        guard activity?.isActive.value ?? isActive else { return }
         let tab = store.selectedTab
-        guard explorerFocus?.containsExplorer(window) != true else { return }
-        let responder = window.firstResponder
+        let responder = tabFocus.view?.window?.firstResponder
         DispatchQueue.main.async {
-            guard activity?.isActive.value != false, store.selectedTab == tab,
+            guard focusRequest == request, activity?.isActive.value ?? isActive,
+                  files.activeEditor === store, store.selectedTab == tab,
+                  let view = tabFocus.view, !view.isHiddenOrHasHiddenAncestor, let window = view.window,
                   window.isKeyWindow, window.attachedSheet == nil,
-                  explorerFocus?.containsExplorer(window) != true,
-                  window.firstResponder === responder || window.firstResponder === window || window.firstResponder == nil,
-                  editor.window === window, !editor.isHiddenOrHasHiddenAncestor else { return }
-            if window.makeFirstResponder(editor) { editor.restorePosition() }
+                  window.firstResponder === responder || window.firstResponder === window || window.firstResponder == nil
+            else { return }
+            let editor = currentEditor
+            if let editor, explorerFocus?.inheritEditorPosition(editor) == true {
+                editor.restorePosition()
+            }
+            guard explorerFocus?.containsExplorer(window) != true else { return }
+            // A project change must not take focus from the other Workspace pane.
+            if explorerFocus?.content.contains(window) == true, !tabFocus.contains(window) { return }
+            if let editor, editor.window === window, !editor.isHiddenOrHasHiddenAncestor {
+                if window.makeFirstResponder(editor) { editor.restorePosition() }
+            } else {
+                tabFocus.activate()
+            }
         }
     }
 }

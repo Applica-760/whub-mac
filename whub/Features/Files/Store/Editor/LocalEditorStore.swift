@@ -43,11 +43,21 @@ final class LocalEditorStore: ObservableObject {
     }
     @Published private(set) var watchError: String?
 
+    func refresh() {
+        updateWatching()
+        checkForExternalChanges()
+        refreshDiffs()
+    }
+
     func checkForExternalChanges(paths: [String]? = nil) {
+        let changedPaths = paths?.flatMap { path in
+            let url = URL(fileURLWithPath: path)
+            return [url.standardizedFileURL.path, url.resolvingSymlinksInPath().path]
+        }
         for (location, file) in fileStores {
             guard let url = location.localURL else { continue }
             let targets = [url.standardizedFileURL.path, url.resolvingSymlinksInPath().path]
-            if let paths, !paths.contains(where: { path in
+            if let changedPaths, !changedPaths.contains(where: { path in
                 targets.contains { $0 == path || $0.hasPrefix(path + "/") }
             }) { continue }
             file.checkForExternalChanges()
