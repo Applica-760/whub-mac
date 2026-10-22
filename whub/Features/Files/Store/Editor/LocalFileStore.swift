@@ -117,7 +117,7 @@ final class LocalFileStore: ObservableObject {
             let data = try Data(contentsOf: fileURL)
             guard data != savedData else { diskMessage = nil; return }
             guard !document.hasUnsavedChanges else {
-                diskMessage = "ファイルが外部で変更されています。未保存の編集内容は保持されています。"
+                diskMessage = "ファイルが外部で変更されています。編集内容は保持されています。本文で⌘Sを押すと「最新内容を採用」を選べます。"
                 return
             }
             guard !document.editorViews.hasMarkedText else {

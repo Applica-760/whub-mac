@@ -42,7 +42,7 @@ final class EditorStore: ObservableObject {
 
     func refresh() {
         remote.refresh()
-        local.refreshDiffs()
+        local.refresh()
     }
 
     enum FileOperationError: Error {
