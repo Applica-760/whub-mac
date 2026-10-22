@@ -2,10 +2,10 @@ import SwiftUI
 
 struct AppView: View {
     enum Section: CaseIterable, Hashable {
-        case workspace
         case file
         case agentBook
         case browser
+        case workspace
         case terminal
         case overview
         case motion

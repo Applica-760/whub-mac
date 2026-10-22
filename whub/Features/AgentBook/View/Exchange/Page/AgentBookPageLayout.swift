@@ -7,6 +7,7 @@ enum AgentBookPageStyle {
     static let pageInset: CGFloat = 28
     static let horizontalInset: CGFloat = 16
     static let pageGap: CGFloat = 32
+    static let subpageThreshold: CGFloat = 1600
     static let previewAngle: CGFloat = 20 * .pi / 180
 
     static func perspectiveDistance(pageWidth: CGFloat) -> CGFloat { max(1000, pageWidth * 1.5) }
@@ -119,7 +120,7 @@ final class AgentBookPageLayout: ObservableObject {
     var spreadCount: Int { max(1, pageCount) }
 
     var visiblePages: Range<Int> {
-        let margin = subpageSize.width >= 220 ? 1 : 0
+        let margin = viewportSize.width >= AgentBookPageStyle.subpageThreshold && subpageSize.width >= 220 ? 1 : 0
         return max(0, selectedPage - margin)..<min(pages.count, selectedPage + margin + 1)
     }
 
@@ -202,7 +203,7 @@ final class AgentBookPageLayout: ObservableObject {
     func prepare(viewport: CGSize, colorScheme: ColorScheme) -> Bool {
         guard viewport.width.isFinite, viewport.height.isFinite,
               viewport.width > 112, viewport.height > 112 else { return false }
-        let width = min(1000, viewport.width >= 1200 ? viewport.width * 0.58 : viewport.width - 32)
+        let width = min(1000, viewport.width >= AgentBookPageStyle.subpageThreshold ? viewport.width * 0.58 : viewport.width - 32)
         let size = CGSize(width: floor(width), height: floor(viewport.height - 16))
         guard renderedRevision != revision || renderedNavigation != navigationRevision
             || viewportSize != viewport || appearance != colorScheme else { return false }
