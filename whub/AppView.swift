@@ -4,8 +4,8 @@ struct AppView: View {
     enum Section: CaseIterable, Hashable {
         case file
         case agentBook
-        case browser
         case workspace
+        case browser
         case terminal
         case overview
         case motion

@@ -203,7 +203,7 @@ final class AgentBookPageLayout: ObservableObject {
     func prepare(viewport: CGSize, colorScheme: ColorScheme) -> Bool {
         guard viewport.width.isFinite, viewport.height.isFinite,
               viewport.width > 112, viewport.height > 112 else { return false }
-        let width = min(1000, viewport.width >= AgentBookPageStyle.subpageThreshold ? viewport.width * 0.58 : viewport.width - 32)
+        let width = min(1100, viewport.width >= AgentBookPageStyle.subpageThreshold ? viewport.width * 0.58 : viewport.width - 32)
         let size = CGSize(width: floor(width), height: floor(viewport.height - 16))
         guard renderedRevision != revision || renderedNavigation != navigationRevision
             || viewportSize != viewport || appearance != colorScheme else { return false }
