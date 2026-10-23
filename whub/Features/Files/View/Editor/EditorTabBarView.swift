@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import WhubCore
+import WhubGit
 
 struct EditorTabBarView: View {
     @EnvironmentObject private var store: EditorStore

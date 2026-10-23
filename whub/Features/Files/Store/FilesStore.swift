@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import WhubCore
+import WhubGit
 
 @MainActor
 final class FilesStore: ObservableObject {

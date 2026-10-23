@@ -3,6 +3,7 @@ import SwiftUI
 import Foundation
 import Testing
 import WhubCore
+import WhubGit
 @testable import whub
 
 @Suite @MainActor

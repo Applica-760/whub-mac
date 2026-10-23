@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import WhubCore
+@testable import WhubGit
 
 struct TreeDiffTests {
     private func url(_ path: String) -> URL {

@@ -7,6 +7,7 @@ import SwiftData
 import SwiftUI
 import Testing
 import WhubCore
+import WhubGit
 import WhubClient
 @testable import whub
 

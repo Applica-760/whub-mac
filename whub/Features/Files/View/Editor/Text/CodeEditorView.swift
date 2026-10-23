@@ -1,7 +1,7 @@
 import AppKit
 import Highlighter
 import SwiftUI
-import WhubCore
+import WhubGit
 
 @MainActor private let codeHighlighter = Highlighter()
 

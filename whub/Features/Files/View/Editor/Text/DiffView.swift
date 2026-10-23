@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import WhubCore
+import WhubGit
 
 nonisolated struct DiffLine: Sendable, Equatable {
     let number: Int?

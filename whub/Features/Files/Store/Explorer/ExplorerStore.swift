@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import SwiftData
 import WhubCore
+import WhubGit
 
 @MainActor
 final class ExplorerStore: ObservableObject {
