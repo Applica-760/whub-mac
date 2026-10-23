@@ -13,6 +13,13 @@
 | [ビルド・起動・Archive](operations/build.md) | GUI・CLIのビルドと起動手順 |
 | [Serverの設定・更新・復旧](operations/server-releases.md) | Serverのリリース運用 |
 
+## 要求仕様
+
+| 文書 | 内容 |
+| --- | --- |
+| [タブ](specifications/common/tabs.md) | ショートカット・フォーカス・状態保持・最後のタブを閉じる動作 |
+| [Markdown](specifications/common/markdown.md) | 表・コード・数式の描画、プレビュー、コピーボタン |
+
 ## Package・Feature
 
 | README | 内容 |

@@ -1,0 +1,37 @@
+# Markdownの要求仕様
+
+## MD-001：テーブルを描画する
+- 前提：テーブルを含むMarkdownがある
+- 操作：Markdownを表示する
+- 期待結果：行と列を持つ表として描画される
+- 対応テスト：`whubTests/Components/Markdown/MarkdownDocumentTests.swift / MarkdownDocumentTests.markdownParserPreservesStructuredBlocks()`（部分対応：表の解析構造のみ。描画は未検証）
+
+## MD-002：コードブロックを描画する
+- 前提：コードブロックを含むMarkdownがある
+- 操作：Markdownを表示する
+- 期待結果：コードが独立したブロックとして描画される
+- 対応テスト：`whubTests/Components/Markdown/MarkdownDocumentTests.swift / MarkdownDocumentTests.markdownParserPreservesStructuredBlocks()`（部分対応：ブロック種別と言語の解析のみ。描画は未検証）
+
+## MD-003：インラインコードを描画する
+- 前提：文章中にインラインコードを含むMarkdownがある
+- 操作：Markdownを表示する
+- 期待結果：インラインコードが文章中で通常の本文と区別できる見た目で描画される
+- 対応テスト：未照合
+
+## MD-004：インライン数式を描画する
+- 前提：文章中にインライン数式を含むMarkdownがある
+- 操作：Markdownを表示する
+- 期待結果：文章中に数式として描画される
+- 対応テスト：未照合
+
+## MD-005：FileEditorからプレビューを表示する
+- 前提：FileEditorでMarkdownファイルを開いている
+- 操作：プレビューを表示するオプションを選ぶ
+- 期待結果：対象ファイルのMarkdownプレビューが表示される
+- 対応テスト：未照合
+
+## MD-006：コードブロックにコピーボタンを表示する
+- 前提：コードブロックを含むMarkdownがある
+- 操作：Markdownを表示する
+- 期待結果：コードブロックに対応するコピーボタンが表示される
+- 対応テスト：未照合

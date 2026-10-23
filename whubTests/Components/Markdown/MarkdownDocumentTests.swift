@@ -1,20 +1,36 @@
-import AppKit
-import Combine
-import SwiftData
-import SwiftUI
+// テスト一覧:
+// - markdownParserPreservesStructuredBlocks(): [MD-001] [MD-002] 表・コードブロックの解析構造を検証する（部分対応。描画は未検証）。要求IDのない見出しの構造と、各ブロックの順序も確認する。
+
+import Foundation
 import Testing
-import WhubCore
 @testable import whub
 
-@Suite(.serialized) @MainActor
+@Suite @MainActor
 struct MarkdownDocumentTests {
     @Test func markdownParserPreservesStructuredBlocks() throws {
-        let blocks = MarkdownSource(source: "# Heading\n\n| A | B |\n| --- | --- |\n| one | two |\n\n```swift\nlet x = 1\n```\n").blocks
+        let source = """
+        # Heading
+
+        | A | B |
+        | --- | --- |
+        | one | two |
+
+        ```swift
+        let x = 1
+        ```
+
+        """
+
+        let blocks = MarkdownSource(source: source).blocks
+
         try #require(blocks.count == 3)
         #expect(blocks.first?.kind == .header(level: 1))
         if case .table(let columns) = blocks[1].kind {
-            #expect(columns.count == 2 && blocks[1].children.count == 2)
-        } else { Issue.record("Markdown table was not preserved") }
+            #expect(columns.count == 2)
+            #expect(blocks[1].children.count == 2)
+        } else {
+            Issue.record("Markdown table was not preserved")
+        }
         #expect(blocks.last?.kind == .codeBlock(languageHint: "swift"))
     }
 }
