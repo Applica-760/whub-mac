@@ -4,6 +4,7 @@ import SwiftData
 import SwiftUI
 import Testing
 import WhubCore
+@testable import WhubAgent
 @testable import whub
 
 @Suite @MainActor
@@ -12,12 +13,13 @@ struct AgentBookStoreTests {
         let context = try container()
         var backends: [TestAgentSession] = []
         var sounds: [String] = []
-        let book = AgentBookStore(context: context.mainContext, makeSession: { _ in
+        let book = AgentBookStore(context: context.mainContext, runtime: AgentRuntime(makeAdapter: { _ in
             let session = TestAgentSession(); backends.append(session); return session
-        }, notify: { sounds.append($0) })
+        }), notify: { sounds.append($0) })
         defer { book.disconnect() }
         for _ in 0..<6 { book.add() }
         let ids = book.tabs.map(\.id)
+        for tab in book.tabs { await tab.store.connect(directory: "/project") }
         for index in [1, 3] {
             await book.tabs[index].store.connect(directory: "/project")
             await book.tabs[index].store.send([.text("work")])
@@ -39,11 +41,12 @@ struct AgentBookStoreTests {
     @Test func newConversationReplacesOnlyItsOwnStateAndLastTabRemains() async throws {
         let context = try container()
         var backends: [TestAgentSession] = []
-        let book = AgentBookStore(context: context.mainContext, makeSession: { _ in
+        let book = AgentBookStore(context: context.mainContext, runtime: AgentRuntime(makeAdapter: { _ in
             let session = TestAgentSession(); backends.append(session); return session
-        }, notify: { _ in })
+        }), notify: { _ in })
         defer { book.disconnect() }
         let first = book.selectedTab
+        await first.store.connect(directory: "/project")
         first.store.draft = [.text("draft")]
         book.add()
         let second = book.selectedTab
@@ -59,7 +62,7 @@ struct AgentBookStoreTests {
 
     @Test func successfulResumeReplacesSourceInPlaceAndReusesExistingConversation() async throws {
         let context = try container()
-        let book = AgentBookStore(context: context.mainContext, makeSession: { _ in TestAgentSession() }, notify: { _ in })
+        let book = AgentBookStore(context: context.mainContext, runtime: AgentRuntime(makeAdapter: { _ in TestAgentSession() }), notify: { _ in })
         defer { book.disconnect() }
         let source = book.selectedTab
         source.store.draft = [.text("discard after success")]
@@ -78,21 +81,21 @@ struct AgentBookStoreTests {
         let context = try container()
         var reply: CheckedContinuation<AgentHistorySnapshot, Error>?
         let entry = testHistoryEntry()
-        let failedBook = AgentBookStore(context: context.mainContext, makeSession: { _ in
+        let failedBook = AgentBookStore(context: context.mainContext, runtime: AgentRuntime(makeAdapter: { _ in
             let session = TestAgentSession()
             session.resumeAction = { _ in throw CodexAgentError(message: "failed") }
             return session
-        }, notify: { _ in })
+        }), notify: { _ in })
         defer { failedBook.disconnect() }
         let failedSource = failedBook.selectedTab
         failedSource.store.draft = [.text("keep")]
         #expect(await failedBook.resume(entry, replacing: failedSource.id) == false)
         #expect(failedBook.selectedTabID == failedSource.id && failedSource.store.draft == [.text("keep")])
-        let pendingBook = AgentBookStore(context: context.mainContext, makeSession: { _ in
+        let pendingBook = AgentBookStore(context: context.mainContext, runtime: AgentRuntime(makeAdapter: { _ in
             let session = TestAgentSession()
             session.resumeAction = { _ in try await withCheckedThrowingContinuation { reply = $0 } }
             return session
-        }, notify: { _ in })
+        }), notify: { _ in })
         defer { pendingBook.disconnect() }
         let original = pendingBook.selectedTabID
         let loading = Task { await pendingBook.resume(entry, replacing: original) }
@@ -106,7 +109,7 @@ struct AgentBookStoreTests {
     @Test func busyTabCannotResumeOrResetAndKindChangePreservesDraft() async throws {
         let context = try container()
         let backend = TestAgentSession()
-        let book = AgentBookStore(context: context.mainContext, makeSession: { _ in backend }, notify: { _ in })
+        let book = AgentBookStore(context: context.mainContext, runtime: AgentRuntime(makeAdapter: { _ in backend }), notify: { _ in })
         defer { book.disconnect() }
         let source = book.selectedTab
         source.store.draft = [.text("keep")]
@@ -115,7 +118,7 @@ struct AgentBookStoreTests {
         #expect(await book.resume(testHistoryEntry(), replacing: source.id) == false)
         #expect(!book.newConversation(in: source.id))
         #expect(!book.changeKind(.claudeCode, in: source.id))
-        let fresh = AgentBookStore(context: context.mainContext, makeSession: { _ in nil }, notify: { _ in })
+        let fresh = AgentBookStore(context: context.mainContext, runtime: AgentRuntime(makeAdapter: { _ in TestAgentSession() }), notify: { _ in })
         defer { fresh.disconnect() }
         fresh.selectedTab.store.draft = [.text("draft")]
         #expect(fresh.changeKind(.claudeCode, in: fresh.selectedTabID))

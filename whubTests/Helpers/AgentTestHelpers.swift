@@ -4,6 +4,7 @@ import SwiftData
 import SwiftUI
 import Testing
 import WhubCore
+@testable import WhubAgent
 @testable import whub
 
 @MainActor
@@ -30,15 +31,22 @@ func testImage() throws -> NSImage {
 }
 
 @MainActor
-func testExchange(_ prompt: String = "Question", answer: String = "Answer") -> AgentExchange {
-    var exchange = AgentExchange(input: [.text(prompt)])
-    exchange.outputs = [.message(AgentMessage(id: "answer", role: .answer, title: "Answer", content: .markdown(answer), status: .completed))]
+func testExchange(_ prompt: String = "Question", answer: String = "Answer") -> whub.AgentExchange {
+    var exchange = whub.AgentExchange(input: [.text(prompt)])
+    exchange.outputs = [.message(whub.AgentMessage(id: "answer", role: .answer, title: "Answer", content: .markdown(answer), status: .completed))]
     exchange.status = .completed
     return exchange
 }
 
 @MainActor
-final class TestAgentSession: AgentSession {
+func testAgentTarget(_ adapter: any AgentAdapter) -> AgentExecutionTarget {
+    .local(host: nil, runtime: AgentRuntime(makeAdapter: { _ in adapter }))
+}
+
+@MainActor
+final class TestAgentSession: AgentAdapter {
+    typealias AgentInput = WhubAgent.AgentInput
+    typealias AgentContent = WhubAgent.AgentContent
     let kind = AgentKind.codex
     let events: AsyncStream<AgentEvent>
     private let emitter: AsyncStream<AgentEvent>.Continuation
@@ -58,7 +66,10 @@ final class TestAgentSession: AgentSession {
     var respondAction: (String, AgentResponse) async throws -> Void = { _, _ in }
     var historyAction: (String?) async throws -> AgentHistoryPage = { _ in AgentHistoryPage(entries: [], nextCursor: nil) }
     var resumeAction: (AgentHistoryEntry) async throws -> AgentHistorySnapshot = {
-        AgentHistorySnapshot(entry: $0, exchanges: [testExchange()], selectedModelOption: nil)
+        var exchange = WhubAgent.AgentExchange(input: [.text("Question")])
+        exchange.outputs = [.message(.init(id: "answer", role: .answer, title: "Answer", content: .markdown("Answer"), status: .completed))]
+        exchange.status = .completed
+        return AgentHistorySnapshot(entry: $0, exchanges: [exchange], selectedModelOption: nil)
     }
     init() {
         let stream = AsyncStream<AgentEvent>.makeStream()
@@ -81,5 +92,5 @@ final class TestAgentSession: AgentSession {
     }
     func loadHistory(cursor: String?) async throws -> AgentHistoryPage { try await historyAction(cursor) }
     func resume(_ entry: AgentHistoryEntry) async throws -> AgentHistorySnapshot { try await resumeAction(entry) }
-    func disconnect() { isClosed = true; emitter.finish() }
+    func close() { isClosed = true; emitter.finish() }
 }

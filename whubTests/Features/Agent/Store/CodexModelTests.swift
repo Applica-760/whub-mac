@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+@testable import WhubAgent
 @testable import whub
 
 @Suite @MainActor
@@ -12,8 +13,8 @@ struct CodexAgentModelTests {
                                        ["reasoningEffort": "high", "description": "More reasoning"]]]
     }
 
-    private func session(_ request: @escaping (String, [String: Any], String) async throws -> [String: Any]) async throws -> CodexAgentSession {
-        let session = CodexAgentSession(request: request)
+    private func session(_ request: @escaping (String, [String: Any], String) async throws -> [String: Any]) async throws -> CodexAdapter {
+        let session = CodexAdapter(request: request)
         try await session.connect(directory: FileManager.default.currentDirectoryPath)
         return session
     }
@@ -58,7 +59,7 @@ struct CodexAgentModelTests {
             hidden["hidden"] = true
             return ["data": [model("a"), hidden, model("b")]]
         }
-        defer { session.disconnect() }
+        defer { session.close() }
         var events = session.events.makeAsyncIterator()
         let options = try await session.loadModelOptions()
         #expect(options.map(\.modelID) == ["a", "a", "b", "b"])
@@ -71,7 +72,7 @@ struct CodexAgentModelTests {
 
     @Test func repeatedCursorFailsWithoutReturningPartialCatalog() async throws {
         let session = try await session { _, _, _ in ["data": [model()], "nextCursor": "same"] }
-        defer { session.disconnect() }
+        defer { session.close() }
         await #expect(throws: CodexAgentError.self) { try await session.loadModelOptions() }
     }
 
@@ -82,7 +83,7 @@ struct CodexAgentModelTests {
             entry["isDefault"] = true
             return ["data": [model("other"), entry]]
         }
-        defer { session.disconnect() }
+        defer { session.close() }
         var events = session.events.makeAsyncIterator()
         _ = try await session.loadModelOptions()
         guard case .modelOptionChanged(let option)? = await events.next() else {
@@ -104,7 +105,7 @@ struct CodexAgentModelTests {
             default: throw CodexAgentError(message: method)
             }
         }
-        defer { session.disconnect() }
+        defer { session.close() }
         let options = try await session.loadModelOptions()
         let forged = AgentModelOption(id: options[1].id, modelID: "forged", displayName: "forged",
                                       description: "", effort: "forged", isDefaultEffort: false)
@@ -133,7 +134,7 @@ struct CodexAgentModelTests {
             default: throw CodexAgentError(message: method)
             }
         }
-        defer { session.disconnect() }
+        defer { session.close() }
         let options = try await session.loadModelOptions()
         _ = try await session.resume(testHistoryEntry())
         try await session.changeModel(options[1])
@@ -145,7 +146,7 @@ struct CodexAgentModelTests {
         let session = try await session { _, _, _ in await withCheckedContinuation { reply = $0 } }
         let loading = Task { try await session.loadModelOptions() }
         #expect(await testEventually { reply != nil })
-        session.disconnect()
+        session.close()
         reply?.resume(returning: ["data": [model()]])
         do { _ = try await loading.value; Issue.record("Late catalog accepted") } catch {}
     }
@@ -154,7 +155,7 @@ struct CodexAgentModelTests {
         let backend = TestAgentSession()
         let old = AgentModelOption(id: "old", modelID: "old-model", displayName: "Old", description: "", effort: "medium", isDefaultEffort: true)
         let next = AgentModelOption(id: "new", modelID: "new-model", displayName: "New", description: "", effort: "high", isDefaultEffort: true)
-        let store = AgentStore(kind: .codex, session: backend)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
         defer { store.disconnect() }
         await store.connect(directory: "/project")
         backend.emit(.modelOptionChanged(old))
@@ -172,7 +173,7 @@ struct CodexAgentModelTests {
         let backend = TestAgentSession()
         var reply: CheckedContinuation<Void, Never>?
         backend.changeModelAction = { _ in await withCheckedContinuation { reply = $0 } }
-        let store = AgentStore(kind: .codex, session: backend)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
         await store.connect(directory: "/project")
         let option = AgentModelOption(id: "new", modelID: "new", displayName: "New", description: "", effort: "high", isDefaultEffort: true)
         let changing = Task { await store.changeModel(option) }
@@ -199,11 +200,11 @@ struct CodexAgentModelTests {
             sends += 1
             throw CodexAgentError(message: "Unexpected RPC")
         }
-        let store = AgentStore(kind: .codex, session: session)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(session))
         defer { store.disconnect() }
         await store.connect(directory: FileManager.default.currentDirectoryPath)
         await store.loadModelOptions()
-        let image = AgentImageAttachment(image: try testImage())
+        let image = whub.AgentImageAttachment(image: try testImage())
         store.draft = [.text("describe"), .image(image)]
         await store.send(store.draft)
         #expect(sends == 0)

@@ -4,32 +4,33 @@ import SwiftData
 import SwiftUI
 import Testing
 import WhubCore
+@testable import WhubAgent
 @testable import whub
 
 @Suite @MainActor
 struct AgentStoreTests {
     @Test func additionalInputsPreserveTypedContentAndOutputPosition() async throws {
         let backend = TestAgentSession()
-        let store = AgentStore(kind: .codex, session: backend)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
         defer { store.disconnect() }
         await store.connect(directory: "/project")
         await store.send([.text(" first ")])
-        backend.emit(.output(.message(AgentMessage(id: "p", role: .progress, title: "Progress", content: .text("working"), status: .running))))
+        backend.emit(.output(.message(WhubAgent.AgentMessage(id: "p", role: .progress, title: "Progress", content: .text("working"), status: .running))))
         #expect(await testEventually { store.exchanges.first?.outputs.count == 1 })
         let skill = AgentSkill(id: "/review", name: "review", description: "")
-        let input: [AgentInput] = [.text(" more "), .image(AgentImageAttachment(image: try testImage())), .skill(skill)]
+        let input: [whub.AgentInput] = [.text(" more "), .image(whub.AgentImageAttachment(image: try testImage())), .skill(skill)]
         #expect(await store.sendAdditionalInput(input))
         let additional = try #require(store.exchanges.first?.additionalInputs.first)
         #expect(additional.outputIndex == 1)
         #expect(additional.input[0] == .text("more"))
-        #expect(additional.input == backend.additional.first)
+        #expect(try AgentModelMapping().input(additional.input) == backend.additional.first)
         #expect(store.exchanges.count == 1 && backend.sent == [[.text("first")]])
     }
 
     @Test(arguments: [false, true])
     func failedOrCompletedSteeringDoesNotAppendInput(completesDuringRequest: Bool) async {
         let backend = TestAgentSession()
-        let store = AgentStore(kind: .codex, session: backend)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
         defer { store.disconnect() }
         await store.connect(directory: "/project")
         await store.send([.text("first")])
@@ -51,7 +52,7 @@ struct AgentStoreTests {
         let backend = TestAgentSession()
         var reply: CheckedContinuation<Void, Never>?
         backend.additionalAction = { _ in await withCheckedContinuation { reply = $0 } }
-        let store = AgentStore(kind: .codex, session: backend)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
         defer { store.disconnect() }
         await store.connect(directory: "/project")
         await store.send([.text("first")])
@@ -68,7 +69,7 @@ struct AgentStoreTests {
 
     @Test func outputsReplaceByIDAndRequestsResolveIndependently() async throws {
         let backend = TestAgentSession()
-        let store = AgentStore(kind: .codex, session: backend)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
         defer { store.disconnect() }
         await store.connect(directory: "/project")
         await store.send([.text("first")])
@@ -95,7 +96,7 @@ struct AgentStoreTests {
     @Test func interruptionRestoresSubmittedInputButKeepsNewDraft() async {
         for hasNewDraft in [false, true] {
             let backend = TestAgentSession()
-            let store = AgentStore(kind: .codex, session: backend)
+            let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
             await store.connect(directory: "/project")
             await store.send([.text("submitted")])
             if hasNewDraft { store.draft = [.text("new draft")] }
@@ -109,7 +110,7 @@ struct AgentStoreTests {
 
     @Test func streamEndingFailsActiveWorkAndClosedStoreIgnoresLateEvents() async {
         let backend = TestAgentSession()
-        let store = AgentStore(kind: .codex, session: backend)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
         await store.connect(directory: "/project")
         await store.send([.text("submitted")])
         backend.finish()
@@ -125,11 +126,12 @@ struct AgentStoreTests {
         for invalid in [false, true] {
             let backend = TestAgentSession()
             backend.resumeAction = { entry in
-                var exchange = testExchange()
+                var exchange = WhubAgent.AgentExchange(input: [.text("Question")])
+                exchange.status = .completed
                 if invalid { exchange.status = .running }
                 return AgentHistorySnapshot(entry: entry, exchanges: [exchange], selectedModelOption: nil)
             }
-            let store = AgentStore(kind: .codex, session: backend)
+            let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
             let entry = testHistoryEntry(directory: "/original")
             #expect(await store.resume(entry) == !invalid)
             #expect(backend.directories == ["/original"])
