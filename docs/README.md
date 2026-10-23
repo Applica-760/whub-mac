@@ -8,6 +8,8 @@
 | [HTTP API](reference/api/README.md) | Files・Agent・Managerのエンドポイント |
 | [キーボードショートカット](reference/shortcuts.md) | キー操作 |
 | [Swift / SwiftUIの実装メモ](reference/swift-and-swiftui-concepts.md) | 言語・UIの実装で使う概念 |
+| [テストコード作成規約](reference/testing.md) | テストの配置・冒頭コメント・命名・検証と補助コード |
+| [要求仕様の書き方](reference/requirements.md) | 要求ID・前提／操作／期待結果・テストとの対応 |
 | [ビルド・起動・Archive](operations/build.md) | GUI・CLIのビルドと起動手順 |
 | [Serverの設定・更新・復旧](operations/server-releases.md) | Serverのリリース運用 |
 
