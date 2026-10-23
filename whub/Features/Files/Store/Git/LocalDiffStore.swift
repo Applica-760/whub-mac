@@ -1,6 +1,6 @@
 import Combine
 import Foundation
-import WhubCore
+import WhubGit
 
 @MainActor
 final class LocalDiffStore: ObservableObject {

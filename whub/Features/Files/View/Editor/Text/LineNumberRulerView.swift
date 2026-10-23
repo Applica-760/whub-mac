@@ -1,5 +1,5 @@
 import AppKit
-import WhubCore
+import WhubGit
 
 final class LineNumberRulerView: NSRulerView {
     private(set) var hunks: [LineDiffHunk] = []

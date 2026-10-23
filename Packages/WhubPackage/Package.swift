@@ -7,6 +7,7 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .library(name: "WhubCore", targets: ["WhubCore"]),
+        .library(name: "WhubGit", targets: ["WhubGit"]),
         .library(name: "WhubClient", targets: ["WhubClient"]),
         .library(name: "WhubAgent", targets: ["WhubAgent"]),
         .executable(name: "whub-mac", targets: ["WhubCLI"]),
@@ -17,6 +18,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "WhubCore"),
+        .target(name: "WhubGit"),
         .target(name: "WhubClient", dependencies: ["WhubAgent"]),
         .target(name: "WhubAgent"),
         .executableTarget(name: "WhubCLI", dependencies: ["WhubCore"]),
@@ -25,6 +27,7 @@ let package = Package(
             dependencies: ["WhubAgent", .product(name: "Hummingbird", package: "hummingbird")]
         ),
         .testTarget(name: "WhubCoreTests", dependencies: ["WhubCore"]),
+        .testTarget(name: "WhubGitTests", dependencies: ["WhubGit"]),
         .testTarget(name: "WhubServerTests", dependencies: ["WhubServer", "WhubClient", "WhubAgent", .product(name: "HummingbirdTesting", package: "hummingbird")]),
     ]
 )

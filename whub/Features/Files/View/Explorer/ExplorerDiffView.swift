@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import WhubCore
+import WhubGit
 
 struct ExplorerDiffView: View {
     @ObservedObject var git: GitStore

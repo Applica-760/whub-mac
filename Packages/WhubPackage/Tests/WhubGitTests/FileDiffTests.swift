@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import WhubCore
+@testable import WhubGit
 
 struct FileDiffTests {
     @Test func comparesHEADWithDiskAndOmitsIndexOnlyChanges() async throws {

@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import WhubCore
+import WhubGit
 
 struct ExplorerTreeView: View {
     @ObservedObject var store: ExplorerStore

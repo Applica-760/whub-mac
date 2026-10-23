@@ -1,6 +1,6 @@
 import Combine
 import SwiftUI
-import WhubCore
+import WhubGit
 
 struct EditorView: View {
     @State private var tabFocus = TabPaneFocus()
@@ -178,7 +178,7 @@ private struct DiffContent: View {
         }
     }
 
-    private func message(for reason: WhubCore.FileDiff.UnsupportedReason) -> String {
+    private func message(for reason: WhubGit.FileDiff.UnsupportedReason) -> String {
         switch reason {
         case .binary: "バイナリまたはUTF-8以外のファイルです。"
         case .conflict: "競合中のファイルです。競合を解消してから再読み込みしてください。"

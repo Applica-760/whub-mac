@@ -1,6 +1,6 @@
 import AppKit
 import UniformTypeIdentifiers
-import WhubCore
+import WhubGit
 
 final class ExplorerItemView: NSTableCellView {
     init(identifier: NSUserInterfaceItemIdentifier) {
