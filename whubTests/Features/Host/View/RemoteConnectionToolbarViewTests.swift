@@ -5,7 +5,7 @@ import Testing
 @testable import whub
 
 @Suite @MainActor
-struct ExplorerMenuViewTests {
+struct RemoteConnectionToolbarViewTests {
     private struct ConnectionFailure: LocalizedError {
         var errorDescription: String? { "接続失敗" }
     }

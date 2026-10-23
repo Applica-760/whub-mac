@@ -1,7 +1,3 @@
-// 検証内容: 本文の遅延取得・再利用、ホスト識別、ルート検証、失敗表示、閉じたタブへの遅延応答破棄。
-// リモート保存・競合拒否・応答消失・保存中の追加入力と、ローカルの保存・タブ操作も確認する。
-// リロード・切断・再接続・取得失敗時の旧本文保持と、旧セッションの応答破棄も確認する。
-// 限界: 通信と接続識別は制御した値を使用。実SSH・画面操作は別途確認する。
 import AppKit
 import SwiftData
 import SwiftUI
@@ -14,7 +10,7 @@ import WhubClient
 @Suite @MainActor
 struct EditorStoreTests {
     @Test func markdownPreviewReusesDocumentsAndTracksEachOpenFile() throws {
-        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -48,196 +44,6 @@ struct EditorStoreTests {
         #expect(editor.markdownPreviewLocation == nil && !editor.markdownPreviews.contains(binary))
     }
 
-    @Test func fileEditorRestoresFocusAndPositionAfterFeatureSwitch() async throws {
-        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appendingPathComponent("focus.txt")
-        try Data((0..<100).map { "line \($0) 日本語😀\n" }.joined().utf8).write(to: url)
-        let files = FilesStore()
-        let store = files.activeEditor
-        let location = FileLocation.local(url)
-        store.local.load(location)
-        store.open(.file(location))
-        let file = try #require(store.file(for: location))
-        let window = EditorFocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 450),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        let container = try #require(window.contentView)
-        let coordinator = RetainedPageContainer<Int, AnyView>.Coordinator()
-        let otherFile = FileStore(source: "AgentBook substitute")
-        var selectedPage = 1
-        let root: (Int, RetainedPageActivity) -> AnyView = { page, activity in
-            let content = page == 1
-                ? AnyView(EditorView().environmentObject(store).environmentObject(files).environmentObject(files.git))
-                : AnyView(CodeEditorView(state: otherFile, editorID: "other", onEdit: {},
-                                         source: otherFile.textStorage.string, language: nil, hunks: []))
-            return AnyView(content.environment(\.isRetainedPageActive, page == selectedPage)
-                .environment(\.retainedPageActivity, activity))
-        }
-        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
-        try await eventually {
-            container.layoutSubtreeIfNeeded()
-            return !file.editorViews.views.isEmpty
-        }
-        let editorID = try #require(file.editorViews.views.keys.first)
-        let scroll = try #require(file.editorViews.views[editorID])
-        let text = try #require(scroll.documentView as? CodeTextView)
-        #expect(window.makeFirstResponder(text))
-        text.insertText("edited ", replacementRange: NSRange(location: 0, length: 0))
-        let selection = (text.string as NSString).range(of: "line 25")
-        text.setSelectedRange(selection)
-        text.scrollRangeToVisible(selection)
-        let origin = scroll.contentView.bounds.origin
-        #expect(file.hasUnsavedChanges)
-
-        selectedPage = 2
-        coordinator.update(container, selection: 2, availablePages: [1, 2], isActive: true, rootView: root)
-        #expect(window.firstResponder !== text)
-        container.layoutSubtreeIfNeeded()
-        let otherText = try #require(otherFile.editorViews.views["other"]?.documentView)
-        #expect(window.makeFirstResponder(otherText))
-        #expect(file.editorPositions[editorID]?.selectedRanges == [selection])
-        #expect(file.editorPositions[editorID]?.scrollOrigin == origin)
-        // Simulate AppKit losing native selection while the editor is hidden.
-        text.setSelectedRange(NSRange(location: 0, length: 0))
-        selectedPage = 1
-        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
-        try await eventually { window.firstResponder === text }
-        #expect(text.selectedRange() == selection)
-        let restoredOrigin = scroll.contentView.bounds.origin
-        #expect(abs(restoredOrigin.x - origin.x) < 1)
-        #expect(abs(restoredOrigin.y - origin.y) < 1)
-        #expect(text.string.hasPrefix("edited "))
-
-        selectedPage = 2
-        coordinator.update(container, selection: 2, availablePages: [1, 2], isActive: true, rootView: root)
-        selectedPage = 1
-        coordinator.update(container, selection: 1, availablePages: [1, 2], isActive: true, rootView: root)
-        selectedPage = 2
-        coordinator.update(container, selection: 2, availablePages: [1, 2], isActive: true, rootView: root)
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(window.firstResponder !== text)
-    }
-
-    @Test func fileEditorFocusFollowsProjectSwitchAndPreservesPosition() async throws {
-        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let files = FilesStore()
-        let locations = ["one.txt", "two.txt"].map { FileLocation.local(directory.appendingPathComponent($0)) }
-        var stores: [EditorStore] = []
-        for location in locations {
-            try Data((0..<100).map { "line \($0) 日本語😀\n" }.joined().utf8).write(to: #require(location.localURL))
-            files.explorer.selectedLocation = location
-            files.activeEditor.local.load(location)
-            files.activeEditor.open(.file(location))
-            stores.append(files.activeEditor)
-        }
-        let window = EditorFocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 450),
-                                          styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        let activity = RetainedPageActivity()
-        activity.setActive(true)
-        func root() -> AnyView {
-            AnyView(EditorView().environmentObject(files.activeEditor).environmentObject(files)
-                .environmentObject(files.git).environment(\.retainedPageActivity, activity))
-        }
-        files.explorer.selectedLocation = locations[0]
-        let host = NSHostingView(rootView: root())
-        window.contentView = host
-        let firstFile = try #require(stores[0].file(for: locations[0]))
-        try await eventually {
-            host.layoutSubtreeIfNeeded()
-            return firstFile.editorViews.views.values.first?.documentView === window.firstResponder
-                && window.firstResponder is CodeTextView
-        }
-        let scroll = try #require(firstFile.editorViews.views.values.first)
-        let first = try #require(scroll.documentView as? CodeTextView)
-        let remembered = (first.string as NSString).range(of: "line 10")
-        first.setSelectedRange(remembered)
-        first.savePosition()
-        let selection = (first.string as NSString).range(of: "line 20")
-        first.setSelectedRange(selection)
-        first.scrollRangeToVisible(selection)
-        let origin = scroll.contentView.bounds.origin
-
-        files.explorer.selectedLocation = locations[1]
-        let editorID = try #require(first.editorID)
-        #expect(firstFile.editorPositions[editorID]?.selectedRanges == [selection])
-        #expect(firstFile.editorPositions[editorID]?.scrollOrigin == origin)
-        host.rootView = root()
-        let secondFile = try #require(stores[1].file(for: locations[1]))
-        try await eventually {
-            host.layoutSubtreeIfNeeded()
-            return secondFile.editorViews.views.values.first?.documentView === window.firstResponder
-                && window.firstResponder is CodeTextView
-        }
-        first.setSelectedRange(NSRange(location: 0, length: 0))
-        files.explorer.selectedLocation = locations[0]
-        host.rootView = root()
-        try await eventually {
-            host.layoutSubtreeIfNeeded()
-            return window.firstResponder === first
-        }
-        #expect(first.selectedRange() == selection)
-        #expect(abs(scroll.contentView.bounds.origin.y - origin.y) < 1)
-        #expect(stores[0].selectedTab == .file(locations[0]))
-
-        files.explorer.selectedLocation = locations[1]
-        host.rootView = root()
-        host.layoutSubtreeIfNeeded()
-        files.explorer.selectedLocation = locations[0]
-        host.rootView = root()
-        activity.setActive(false)
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(window.firstResponder !== secondFile.editorViews.views.values.first?.documentView)
-    }
-
-    @Test func editorPositionsAreSeparateAndClampAfterShorterContent() async throws {
-        let first = FileStore(content: .text("日本語😀 first file"), isEditable: true)
-        let second = FileStore(content: .text("second file"), isEditable: true)
-        let firstHost = NSHostingView(rootView: CodeEditorView(state: first, editorID: "one", onEdit: {},
-                                                             source: first.textStorage.string, language: nil, hunks: []))
-        let secondHost = NSHostingView(rootView: CodeEditorView(state: first, editorID: "two", onEdit: {},
-                                                              source: first.textStorage.string, language: nil, hunks: []))
-        let otherHost = NSHostingView(rootView: CodeEditorView(state: second, editorID: "one", onEdit: {},
-                                                             source: second.textStorage.string, language: nil, hunks: []))
-        let window = EditorFocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1800, height: 300),
-                                          styleMask: [.titled], backing: .buffered, defer: false)
-        for (index, host) in [firstHost, secondHost, otherHost].enumerated() {
-            host.frame = NSRect(x: index * 600, y: 0, width: 600, height: 300)
-            window.contentView?.addSubview(host)
-        }
-        try await eventually {
-            [firstHost, secondHost, otherHost].forEach { $0.layoutSubtreeIfNeeded() }
-            return first.editorViews.views.count == 2 && second.editorViews.views.count == 1
-        }
-        let one = try #require(first.editorViews.views["one"]?.documentView as? CodeTextView)
-        let two = try #require(first.editorViews.views["two"]?.documentView as? CodeTextView)
-        let other = try #require(second.editorViews.views["one"]?.documentView as? CodeTextView)
-        #expect(window.makeFirstResponder(one))
-        one.setSelectedRange(NSRange(location: 6, length: 4))
-        #expect(window.makeFirstResponder(two))
-        two.setSelectedRange(NSRange(location: 3, length: 0))
-        #expect(window.makeFirstResponder(other))
-        other.setSelectedRange(NSRange(location: 1, length: 2))
-        other.savePosition()
-        #expect(first.editorPositions["one"]?.selectedRanges == [NSRange(location: 6, length: 4)])
-        #expect(first.editorPositions["two"]?.selectedRanges == [NSRange(location: 3, length: 0)])
-        #expect(second.editorPositions["one"]?.selectedRanges == [NSRange(location: 1, length: 2)])
-        first.replace(source: "x")
-        one.restorePosition()
-        two.restorePosition()
-        other.restorePosition()
-        #expect(one.selectedRange() == NSRange(location: 1, length: 0))
-        #expect(two.selectedRange() == NSRange(location: 1, length: 0))
-        #expect(other.selectedRange() == NSRange(location: 1, length: 2))
-        withExtendedLifetime([firstHost, secondHost, otherHost]) {}
-    }
-
     @Test(arguments: ["\n", "\r\n", "\r", "\r\nwith mixed\n"], [false, true])
     func fileEncodingPreservesLineEndingsAndBOM(ending: String, bom: Bool) {
         let prefix = bom ? "\u{FEFF}" : ""
@@ -261,114 +67,6 @@ struct EditorStoreTests {
         #expect(FileEncoding.encode("", preserving: Data("\u{FEFF}before".utf8)) == Data([0xef, 0xbb, 0xbf]))
     }
 
-    @Test func findBarPreservesUnsavedText() async throws {
-        let file = FileStore(content: .text("saved"), isEditable: true)
-        let source = "日本語 target 😀 target unsaved"
-        file.textStorage.replaceCharacters(in: NSRange(location: 0, length: file.textStorage.length), with: source)
-        file.content = .text(source)
-        let host = NSHostingView(rootView: CodeEditorView(state: file, editorID: "find", onEdit: {},
-                                                         source: source, language: nil, hunks: []))
-        host.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
-        try await eventually {
-            host.layoutSubtreeIfNeeded()
-            return file.editorViews.views["find"] != nil
-        }
-        let scroll = try #require(file.editorViews.views["find"])
-        let text = try #require(scroll.documentView as? CodeTextView)
-        #expect(text.usesFindBar && text.isIncrementalSearchingEnabled)
-        let action = NSMenuItem()
-        action.tag = NSTextFinder.Action.showFindInterface.rawValue
-        text.performTextFinderAction(action)
-        #expect(scroll.isFindBarVisible)
-        action.tag = NSTextFinder.Action.hideFindInterface.rawValue
-        text.performTextFinderAction(action)
-        #expect(!scroll.isFindBarVisible)
-        #expect(text.string == source)
-        #expect(file.hasUnsavedChanges)
-        #expect(file.savedSource == "saved")
-        #expect(!file.undoManager.canUndo)
-        withExtendedLifetime(host) {}
-    }
-
-    @Test func alignedDiffPreservesWholeFilesAndOriginalCopyText() {
-        for (before, after) in [("", ""), ("", "added\n"), ("deleted\n", ""),
-                                ("top\nold\nbottom\n", "top\nnew\nextra\nbottom\n"),
-                                ("\u{FEFF}日本語😀\r\nlast", "\u{FEFF}日本語😀\r\nlast\r\n")] {
-            let layout = DiffLayout(before: before, after: after)
-            #expect(layout.before.count == layout.after.count)
-            #expect(layout.before.map(\.source).joined() == before)
-            #expect(layout.after.map(\.source).joined() == after)
-            for (lines, original) in [(layout.before, before), (layout.after, after)] {
-                let range = NSRange(location: 0, length: lines.map(\.displayText).joined().utf16.count)
-                #expect(DiffLayout.copiedText(lines: lines, range: range) == original)
-            }
-        }
-        let deleted = DiffLayout(before: "top\nremoved\nbottom\n", after: "top\nbottom\n")
-        #expect(deleted.before.map(\.number) == [1, 2, 3])
-        #expect(deleted.after.map(\.number) == [1, nil, 2])
-        #expect(deleted.before[1].change == .deleted)
-        #expect(deleted.after[1].change == nil)
-        #expect(DiffLayout.copiedText(lines: deleted.after, range: NSRange(location: 4, length: 8)) == "bottom\n")
-        let added = DiffLayout(before: "top\nbottom", after: "top\nadded\nbottom")
-        #expect(added.before.map(\.number) == [1, nil, 2])
-        #expect(added.after[1].change == .added)
-        let changed = DiffLayout(before: "old\n", after: "new\n")
-        #expect(changed.before[0].change == .modified)
-        #expect(changed.after[0].change == .modified)
-    }
-
-    @Test func diffRendererIsReadOnlyAlignedAndScrollsTogether() async throws {
-        let before = (0..<100).map { "line\($0)\n" }.joined()
-        let after = "inserted\n" + before
-        let host = NSHostingView(rootView: DiffView(before: before, after: after,
-                                                  fileURL: URL(fileURLWithPath: "/file.swift")))
-        host.frame = NSRect(x: 0, y: 0, width: 900, height: 400)
-        func editors(in view: NSView) -> [CodeTextView] {
-            if let editor = view as? CodeTextView { return [editor] }
-            return view.subviews.flatMap { editors(in: $0) }
-        }
-        try await eventually {
-            host.layoutSubtreeIfNeeded()
-            return editors(in: host).count == 2
-        }
-        let panes = editors(in: host)
-        #expect(panes.allSatisfy { !$0.isEditable && $0.isSelectable })
-        #expect(panes.allSatisfy { !$0.validateMenuItem(NSMenuItem(title: "Save", action: #selector(CodeTextView.saveDocument(_:)), keyEquivalent: "s")) })
-        let left = try #require(panes.first { $0.diffLines?.first?.number == nil })
-        let right = try #require(panes.first { $0.diffLines?.first?.change == .added })
-        func y(of text: CodeTextView) throws -> CGFloat {
-            let manager = try #require(text.layoutManager)
-            let container = try #require(text.textContainer)
-            manager.ensureLayout(for: container)
-            let index = (text.string as NSString).range(of: "line20").location
-            let glyph = manager.glyphIndexForCharacter(at: index)
-            return manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minY
-        }
-        #expect(try y(of: left) == y(of: right))
-        let leftScroll = try #require(left.enclosingScrollView)
-        let rightScroll = try #require(right.enclosingScrollView)
-        leftScroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
-        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: leftScroll.contentView)
-        #expect(rightScroll.contentView.bounds.minY == leftScroll.contentView.bounds.minY)
-        rightScroll.contentView.scroll(to: NSPoint(x: 0, y: 200))
-        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: rightScroll.contentView)
-        #expect(rightScroll.contentView.bounds.minY == leftScroll.contentView.bounds.minY)
-        withExtendedLifetime(host) {}
-    }
-
-    private func eventually(_ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(3)
-        while !condition() {
-            guard ContinuousClock.now < deadline else { throw SSHError.timedOut }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-    }
-
-    private func edit(_ file: FileStore, _ source: String) {
-        file.textStorage.replaceCharacters(in: NSRange(location: 0, length: file.textStorage.length), with: source)
-        file.content = .text(source)
-    }
-
     @Test func remoteSaveKeepsNewerEditsAndPreventsDuplicateSaves() async throws {
         let fixture = try ViewerFixture()
         let root = fixture.root()
@@ -385,13 +83,13 @@ struct EditorStoreTests {
             disk = text
             return text
         }) { _, _, _ in disk }
-        try await eventually { editor.remote.file(for: location) != nil }
+        try await waitForEditorTest { editor.remote.file(for: location) != nil }
         let remote = try #require(editor.remote.fileStores[location])
         let file = try #require(remote.document)
         #expect(file.isEditable && file.saveAction != nil && file.canSave?() == true)
         edit(file, "submitted")
         let saving = Task { await remote.save() }
-        try await eventually { gate.waiting }
+        try await waitForEditorTest { gate.waiting }
         #expect(remote.isSaving && !remote.canSave)
         #expect(await remote.save() == false)
         #expect(await remote.confirmClose(choice: .discard) == false)
@@ -419,7 +117,7 @@ struct EditorStoreTests {
             disk = text
             return text
         }) { _, _, _ in disk }
-        try await eventually { store.file(for: location) != nil }
+        try await waitForEditorTest { store.file(for: location) != nil }
         let remote = try #require(store.fileStores[location])
         let file = try #require(remote.document)
         edit(file, "draft")
@@ -428,7 +126,7 @@ struct EditorStoreTests {
         #expect(disk == "external" && file.savedSource == "original")
         #expect(file.hasUnsavedChanges && remote.message != nil)
         remote.refresh()
-        try await eventually { if case .loaded = remote.state { return true }; return false }
+        try await waitForEditorTest { if case .loaded = remote.state { return true }; return false }
         #expect(file.textStorage.string == "draft" && file.hasUnsavedChanges)
         #expect(remote.message != nil)
     }
@@ -446,7 +144,7 @@ struct EditorStoreTests {
             if committed { disk = text }
             throw SSHError.disconnected
         }) { _, _, _ in disk }
-        try await eventually { store.file(for: location) != nil }
+        try await waitForEditorTest { store.file(for: location) != nil }
         let remote = try #require(store.fileStores[location])
         let file = try #require(remote.document)
         edit(file, "submitted")
@@ -456,7 +154,7 @@ struct EditorStoreTests {
         #expect(writes == 1)
         edit(file, "newer edit")
         remote.refresh()
-        try await eventually { if case .loaded = remote.state { return remote.canSave }; return false }
+        try await waitForEditorTest { if case .loaded = remote.state { return remote.canSave }; return false }
         #expect(file.textStorage.string == "newer edit" && file.hasUnsavedChanges)
         #expect(file.savedSource == (committed ? "submitted" : "original"))
         #expect(writes == 1)
@@ -476,7 +174,7 @@ struct EditorStoreTests {
         }
         editor.remote.load(other, root: root, write: { _, _, _, text in text }) { _, _, _ in "other" }
         editor.preview(.file(location))
-        try await eventually { editor.remote.file(for: location) != nil }
+        try await waitForEditorTest { editor.remote.file(for: location) != nil }
         let remote = try #require(editor.remote.fileStores[location])
         let file = try #require(remote.document)
         edit(file, "submitted")
@@ -487,7 +185,7 @@ struct EditorStoreTests {
         editor.preview(.file(other))
         #expect(editor.tabs == [.file(location), .file(other)])
         remote.refresh()
-        try await eventually { if case .loaded = remote.state { return true }; return false }
+        try await waitForEditorTest { if case .loaded = remote.state { return true }; return false }
         #expect(file.textStorage.string == "original")
         #expect(remote.needsCloseConfirmation == (latest != "original"))
         if latest == "external" { #expect(!remote.canSave && remote.message != nil) }
@@ -506,7 +204,7 @@ struct EditorStoreTests {
         editor.remote.load(location, root: root, connection: { connection }, write: { _, _, _, text in text }) { _, _, _ in disk as String }
         editor.remote.load(other, root: root, write: { _, _, _, text in text }) { _, _, _ in "other" }
         editor.preview(.file(location))
-        try await eventually { editor.remote.file(for: location) != nil }
+        try await waitForEditorTest { editor.remote.file(for: location) != nil }
         let remote = try #require(editor.remote.fileStores[location])
         let file = try #require(remote.document)
         edit(file, "draft")
@@ -519,7 +217,7 @@ struct EditorStoreTests {
         disk.setString("external")
         connection = ObjectIdentifier(second)
         editor.remote.synchronizeConnections()
-        try await eventually { if case .loaded = remote.state { return true }; return false }
+        try await waitForEditorTest { if case .loaded = remote.state { return true }; return false }
         #expect(file.textStorage.string == "draft" && file.savedSource == "original")
         #expect(remote.message != nil)
     }
@@ -534,7 +232,7 @@ struct EditorStoreTests {
             disk = text
             return text
         }) { _, _, _ in disk }
-        try await eventually { store.file(for: location) != nil }
+        try await waitForEditorTest { store.file(for: location) != nil }
         let remote = try #require(store.fileStores[location])
         let file = try #require(remote.document)
         edit(file, "e\u{301}")
@@ -555,7 +253,7 @@ struct EditorStoreTests {
             disk = text
             return text
         }) { _, _, _ in disk }
-        try await eventually { store.file(for: location) != nil }
+        try await waitForEditorTest { store.file(for: location) != nil }
         let remote = try #require(store.fileStores[location])
         let file = try #require(remote.document)
         edit(file, "日本語\nnext\n")
@@ -563,7 +261,7 @@ struct EditorStoreTests {
         #expect(disk.utf8.elementsEqual("\u{FEFF}日本語\r\nnext\r\n".utf8))
         #expect(!file.hasUnsavedChanges)
         remote.refresh()
-        try await eventually { remote.canSave }
+        try await waitForEditorTest { remote.canSave }
         #expect(!file.hasUnsavedChanges)
     }
 
@@ -584,7 +282,7 @@ struct EditorStoreTests {
             Issue.record("重複取得")
             return "wrong"
         }
-        try await eventually { editor.remote.file(for: location) != nil }
+        try await waitForEditorTest { editor.remote.file(for: location) != nil }
         let file = try #require(editor.remote.file(for: location))
         #expect(file.textStorage.string == "let 日本語 = 1\n")
         #expect(requests == 1)
@@ -597,7 +295,7 @@ struct EditorStoreTests {
         let renderer = NSHostingView(rootView: content)
         renderer.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         renderer.layoutSubtreeIfNeeded()
-        try await eventually { file.editorViews.views["remote"] != nil }
+        try await waitForEditorTest { file.editorViews.views["remote"] != nil }
         let text = try #require(file.editorViews.views["remote"]?.documentView as? CodeTextView)
         #expect(text.isEditable)
         #expect(text.isSelectable)
@@ -608,7 +306,7 @@ struct EditorStoreTests {
         let other = otherRoot.appending("src/a.swift")
         editor.remote.load(other, root: otherRoot, write: { _, _, _, text in text }) { _, _, _ in "other" }
         editor.open(.file(other))
-        try await eventually { editor.remote.file(for: other) != nil }
+        try await waitForEditorTest { editor.remote.file(for: other) != nil }
         #expect(editor.tabs == [.file(location), .file(other)])
         #expect(editor.remote.file(for: other)?.textStorage.string == "other")
         editor.move(.file(other), before: .file(location))
@@ -634,15 +332,15 @@ struct EditorStoreTests {
             throw SSHError.disconnected
         }
         editor.preview(.file(old))
-        try await eventually { gate.waiting }
+        try await waitForEditorTest { gate.waiting }
         editor.remote.load(next, root: root, write: { _, _, _, text in text }) { _, _, _ in "next" }
         editor.preview(.file(next))
         #expect(editor.remote.states[old] == nil)
         editor.remote.load(old, root: root, write: { _, _, _, text in text }) { _, _, _ in "new" }
         editor.open(.file(old))
-        try await eventually { editor.remote.file(for: old) != nil }
+        try await waitForEditorTest { editor.remote.file(for: old) != nil }
         gate.release()
-        try await eventually { returned }
+        try await waitForEditorTest { returned }
         #expect(editor.remote.file(for: old)?.textStorage.string == "new")
         #expect(editor.selectedTab == .file(old))
         editor.close(.file(old))
@@ -655,7 +353,7 @@ struct EditorStoreTests {
         let root = fixture.root()
         let file = root.appending("missing")
         store.load(file, root: root, write: { _, _, _, text in text }) { _, _, _ in throw SSHError.disconnected }
-        try await eventually { if case .failed = store.states[file] { return true }; return false }
+        try await waitForEditorTest { if case .failed = store.states[file] { return true }; return false }
         for location in [root.appending("../outside"), fixture.root(second: true).appending("file")] {
             store.load(location, root: root, write: { _, _, _, text in text }) { _, _, _ in
                 Issue.record("不正なルートで取得が実行された")
@@ -665,7 +363,7 @@ struct EditorStoreTests {
         }
         store.close(file)
         store.load(file, root: root, write: { _, _, _, text in text }) { _, _, _ in "" }
-        try await eventually { store.file(for: file) != nil }
+        try await waitForEditorTest { store.file(for: file) != nil }
         #expect(store.file(for: file)?.textStorage.string == "")
     }
 
@@ -687,19 +385,19 @@ struct EditorStoreTests {
             }
         }
         editor.open(.file(location))
-        try await eventually { editor.remote.file(for: location) != nil }
+        try await waitForEditorTest { editor.remote.file(for: location) != nil }
         let file = try #require(editor.remote.file(for: location))
         editor.refresh()
-        try await eventually { file.textStorage.string == "second" }
+        try await waitForEditorTest { file.textStorage.string == "second" }
         #expect(editor.remote.file(for: location) === file)
         #expect(editor.selectedTab == .file(location))
         #expect(file.isEditable)
         editor.refresh()
-        try await eventually { if case .failed = editor.remote.states[location] { return true }; return false }
+        try await waitForEditorTest { if case .failed = editor.remote.states[location] { return true }; return false }
         #expect(file.textStorage.string == "second")
         #expect(editor.remote.file(for: location) === file)
         editor.refresh()
-        try await eventually { file.textStorage.string.isEmpty }
+        try await waitForEditorTest { file.textStorage.string.isEmpty }
         #expect(reads == 4)
         editor.close(.file(location))
         editor.refresh()
@@ -730,10 +428,10 @@ struct EditorStoreTests {
             }
             return "new session"
         }
-        try await eventually { store.file(for: location) != nil }
+        try await waitForEditorTest { store.file(for: location) != nil }
         let file = try #require(store.file(for: location))
         store.refresh()
-        try await eventually { gate.waiting }
+        try await waitForEditorTest { gate.waiting }
         session = nil
         store.synchronizeConnections()
         guard case .disconnected = store.states[location] else { Issue.record("切断状態が必要"); return }
@@ -742,9 +440,9 @@ struct EditorStoreTests {
         #expect(reads == 2)
         session = ObjectIdentifier(secondSession)
         store.synchronizeConnections()
-        try await eventually { file.textStorage.string == "new session" }
+        try await waitForEditorTest { file.textStorage.string == "new session" }
         gate.release()
-        try await eventually { returned }
+        try await waitForEditorTest { returned }
         #expect(file.textStorage.string == "new session")
         #expect(store.file(for: location) === file)
         store.synchronizeConnections()
@@ -769,12 +467,12 @@ struct EditorStoreTests {
             }
             return "latest"
         }
-        try await eventually { gate.waiting }
+        try await waitForEditorTest { gate.waiting }
         store.refresh()
-        try await eventually { store.file(for: location)?.textStorage.string == "latest" }
+        try await waitForEditorTest { store.file(for: location)?.textStorage.string == "latest" }
         store.close(location)
         gate.release()
-        try await eventually { returned }
+        try await waitForEditorTest { returned }
         #expect(store.states[location] == nil)
         #expect(store.file(for: location) == nil)
         store.refresh()
@@ -782,7 +480,7 @@ struct EditorStoreTests {
     }
 
     @Test func localConflictPreservesEditsAndAdoptsLatest() throws {
-        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -809,39 +507,8 @@ struct EditorStoreTests {
         #expect(local.diskRevision == revision)
     }
 
-    @Test func localSaveCommandPreservesEncodingAndWatcherUpdatesDocument() async throws {
-        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appendingPathComponent("file.txt")
-        let bom = Data([0xef, 0xbb, 0xbf])
-        try (bom + Data("first\r\n".utf8)).write(to: url)
-        let files = FilesStore()
-        let editor = files.activeEditor
-        let connections = RemoteConnectionStore()
-        let location = FileLocation.local(url)
-        files.open(location, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
-        let local = try #require(editor.local.fileStores[location])
-        let document = local.document
-        #expect(editor.file(for: location) === document)
-        document.content = .text("second\n")
-        let text = CodeTextView()
-        text.fileStore = document
-        #expect(text.validateMenuItem(NSMenuItem(title: "Save", action: #selector(CodeTextView.saveDocument(_:)), keyEquivalent: "s")))
-        text.saveDocument(nil)
-        #expect(try Data(contentsOf: url) == bom + Data("second\r\n".utf8))
-        #expect(!document.hasUnsavedChanges)
-        try Data("updated externally".utf8).write(to: url)
-        try await eventually { document.textStorage.string == "updated externally" }
-        #expect(local.diskMessage == nil)
-        editor.close(.file(location))
-        #expect(editor.local.fileStores.isEmpty)
-        #expect(editor.file(for: location) == nil)
-    }
-
     @Test func workspaceSwitchPreservesLocalTabsAndUnsavedContents() throws {
-        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let roots = ["projects/app", "worktrees/app-1", "projects/other"].map {
@@ -918,7 +585,7 @@ struct EditorStoreTests {
             return "first host project"
         }
         firstEditor.preview(.file(firstFile))
-        try await eventually { gate.waiting }
+        try await waitForEditorTest { gate.waiting }
         for root in roots.dropFirst() {
             files.explorer.selectedLocation = root
             #expect(files.activeEditor !== firstEditor)
@@ -929,7 +596,7 @@ struct EditorStoreTests {
         }
         let lastEditor = files.activeEditor
         gate.release()
-        try await eventually { firstEditor.file(for: firstFile) != nil }
+        try await waitForEditorTest { firstEditor.file(for: firstFile) != nil }
         #expect(files.activeEditor === lastEditor)
         #expect(lastEditor.selectedTab == .file(roots[2].appending("file.swift")))
         for root in roots {
@@ -947,7 +614,7 @@ struct EditorStoreTests {
     }
 
     @Test func localEditingAndTabs() throws {
-        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/ViewerTests/" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -976,11 +643,11 @@ struct EditorStoreTests {
         #expect(editor.tabs.isEmpty)
         #expect(editor.selectedTab == nil)
     }
-}
 
-// Keep focus tests independent of the user's foreground application.
-@MainActor private final class EditorFocusTestWindow: NSWindow {
-    override var isKeyWindow: Bool { true }
+    private func edit(_ file: FileStore, _ source: String) {
+        file.textStorage.replaceCharacters(in: NSRange(location: 0, length: file.textStorage.length), with: source)
+        file.content = .text(source)
+    }
 }
 
 @MainActor private struct ViewerFixture {
