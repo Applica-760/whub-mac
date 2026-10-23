@@ -1,5 +1,5 @@
 // テスト一覧:
-// - markdownParserPreservesStructuredBlocks(): [MD-001] [MD-002] 表・コードブロックの解析構造を検証する（部分対応。描画は未検証）。要求IDのない見出しの構造と、各ブロックの順序も確認する。
+// - markdownParserPreservesStructuredBlocks(): [MD-F-001] [MD-F-002] 表・コードブロックの解析構造を検証する（部分対応。描画は未検証）。要求IDのない見出しの構造と、各ブロックの順序も確認する。
 
 import Foundation
 import Testing

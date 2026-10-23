@@ -1,5 +1,5 @@
 // テスト一覧:
-// - sessionViewsSurviveSwitchesAndClosedTabsAreRemoved(): [TAB-006] 共通部品のView・入力・カーソル位置の保持を検証する（部分対応）。要求IDのない非表示時のフォーカス解除・閉じたViewの除去も確認する。
+// - sessionViewsSurviveSwitchesAndClosedTabsAreRemoved(): [TAB-F-006] 共通部品のView・入力・カーソル位置の保持を検証する（部分対応）。要求IDのない非表示時のフォーカス解除・閉じたViewの除去も確認する。
 // - hiddenFeatureDeactivatesItsRetainedSession(): 要求IDなし。Feature非表示時の非アクティブ化と、再表示時の同じViewの再利用・アクティブ化を検証する。
 
 import AppKit
