@@ -4,6 +4,7 @@ import SwiftData
 import SwiftUI
 import Testing
 import WhubCore
+@testable import WhubAgent
 @testable import whub
 
 @Suite(.serialized) @MainActor
@@ -66,8 +67,8 @@ struct AgentBookViewTests {
     @Test func fixedPromptAreaKeepsAdditionalInputsAndAnswerOnOnePage() throws {
         let prompt = (1...80).map { "error line \($0)" }.joined(separator: "\n")
         var exchange = testExchange(prompt, answer: "before additional")
-        exchange.additionalInputs = [AgentAdditionalInput(input: [.text("additional prompt")], outputIndex: 1)]
-        exchange.outputs += [.message(AgentMessage(id: "second", role: .answer, title: "Answer", content: .text("after additional"), status: .completed))]
+        exchange.additionalInputs = [whub.AgentAdditionalInput(input: [.text("additional prompt")], outputIndex: 1)]
+        exchange.outputs += [.message(whub.AgentMessage(id: "second", role: .answer, title: "Answer", content: .text("after additional"), status: .completed))]
         let book = AgentBookPageLayout()
         let viewport = CGSize(width: 800, height: 450)
         book.update([exchange], agentName: "Codex")
@@ -85,7 +86,7 @@ struct AgentBookViewTests {
         short.update([testExchange("short")], agentName: "Codex")
         short.prepare(viewport: viewport, colorScheme: .dark)
         #expect(book.headers.first?.frame.minY == short.headers.first?.frame.minY)
-        exchange.outputs[1] = .message(AgentMessage(id: "second", role: .answer, title: "Answer", content: .text("updated"), status: .completed))
+        exchange.outputs[1] = .message(whub.AgentMessage(id: "second", role: .answer, title: "Answer", content: .text("updated"), status: .completed))
         book.update([exchange], agentName: "Codex")
         book.prepare(viewport: viewport, colorScheme: .dark)
         #expect(book.pages.count == 1 && page.storage.string.contains("updated"))
@@ -118,9 +119,9 @@ struct AgentBookViewTests {
     }
 
     @Test func imagesAndCodeRemainOrderedAcrossPagesAndAnswerUpdates() throws {
-        let images = try (0..<3).map { _ in AgentImageAttachment(image: try testImage()) }
+        let images = try (0..<3).map { _ in whub.AgentImageAttachment(image: try testImage()) }
         var exchange = testExchange("What is shown?", answer: String(repeating: "paragraph\n\n", count: 30) + "```swift\n" + String(repeating: "let value = 1\n", count: 50) + "```")
-        exchange.input += images.map(AgentInput.image)
+        exchange.input += images.map(whub.AgentInput.image)
         let book = AgentBookPageLayout()
         for scheme in [ColorScheme.light, .dark] {
             book.update([exchange], agentName: "Codex")
@@ -153,7 +154,8 @@ struct AgentBookViewTests {
         focus.readingView = surface
         focus.activateReading()
         #expect(window.firstResponder === surface)
-        let text = try #require(surface.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSTextView }.first)
+        let textViews = surface.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSTextView }
+        let text = try #require(textViews.first)
         text.setSelectedRange(NSRange(location: 0, length: 5))
         exchange.outputs = testExchange(answer: "appended answer").outputs
         book.update([exchange], agentName: "Codex")
@@ -204,7 +206,8 @@ struct AgentBookViewTests {
         surface.frame.size = CGSize(width: 800, height: 450)
         surface.needsLayout = true
         surface.layoutSubtreeIfNeeded()
-        let text = try #require(surface.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSTextView }.first)
+        let textViews = surface.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSTextView }
+        let text = try #require(textViews.first)
         text.setSelectedRange(NSRange(location: 0, length: try #require(book.pages.first).storage.length))
         let pasteboard = NSPasteboard.withUniqueName()
         #expect(text.writeSelection(to: pasteboard, type: .string))
@@ -215,12 +218,12 @@ struct AgentBookViewTests {
 
     @Test func nativeInputAcceptsPNGAndTIFFAndSendsTypedDraft() async throws {
         let backend = TestAgentSession()
-        let store = AgentStore(kind: .codex, session: backend)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
         defer { store.disconnect() }
         await store.connect(directory: "/project")
         let focus = AgentBookFocus()
-        let root = AgentBookInputView(store: store, skillStore: AgentSkillStore(session: backend),
-            historyStore: AgentHistoryStore(session: backend), focus: focus, agentName: "Codex",
+        let root = AgentBookInputView(store: store, skillStore: AgentSkillStore(agent: store),
+            historyStore: AgentHistoryStore(agent: store), focus: focus, agentName: "Codex",
             newConversation: {}, resume: { _ in false }).frame(width: 600, height: 160)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
         let host = NSHostingView(rootView: root)
@@ -242,8 +245,8 @@ struct AgentBookViewTests {
             timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
         input.keyDown(with: event)
         #expect(await testEventually { backend.sent.count == 1 })
-        #expect(backend.sent.first?.agentBookImages.count == 2)
-        #expect(backend.sent.first?.agentBookDraftText == "describe")
+        #expect(backend.sent.first?.filter { if case .image = $0 { return true }; return false }.count == 2)
+        #expect(backend.sent.first?.compactMap { if case .text(let text) = $0 { return text }; return nil }.joined() == "describe")
         #expect(store.draft.isEmpty)
     }
 
@@ -264,7 +267,7 @@ struct AgentBookViewTests {
         let featureActivity = RetainedPageActivity()
         sessionActivity.setActive(true)
         featureActivity.setActive(true)
-        let request = try CodexAgentMapping.request(method: "item/commandExecution/requestApproval", params: ["command": "ls"], rpcID: 1)
+        let request = try CodexMapping.request(method: "item/commandExecution/requestApproval", params: ["command": "ls"], rpcID: 1)
         var decisions: [Bool] = []
         let host = NSHostingView(rootView: AgentBookApprovalEntryView(request: request, pageSize: CGSize(width: 700, height: 500),
             contentBottom: 60, scale: 1, sessionActivity: sessionActivity, featureActivity: featureActivity) { _, allow in decisions.append(allow) })
@@ -299,12 +302,12 @@ struct AgentBookViewTests {
 
     @Test func readingKeysMovePagesAndReturnToDraftWithoutConsumingEditorKeys() async throws {
         let backend = TestAgentSession()
-        let store = AgentStore(kind: .codex, session: backend)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
         defer { store.disconnect() }
         await store.connect(directory: "/project")
         for index in 0..<3 {
             await store.send([.text("question \(index)")])
-            backend.emit(.output(.message(AgentMessage(id: "a", role: .answer, title: "Answer",
+            backend.emit(.output(.message(WhubAgent.AgentMessage(id: "a", role: .answer, title: "Answer",
                 content: .markdown(String(repeating: "Answer \(index).\n\n", count: 100)), status: .completed))))
             backend.emit(.completed)
             #expect(await testEventually { !store.isBusy })

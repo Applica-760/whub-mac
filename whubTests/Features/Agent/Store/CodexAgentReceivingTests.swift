@@ -4,6 +4,7 @@ import SwiftData
 import SwiftUI
 import Testing
 import WhubCore
+@testable import WhubAgent
 @testable import whub
 
 @Suite @MainActor
@@ -16,7 +17,7 @@ struct CodexAgentReceivingTests {
             bytes.append(contentsOf: [10, 10])
         }
         for size in [1, 127, bytes.count] {
-            var buffer = CodexAgentClient.LineBuffer()
+            var buffer = CodexClient.LineBuffer()
             var received: [[String: Any]] = []
             for start in stride(from: 0, to: bytes.count, by: size) {
                 try buffer.append(Data(bytes[start..<min(start + size, bytes.count)])) {
@@ -32,7 +33,7 @@ struct CodexAgentReceivingTests {
     }
 
     @Test func unterminatedLineWaitsAndMalformedJSONThrows() throws {
-        var buffer = CodexAgentClient.LineBuffer()
+        var buffer = CodexClient.LineBuffer()
         var received: [Data] = []
         buffer.append(Data("{\"id\":1}".utf8)) { received.append($0) }
         #expect(received.isEmpty)
@@ -61,7 +62,7 @@ struct CodexAgentReceivingTests {
     @Test func liveSessionSteersImagesAndSkillsWithoutStartingAnotherTurn() async throws {
         var calls: [String] = []
         var steer: [String: Any] = [:]
-        let session = CodexAgentSession(request: { method, params, _ in
+        let session = CodexAdapter(request: { method, params, _ in
             calls.append(method)
             switch method {
             case "thread/start": return ["thread": ["id": "thread-1"]]
@@ -71,11 +72,11 @@ struct CodexAgentReceivingTests {
             default: throw CodexAgentError(message: method)
             }
         })
-        defer { session.disconnect() }
+        defer { session.close() }
         try await session.connect(directory: FileManager.default.currentDirectoryPath)
         let skill = try #require(try await session.loadSkills().first)
         try await session.send([.text("first")])
-        try await session.sendAdditionalInput([.text("more"), .image(AgentImageAttachment(image: try testImage())), .skill(skill)])
+        try await session.sendAdditionalInput(AgentModelMapping().input([.text("more"), .image(whub.AgentImageAttachment(image: try testImage())), .skill(skill)]))
         #expect(calls.filter { $0 == "turn/start" }.count == 1)
         #expect(steer["expectedTurnId"] as? String == "turn-1")
         let inputs = try #require(steer["input"] as? [[String: Any]])
@@ -85,10 +86,10 @@ struct CodexAgentReceivingTests {
     }
 
     @Test func foreignThreadEventsAreIgnoredAndCompletedTurnCannotBeSteered() async throws {
-        let session = CodexAgentSession(request: { method, _, _ in
+        let session = CodexAdapter(request: { method, _, _ in
             method == "thread/start" ? ["thread": ["id": "thread-1"]] : ["turn": ["id": "turn-1"]]
         })
-        let store = AgentStore(kind: .codex, session: session)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(session))
         defer { store.disconnect() }
         await store.connect(directory: FileManager.default.currentDirectoryPath)
         await store.send([.text("first")])

@@ -1,12 +1,13 @@
 import Foundation
 import SwiftUI
 import Testing
+@testable import WhubAgent
 @testable import whub
 
 @Suite @MainActor
 struct CodexAgentStatusTests {
     @Test func commandResultsUseCommonStructuredContent() async throws {
-        let store = AgentStore(kind: .codex, session: nil)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(TestAgentSession()))
         defer { store.disconnect() }
         await store.interrupt(recordResult: true)
         let output = try #require(store.exchanges.last?.answers.first)
@@ -16,14 +17,14 @@ struct CodexAgentStatusTests {
         #expect(result.command == .stop)
         #expect(result.content == [.text("実行中の作業はありません。")])
         let source = "value\n```\ninjected\n````"
-        let markdown = AgentContent.code(source).agentBookMarkdown
+        let markdown = whub.AgentContent.code(source).agentBookMarkdown
         #expect(markdown.hasPrefix("`````\n") && markdown.hasSuffix("\n`````"))
         let document = MarkdownDocument(source: markdown, width: 600, colorScheme: .dark)
         #expect(document.codes.map(\.text).joined().trimmingCharacters(in: .newlines) == source)
     }
 
     @Test func showsSessionValuesAndRemainingQuotaWithoutSecrets() {
-        let output = CodexAgentMapping.statusText(CodexAgentStatusSnapshot(directory: "/project", threadID: "thread-1",
+        let output = CodexMapping.statusText(CodexAgentStatusSnapshot(directory: "/project", threadID: "thread-1",
             settings: ["model": "session-model", "effort": "high", "instructionSources": ["/project/AGENTS.md"]],
             config: ["model": "default-model", "api_key": "SECRET", "model_providers": ["secret": "SECRET"]],
             account: ["type": "chatgpt", "email": "test@example.com", "planType": "pro", "accessToken": "SECRET"],
@@ -37,7 +38,7 @@ struct CodexAgentStatusTests {
     }
 
     @Test func distinguishesUnknownLimitsFromZeroAndPreservesAllBuckets() {
-        let output = CodexAgentMapping.statusText(CodexAgentStatusSnapshot(directory: "/project", threadID: nil, settings: [:], config: [:],
+        let output = CodexMapping.statusText(CodexAgentStatusSnapshot(directory: "/project", threadID: nil, settings: [:], config: [:],
             account: nil, limits: ["rateLimitsByLimitId": [
                 "one": ["primary": ["usedPercent": 100, "windowDurationMins": 10080]],
                 "two": ["primary": ["usedPercent": 0, "windowDurationMins": 15]]
@@ -50,7 +51,7 @@ struct CodexAgentStatusTests {
 
     @Test func malformedConfigurationAndAPIKeyAccountNeverLeakRawResponses() async throws {
         var calls: [String] = []
-        let session = CodexAgentSession(request: { method, params, _ in
+        let session = CodexAdapter(request: { method, params, _ in
             calls.append(method)
             if method == "config/read" {
                 #expect(params["cwd"] is String)
@@ -59,7 +60,7 @@ struct CodexAgentStatusTests {
             #expect(method == "account/read" && params["refreshToken"] as? Bool == false)
             return ["account": ["type": "apiKey", "apiKey": "SECRET"]]
         })
-        defer { session.disconnect() }
+        defer { session.close() }
         try await session.connect(directory: FileManager.default.currentDirectoryPath)
         let content = try await session.loadStatus()
         guard case .code(let text) = try #require(content.first) else {
@@ -71,15 +72,15 @@ struct CodexAgentStatusTests {
     }
 
     @Test func statusFailuresKeepAvailableInformationAndStoreRecordsResult() async throws {
-        let session = CodexAgentSession(request: { method, _, _ in
+        let session = CodexAdapter(request: { method, _, _ in
             switch method {
             case "config/read": return ["config": ["model": "configured"]]
             case "account/read": return ["account": ["type": "chatgpt"]]
             default: throw CodexAgentError(message: "SECRET network detail")
             }
         })
-        defer { session.disconnect() }
-        let store = AgentStore(kind: .codex, session: session)
+        defer { session.close() }
+        let store = AgentStore(kind: .codex, target: testAgentTarget(session))
         await store.connect(directory: FileManager.default.currentDirectoryPath)
         await store.loadStatus(recordResult: true)
         let text = store.statusContent.map(\.agentBookText).joined()

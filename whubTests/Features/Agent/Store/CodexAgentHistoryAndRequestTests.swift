@@ -4,6 +4,7 @@ import SwiftData
 import SwiftUI
 import Testing
 import WhubCore
+@testable import WhubAgent
 @testable import whub
 
 @Suite @MainActor
@@ -19,7 +20,7 @@ struct CodexAgentHistoryAndRequestTests {
                 ["type": "image", "url": "data:image/png;base64," + png.base64EncodedString()]]],
             ["id": "a", "type": "agentMessage", "text": "legacy answer"]
         ]]]
-        let exchange = try #require(CodexAgentMapping.exchanges(turns).first)
+        let exchange = try #require(CodexMapping.exchanges(turns).first)
         #expect(exchange.input == [.text("first")])
         #expect(exchange.additionalInputs.first?.outputIndex == 1)
         #expect(exchange.additionalInputs.first?.input.count == 2)
@@ -33,15 +34,15 @@ struct CodexAgentHistoryAndRequestTests {
             ["id": "t", "status": "completed", "itemsView": "summary", "items": []],
             ["id": "t", "status": "completed", "items": [["id": "u", "type": "userMessage", "content": [["type": "unknown"]]]]],
             ["id": "t", "status": "completed", "items": [["type": "agentMessage"]]]] {
-            #expect(throws: CodexAgentError.self) { try CodexAgentMapping.exchanges([bad]) }
+            #expect(throws: CodexAgentError.self) { try CodexMapping.exchanges([bad]) }
         }
-        #expect(throws: CodexAgentError.self) { try CodexAgentMapping.historyEntry(["id": "t", "cwd": "relative", "updatedAt": 1.0]) }
+        #expect(throws: CodexAgentError.self) { try CodexMapping.historyEntry(["id": "t", "cwd": "relative", "updatedAt": 1.0]) }
     }
 
     @Test func paginatedResumeReadsEveryTurnAndDoesNotInfer() async throws {
         var methods: [String] = []
         let entry = testHistoryEntry()
-        let session = CodexAgentSession(request: { method, params, _ in
+        let session = CodexAdapter(request: { method, params, _ in
             methods.append(method)
             switch method {
             case "thread/read": return ["thread": ["id": entry.id, "historyMode": "paginated"]]
@@ -57,7 +58,7 @@ struct CodexAgentHistoryAndRequestTests {
             default: throw CodexAgentError(message: method)
             }
         })
-        defer { session.disconnect() }
+        defer { session.close() }
         try await session.connect(directory: entry.directory)
         let snapshot = try await session.resume(entry)
         #expect(snapshot.exchanges.count == 2)
@@ -65,25 +66,25 @@ struct CodexAgentHistoryAndRequestTests {
     }
 
     @Test func questionsAndApprovalsKeepProtocolSpecificResponses() throws {
-        let approval = try CodexAgentMapping.request(method: "item/permissions/requestApproval", params: ["permissions": ["network": true]], rpcID: "rpc")
-        let allowed = try CodexAgentMapping.response(.approval(allow: true), to: approval, method: "item/permissions/requestApproval", params: ["permissions": ["network": true]])
+        let approval = try CodexMapping.request(method: "item/permissions/requestApproval", params: ["permissions": ["network": true]], rpcID: "rpc")
+        let allowed = try CodexMapping.response(.approval(allow: true), to: approval, method: "item/permissions/requestApproval", params: ["permissions": ["network": true]])
         #expect((allowed.result["permissions"] as? [String: Bool])?["network"] == true)
-        let denied = try CodexAgentMapping.response(.approval(allow: false), to: approval, method: "item/permissions/requestApproval", params: [:])
+        let denied = try CodexMapping.response(.approval(allow: false), to: approval, method: "item/permissions/requestApproval", params: [:])
         #expect((denied.result["permissions"] as? [String: Any])?.isEmpty == true)
-        let question = try CodexAgentMapping.request(method: "item/tool/requestUserInput", params: ["questions": [["id": "q", "question": "Which?", "isSecret": true]]], rpcID: 2)
-        #expect(throws: CodexAgentError.self) { try CodexAgentMapping.response(.answers([:]), to: question, method: "item/tool/requestUserInput", params: [:]) }
-        let answered = try CodexAgentMapping.response(.answers(["q": "yes"]), to: question, method: "item/tool/requestUserInput", params: [:])
+        let question = try CodexMapping.request(method: "item/tool/requestUserInput", params: ["questions": [["id": "q", "question": "Which?", "isSecret": true]]], rpcID: 2)
+        #expect(throws: CodexAgentError.self) { try CodexMapping.response(.answers([:]), to: question, method: "item/tool/requestUserInput", params: [:]) }
+        let answered = try CodexMapping.response(.answers(["q": "yes"]), to: question, method: "item/tool/requestUserInput", params: [:])
         #expect((answered.result["answers"] as? [String: [String: [String]]])?["q"]?["answers"] == ["yes"])
-        #expect(throws: CodexAgentError.self) { try CodexAgentMapping.request(method: "unknown", params: [:], rpcID: 3) }
-        #expect(throws: CodexAgentError.self) { try CodexAgentMapping.response(.approval(allow: true), to: question, method: "item/tool/requestUserInput", params: [:]) }
+        #expect(throws: CodexAgentError.self) { try CodexMapping.request(method: "unknown", params: [:], rpcID: 3) }
+        #expect(throws: CodexAgentError.self) { try CodexMapping.response(.approval(allow: true), to: question, method: "item/tool/requestUserInput", params: [:]) }
     }
 
     @Test func skillFilteringAndHistoryPaginationUseCommonTypes() async throws {
-        let session = CodexAgentSession(request: { method, _, _ in
+        let session = CodexAdapter(request: { method, _, _ in
             if method == "skills/list" { return ["data": [["skills": [["name": "visible", "path": "/skill"], ["name": "hidden", "path": "/hidden", "enabled": false]]]]] }
             return ["data": [["id": "t", "cwd": "/project", "updatedAt": 1.0]], "nextCursor": "next"]
         })
-        defer { session.disconnect() }
+        defer { session.close() }
         try await session.connect(directory: FileManager.default.currentDirectoryPath)
         #expect(try await session.loadSkills().map(\.name) == ["visible"])
         let history = try await session.loadHistory(cursor: nil)

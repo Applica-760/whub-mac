@@ -4,6 +4,7 @@ import SwiftData
 import SwiftUI
 import Testing
 import WhubCore
+@testable import WhubAgent
 @testable import whub
 
 @Suite @MainActor
@@ -15,7 +16,10 @@ struct AgentHistoryStoreTests {
             if fail { throw CodexAgentError(message: "failed") }
             return AgentHistoryPage(entries: [testHistoryEntry("one"), testHistoryEntry(cursor == nil ? "one" : "two")], nextCursor: cursor == nil ? "next" : nil)
         }
-        let history = AgentHistoryStore(session: backend)
+        let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
+        defer { store.disconnect() }
+        await store.connect(directory: "/project")
+        let history = AgentHistoryStore(agent: store)
         await history.load()
         #expect(history.entries.map(\.id) == ["one"])
         await history.load(more: true)
