@@ -1,6 +1,6 @@
 // テスト一覧:
-// - markdownParserPreservesStructuredBlocks(): [MD-F-001] [MD-F-002]
 // - inlineCodeIsVisuallyDistinctWithinRenderedParagraph(): [MD-F-003]
+// - markdownRendersTableAndCodeBlock(): [MD-F-001] [MD-F-002]
 
 import AppKit
 import Foundation
@@ -10,42 +10,11 @@ import Testing
 
 @Suite @MainActor
 struct MarkdownDocumentTests {
-    @Test func markdownParserPreservesStructuredBlocks() throws {
-        let source = """
-        # Heading
-
-        | A | B |
-        | --- | --- |
-        | one | two |
-
-        ```swift
-        let x = 1
-        ```
-
-        """
-
-        let blocks = MarkdownSource(source: source).blocks
-
-        try #require(blocks.count == 3)
-        #expect(blocks.first?.kind == .header(level: 1))
-        if case .table(let columns) = blocks[1].kind {
-            #expect(columns.count == 2)
-            #expect(blocks[1].children.count == 2)
-        } else {
-            Issue.record("Markdown table was not preserved")
-        }
-        #expect(blocks.last?.kind == .codeBlock(languageHint: "swift"))
-    }
-
     @Test(arguments: [ColorScheme.light, .dark])
     func inlineCodeIsVisuallyDistinctWithinRenderedParagraph(colorScheme: ColorScheme) async throws {
         let host = NSHostingView(rootView: MarkdownView(source: "Before `let value = 1` after")
             .environment(\.colorScheme, colorScheme))
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 200)
-        func textView(in view: NSView) -> NSTextView? {
-            if let text = view as? NSTextView { return text }
-            return view.subviews.lazy.compactMap { textView(in: $0) }.first
-        }
 
         try await waitForEditorTest {
             host.layoutSubtreeIfNeeded()
@@ -71,5 +40,84 @@ struct MarkdownDocumentTests {
         let bounds = manager.boundingRect(forGlyphRange: glyphs, in: container)
         #expect(bounds.width > 0 && bounds.height > 0)
         withExtendedLifetime(host) {}
+    }
+
+    @Test(arguments: [ColorScheme.light, .dark])
+    func markdownRendersTableAndCodeBlock(colorScheme: ColorScheme) async throws {
+        let source = """
+        # Heading
+
+        | Fruit | Color |
+        | --- | --- |
+        | Apple | Red |
+        | Banana | Yellow |
+
+        ```swift
+        let x = 1
+        ```
+        """
+        let blocks = MarkdownSource(source: source).blocks
+        try #require(blocks.count == 3)
+        #expect(blocks.first?.kind == .header(level: 1))
+        if case .table(let columns) = blocks[1].kind {
+            #expect(columns.count == 2)
+            #expect(blocks[1].children.count == 3)
+        } else {
+            Issue.record("Markdown table was not preserved")
+        }
+        #expect(blocks.last?.kind == .codeBlock(languageHint: "swift"))
+        let cells = [["Fruit", "Color"], ["Apple", "Red"], ["Banana", "Yellow"]]
+        let host = NSHostingView(rootView: MarkdownView(source: source)
+            .environment(\.colorScheme, colorScheme))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
+        let expectedText = "Heading\n" + cells.flatMap { $0 }.joined(separator: "\n") + "\n\u{FFFC}\n"
+
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return textViews(in: host).count == 2
+        }
+
+        let text = try #require(textView(in: host))
+        let manager = try #require(text.layoutManager)
+        let container = try #require(text.textContainer)
+        manager.ensureLayout(for: container)
+        let rows = try cells.map { row in
+            try row.map { cell in
+                let range = (text.string as NSString).range(of: cell)
+                try #require(range.location != NSNotFound)
+                let glyphs = manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                let bounds = manager.boundingRect(forGlyphRange: glyphs, in: container)
+                #expect(bounds.width > 0 && bounds.height > 0)
+                return bounds
+            }
+        }
+        for row in rows {
+            #expect(abs(row[0].minY - row[1].minY) < 1)
+            #expect(row[0].maxX < row[1].minX)
+        }
+        for index in 1..<rows.count {
+            for column in 0..<2 {
+                #expect(abs(rows[index][column].minX - rows[0][column].minX) < 1)
+                #expect(rows[index - 1][column].maxY < rows[index][column].minY)
+            }
+        }
+        #expect(text.string == expectedText)
+        let code = try #require(textViews(in: host).first { $0 !== text })
+        #expect(code.string == "let x = 1\n")
+        #expect(!code.isHiddenOrHasHiddenAncestor)
+        let codeBounds = code.convert(code.bounds, to: text)
+        #expect(codeBounds.width > 0 && codeBounds.height > 0)
+        let lastRowBottom = try #require(rows.last?.map(\.maxY).max()) + text.textContainerOrigin.y
+        #expect(codeBounds.minY > lastRowBottom)
+        withExtendedLifetime(host) {}
+    }
+
+    private func textView(in view: NSView) -> NSTextView? {
+        textViews(in: view).first
+    }
+
+    private func textViews(in view: NSView) -> [NSTextView] {
+        let current = (view as? NSTextView).map { [$0] } ?? []
+        return current + view.subviews.flatMap { textViews(in: $0) }
     }
 }

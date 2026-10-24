@@ -8,13 +8,13 @@
 - 前提：テーブルを含むMarkdownがある
 - 操作：Markdownを表示する
 - 期待結果：行と列を持つ表として描画される
-- 対応テスト：`whubTests/Components/Markdown/MarkdownDocumentTests.swift / MarkdownDocumentTests.markdownParserPreservesStructuredBlocks()`（部分対応：表の解析構造のみ。描画は未検証）
+- 対応テスト：`whubTests/Components/Markdown/MarkdownDocumentTests.swift / MarkdownDocumentTests.markdownRendersTableAndCodeBlock()`（表の解析構造と、ライト／ダークの表示Viewにおける見出しを含む3行2列のセル文字列・描画領域・横並び・縦揃え・行間の非重複を検証。画面の目視確認は含まない）
 
 #### MD-F-002：コードブロックを描画する
 - 前提：コードブロックを含むMarkdownがある
 - 操作：Markdownを表示する
 - 期待結果：コードが独立したブロックとして描画される
-- 対応テスト：`whubTests/Components/Markdown/MarkdownDocumentTests.swift / MarkdownDocumentTests.markdownParserPreservesStructuredBlocks()`（部分対応：ブロック種別と言語の解析のみ。描画は未検証）
+- 対応テスト：`whubTests/Components/Markdown/MarkdownDocumentTests.swift / MarkdownDocumentTests.markdownRendersTableAndCodeBlock()`（コードブロックの種別・言語の解析と、ライト／ダークの表示Viewでコードの文字列が表とは別のテキストViewに表示され、表の下に独立した領域を持つことを検証。画面の目視確認は含まない）
 
 #### MD-F-003：インラインコードを描画する
 - 前提：文章中にインラインコードを含むMarkdownがある
