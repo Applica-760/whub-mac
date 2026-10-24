@@ -1,6 +1,14 @@
+// テスト一覧:
+// - browserConsumesOnlyUnhandledPlainArrowsFromVisibleWebContent(): Webコンテンツが未処理の矢印キーだけを消費する。
+// - browserFocusesVisibleWebContentWithoutClicking(): 可視Webコンテンツへのフォーカス移動と非表示時の拒否。
+// - browserScrollsWithJKExceptWhenEditing(): 編集中を除くJ・Kスクロールと修飾キーの扱い。
+// - browserLoadsLocalHTMLAndRelativeResources(): ローカルHTMLと相対リソースを読み込む。
+// - commandWClosesSelectedBrowserTabAndReplacesLast(): [TAB-F-007] [TAB-F-009]
+
 import AppKit
 import Foundation
 import SwiftData
+import SwiftUI
 import Testing
 import WebKit
 import WhubCore
@@ -159,5 +167,46 @@ struct BrowserViewTests {
         #expect(try await page.callJavaScript("return getComputedStyle(document.body).color") as? String == "rgb(1, 2, 3)")
         #expect(try await page.callJavaScript("return document.images[0].naturalWidth") as? Int == 12)
         #expect(browser.selectedSession.address == url.absoluteString)
+    }
+    @Test(arguments: [1, 2])
+    func commandWClosesSelectedBrowserTabAndReplacesLast(tabCount: Int) async throws {
+        let store = BrowserStore()
+        let first = store.selectedSession
+        first.address = "retained draft"
+        if tabCount == 2 { store.add() }
+        let closing = store.selectedSession
+        let defaultsName = "BrowserTabTests." + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(BookmarkStorage.initialData, forKey: BookmarkStorage.key)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let host = NSHostingView(rootView: BrowserView().environmentObject(store).defaultAppStorage(defaults))
+        let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 650),
+                                   styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return tabTestViews(in: host, of: NSTextField.self).contains { $0.isEditable }
+        }
+        let address = try #require(tabTestViews(in: host, of: NSTextField.self).first { $0.isEditable })
+        #expect(window.makeFirstResponder(address))
+
+        try sendTabTestKey("w", code: 13, to: window)
+
+        try #require(store.selectedSessionID != closing.id)
+        #expect(store.sessions.count == 1)
+        #expect(!store.sessions.contains { $0 === closing })
+        if tabCount == 1 {
+            #expect(store.selectedSession.page !== closing.page)
+            #expect(store.selectedSession.address.isEmpty)
+            #expect(store.selectedSession.showsBookmarks)
+        } else {
+            #expect(store.selectedSession === first)
+            #expect(first.address == "retained draft")
+        }
+        let selected = store.selectedSessionID
+        store.remove(closing.id)
+        #expect(store.sessions.count == 1 && store.selectedSessionID == selected)
     }
 }

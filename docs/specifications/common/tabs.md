@@ -48,7 +48,7 @@
 - 前提：対象Featureにタブが2枚以上あり、そのうち1枚を選択している
 - 操作：CmdWを押す
 - 期待結果：選択中のタブが閉じ、残ったタブが選択される。他のタブの状態は保持する
-- 対応テスト：未照合
+- 対応テスト：`whubTests/Features/Browser/View/BrowserViewTests.swift / BrowserViewTests.commandWClosesSelectedBrowserTabAndReplacesLast()`、`whubTests/Features/Terminal/View/TerminalViewTests.swift / TerminalViewTests.commandWClosesSelectedTerminalTabAndFocusesReplacement()`（部分対応：2枚のBrowser／TerminalでCmdWを送信し、選択中タブの除去と残ったタブの選択・状態保持を検証。FileEditor／AgentBookは未照合）
 
 #### TAB-F-008：FileEditorの最後のタブを閉じる
 - 前提：FileEditorタブが1枚ある
@@ -60,13 +60,13 @@
 - 前提：Browserタブが1枚ある
 - 操作：CmdWを押す
 - 期待結果：元のタブが閉じ、新しいBrowserタブ1枚に置き換わる。新規タブが選択される
-- 対応テスト：未照合
+- 対応テスト：`whubTests/Features/Browser/View/BrowserViewTests.swift / BrowserViewTests.commandWClosesSelectedBrowserTabAndReplacesLast()`（表示ViewへCmdWを送信し、元のタブの除去、異なるID・WebPageを持つ新規タブ1枚への置換と選択を検証。実画面の目視確認は含まない）
 
 #### TAB-F-010：Terminalの最後のタブを新規タブに置き換える
 - 前提：Terminalタブが1枚ある
 - 操作：CmdWを押す
 - 期待結果：元のタブが閉じ、新しいTerminalセッションのタブ1枚に置き換わる。新規タブへ入力フォーカスが移る
-- 対応テスト：未照合
+- 対応テスト：`whubTests/Features/Terminal/View/TerminalViewTests.swift / TerminalViewTests.commandWClosesSelectedTerminalTabAndFocusesReplacement()`（表示ViewへCmdWを送信し、元のタブの除去、新しいセッション・Terminal Viewを持つ1枚への置換、入力フォーカスと文字入力を検証。テストでは子プロセスを起動しないTerminalを注入するため、実シェルの起動・終了と実行中コマンドの終了確認ダイアログは未検証）
 
 #### TAB-F-011：AgentBookの最後のタブを新規タブに置き換える
 - 前提：AgentBookタブが1枚ある

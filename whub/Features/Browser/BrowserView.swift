@@ -33,7 +33,7 @@ struct BrowserView: View {
                     tabFocus.activate()
                     store.remove(id)
                 },
-                canClose: { _ in store.sessions.count > 1 },
+                canClose: { _ in true },
                 move: store.move,
                 isShortcutTarget: tabFocus.contains
             ) { id, isSelected, actions in
@@ -43,7 +43,6 @@ struct BrowserView: View {
                         icon: Image(systemName: "globe"),
                         isSelected: isSelected,
                         width: 120,
-                        isCloseDisabled: store.sessions.count == 1,
                         action: actions.select,
                         closeAction: actions.close
                     )

@@ -69,10 +69,15 @@ final class BrowserStore: ObservableObject {
     }
 
     func remove(_ id: BrowserSession.ID) {
-        guard sessions.count > 1,
-              let index = sessions.firstIndex(where: { $0.id == id })
+        guard let index = sessions.firstIndex(where: { $0.id == id })
         else { return }
 
+        if sessions.count == 1 {
+            let replacement = BrowserSession(navigationDecider: navigationDecider)
+            sessions = [replacement]
+            selectedSessionID = replacement.id
+            return
+        }
         sessions.remove(at: index)
         guard selectedSessionID == id else { return }
         selectedSessionID = sessions[min(index, sessions.endIndex - 1)].id

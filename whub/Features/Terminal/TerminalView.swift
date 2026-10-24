@@ -24,7 +24,7 @@ struct TerminalView: View {
                     store.select(id)
                 },
                 close: requestClose,
-                canClose: { _ in store.sessions.count > 1 },
+                canClose: { _ in true },
                 move: store.move,
                 isShortcutTarget: { window in
                     pendingCloseID == nil && tabFocus.contains(window)
@@ -35,7 +35,6 @@ struct TerminalView: View {
                         title: "Term \(index + 1)",
                         icon: Image(systemName: "terminal"),
                         isSelected: isSelected,
-                        isCloseDisabled: store.sessions.count == 1,
                         action: actions.select,
                         closeAction: actions.close
                     )
@@ -74,8 +73,7 @@ struct TerminalView: View {
     }
 
     private func requestClose(_ id: TerminalSession.ID) {
-        guard store.sessions.count > 1,
-              let session = store.sessions.first(where: { $0.id == id }) else { return }
+        guard let session = store.sessions.first(where: { $0.id == id }) else { return }
         tabFocus.activate()
         if session.hasRunningCommand {
             pendingCloseID = id

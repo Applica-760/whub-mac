@@ -70,7 +70,11 @@ final class TerminalSession: Identifiable {
             && proc_listchildpids(shellPID, &childPID, Int32(MemoryLayout<pid_t>.size)) != 0
     }
 
-    init(currentDirectory: String) {
+    init(terminal: LocalProcessTerminalView) {
+        self.terminal = terminal
+    }
+
+    convenience init(currentDirectory: String) {
         let terminal = FixedCursorTerminalView(frame: .zero)
         for scroller in terminal.subviews.compactMap({ $0 as? NSScroller }) {
             scroller.isHidden = true
@@ -85,7 +89,7 @@ final class TerminalSession: Identifiable {
             environment: Terminal.getEnvironmentVariables(termName: "xterm-256color"),
             currentDirectory: currentDirectory
         )
-        self.terminal = terminal
+        self.init(terminal: terminal)
     }
 
     deinit {
@@ -98,10 +102,12 @@ final class TerminalStore: ObservableObject {
     @Published private(set) var sessions: [TerminalSession]
     @Published private(set) var selectedSessionID: TerminalSession.ID
     private let context: ModelContext
+    private let makeSession: (String) -> TerminalSession
 
-    init(context: ModelContext) {
+    init(context: ModelContext, makeSession: @escaping (String) -> TerminalSession = TerminalSession.init(currentDirectory:)) {
         self.context = context
-        let session = TerminalSession(currentDirectory: Self.currentDirectory(in: context))
+        self.makeSession = makeSession
+        let session = makeSession(Self.currentDirectory(in: context))
         sessions = [session]
         selectedSessionID = session.id
     }
@@ -111,16 +117,21 @@ final class TerminalStore: ObservableObject {
     }
 
     func add() {
-        let session = TerminalSession(currentDirectory: Self.currentDirectory(in: context))
+        let session = makeSession(Self.currentDirectory(in: context))
         sessions.append(session)
         selectedSessionID = session.id
     }
 
     func remove(_ id: TerminalSession.ID) {
-        guard sessions.count > 1,
-              let index = sessions.firstIndex(where: { $0.id == id })
+        guard let index = sessions.firstIndex(where: { $0.id == id })
         else { return }
 
+        if sessions.count == 1 {
+            let replacement = makeSession(Self.currentDirectory(in: context))
+            sessions = [replacement]
+            selectedSessionID = replacement.id
+            return
+        }
         sessions.remove(at: index)
         guard selectedSessionID == id else { return }
         selectedSessionID = sessions[min(index, sessions.endIndex - 1)].id
