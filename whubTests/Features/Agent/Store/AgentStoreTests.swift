@@ -1,3 +1,13 @@
+// テスト一覧:
+// - additionalInputsPreserveTypedContentAndOutputPosition(): 追加入力の内容と出力位置を保持する。
+// - failedOrCompletedSteeringDoesNotAppendInput(): 失敗・完了後の追加入力を記録しない。
+// - concurrentSteeringAndStoppingAreBlocked(): 追加入力の重複と停止中の送信を拒否する。
+// - outputsReplaceByIDAndRequestsResolveIndependently(): 回答処理中・回答済みの再送を拒否し、要求を個別に解決する。
+// - interruptionRestoresSubmittedInputButKeepsNewDraft(): 中断時に送信内容を復元し、新しい下書きを保持する。
+// - streamEndingFailsActiveWorkAndPreservesFinishedWork(): ストリーム終了で作業中は失敗、完了・中断済みは保持する。
+// - explicitSessionCloseInterruptsActiveWork(): 明示的なセッション終了は作業を中断する。
+// - resumeUsesOriginalDirectoryAndRejectsRunningSnapshot(): 元ディレクトリで履歴を再開し、実行中の履歴を拒否する。
+
 import AppKit
 import Combine
 import SwiftData
@@ -80,17 +90,33 @@ struct AgentStoreTests {
         #expect(await testEventually { store.exchanges.first?.pendingRequests.count == 2 })
         await store.respond(to: "two", with: .answers([:]))
         #expect(backend.responses.isEmpty)
-        await store.respond(to: "one", with: .approval(allow: true))
+        var releaseResponse: CheckedContinuation<Void, Never>?
+        backend.respondAction = { id, _ in
+            if id == "one" {
+                await withCheckedContinuation { releaseResponse = $0 }
+            }
+            var resolved = id == "one" ? first : second
+            resolved.outcome = id == "one" ? .accepted : .answered
+            backend.emit(.output(.request(resolved)))
+        }
+        let responding = Task { await store.respond(to: "one", with: .approval(allow: true)) }
+        defer { releaseResponse?.resume(); responding.cancel() }
+        try #require(await testEventually { releaseResponse != nil && store.respondingRequestIDs.contains("one") })
+
         await store.respond(to: "one", with: .approval(allow: false))
         #expect(backend.responses == ["one"])
-        var resolved = first
-        resolved.outcome = .accepted
-        backend.emit(.output(.request(resolved)))
-        #expect(await testEventually { store.respondingRequestIDs.isEmpty })
-        #expect(store.exchanges.first?.pendingRequests.map(\.id) == ["two"])
+        releaseResponse?.resume()
+        releaseResponse = nil
+        await responding.value
+        try #require(await testEventually {
+            store.respondingRequestIDs.isEmpty && store.exchanges.first?.pendingRequests.map(\.id) == ["two"]
+        })
         #expect(store.exchanges.first?.outputs.count == 2)
+        await store.respond(to: "one", with: .approval(allow: false))
+        #expect(backend.responses == ["one"])
         await store.respond(to: "two", with: .answers(["q": "answer"]))
         #expect(backend.responses == ["one", "two"])
+        #expect(await testEventually { store.exchanges.first?.pendingRequests.isEmpty == true })
     }
 
     @Test func interruptionRestoresSubmittedInputButKeepsNewDraft() async {
@@ -108,18 +134,36 @@ struct AgentStoreTests {
         }
     }
 
-    @Test func streamEndingFailsActiveWorkAndClosedStoreIgnoresLateEvents() async {
+    @Test(arguments: [WhubAgent.AgentExecutionStatus.running, .completed, .interrupted])
+    func streamEndingFailsActiveWorkAndPreservesFinishedWork(status: WhubAgent.AgentExecutionStatus) async throws {
         let backend = TestAgentSession()
         let store = AgentStore(kind: .codex, target: testAgentTarget(backend))
+        defer { store.disconnect() }
         await store.connect(directory: "/project")
         await store.send([.text("submitted")])
+        if status == .completed { backend.emit(.completed) }
+        if status == .interrupted { backend.emit(.interrupted) }
+        try #require(await testEventually { store.exchanges.first?.status == status })
+
         backend.finish()
-        #expect(await testEventually { store.isClosed })
+
+        try #require(await testEventually { store.isClosed })
         #expect(!store.isBusy && !store.isConnected)
-        #expect(store.exchanges.first?.status == .failed)
-        #expect(store.draft == [.text("submitted")])
-        backend.emit(.completed)
-        #expect(store.exchanges.first?.status == .failed)
+        #expect(store.exchanges.first?.status == (status == .running ? .failed : status))
+        #expect(store.draft == (status == .completed ? [] : [.text("submitted")]))
+    }
+
+    @Test func explicitSessionCloseInterruptsActiveWork() async throws {
+        let backend = TestAgentSession()
+        let session = AgentSession(directory: "/project", adapter: backend)
+        defer { session.close() }
+        _ = try session.execute(AgentCommand(action: .send([.text("submitted")])))
+        try #require(await testEventually { session.state.commands.first?.status == .completed })
+
+        session.close()
+
+        #expect(session.state.isClosed && backend.isClosed)
+        #expect(session.state.exchanges.first?.status == .interrupted)
     }
 
     @Test func resumeUsesOriginalDirectoryAndRejectsRunningSnapshot() async {

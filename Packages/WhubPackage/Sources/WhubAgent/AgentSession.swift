@@ -252,6 +252,7 @@ final class AgentSession {
     private func adapterEnded() {
         guard !state.isClosed else { return }
         state.error = AgentError(.adapterFailed, "Agentの接続が終了しました。")
+        finishExchange(.failed)
         close()
     }
 
