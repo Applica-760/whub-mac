@@ -9,6 +9,8 @@
 // - shrinkingPagesDoesNotStealInputFocus(): ページ縮小時に入力フォーカスを奪わない。
 // - copyingSelectionRestoresCodeAndFormulaSources(): 選択範囲のコピーでコードと数式の元テキストを復元する。
 // - nativeInputAcceptsPNGAndTIFFAndSendsTypedDraft(): 画像貼付けと入力した下書きの送信。
+// - inputGrowthKeepsBookSize(): Input growth retains the Book viewport and space for bottom controls.
+// - inputScrollsAfterFifteenDisplayLines(): Input height is capped while long drafts remain scrollable.
 // - completionTokenRequiresCommandPositionAndHandlesUnicode(): 補完トークンの位置判定とUnicode対応。
 // - approvalKeysRespectIMERepeatsWindowAndBookActivity(): 承認キーのIME・リピート・Window・アクティブ状態判定。
 // - readingKeysMovePagesAndReturnToDraftWithoutConsumingEditorKeys(): 閲覧キーのページ移動と入力への復帰。
@@ -379,6 +381,109 @@ struct AgentBookViewTests {
         #expect(backend.sent.first?.filter { if case .image = $0 { return true }; return false }.count == 2)
         #expect(backend.sent.first?.compactMap { if case .text(let text) = $0 { return text }; return nil }.joined() == "describe")
         #expect(store.draft.isEmpty)
+    }
+
+    @Test func inputGrowthKeepsBookSize() async throws {
+        let database = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                          configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let book = AgentBookStore(context: database.mainContext,
+            runtime: AgentRuntime(makeAdapter: { _ in TestAgentSession() }), notify: { _ in })
+        defer { book.disconnect() }
+        let connections = RemoteConnectionStore()
+        let servers = RemoteServerStore(connections: connections)
+        let host = NSHostingView(rootView: AgentBookView(store: book)
+            .environmentObject(connections).environmentObject(servers))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 550),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return window.firstResponder is NSTextView && book.selectedTab.store.isConnected
+        }
+        let input = try #require(window.firstResponder as? NSTextView)
+        let scroll = try #require(input.enclosingScrollView)
+        #expect(scroll.frame.width > 500)
+        func bookSurface(in view: NSView) -> AgentBookTextSurface? {
+            if let surface = view as? AgentBookTextSurface { return surface }
+            return view.subviews.lazy.compactMap { bookSurface(in: $0) }.first
+        }
+        let surface = try #require(bookSurface(in: host))
+        let bookSize = surface.bounds.size
+        #expect(scroll.convert(scroll.bounds, to: nil).minY >= 44)
+        input.insertText(Array(repeating: "long error", count: 80).joined(separator: "\n"),
+                         replacementRange: NSRange(location: 0, length: input.string.utf16.count))
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return scroll.contentSize.height > 150 && input.frame.height > scroll.contentSize.height * 2
+        }
+        #expect(scroll.convert(scroll.bounds, to: nil).minY >= 44)
+        #expect(surface.bounds.size == bookSize)
+        #expect(scroll.frame.width > 500)
+        #expect(scroll.convert(scroll.bounds, to: nil).maxY < 430)
+    }
+
+    @Test func inputScrollsAfterFifteenDisplayLines() async throws {
+        let store = AgentStore(kind: .codex, target: testAgentTarget(TestAgentSession()))
+        defer { store.disconnect() }
+        store.draft = [.text(Array(repeating: "error line", count: 15).joined(separator: "\n"))]
+        let focus = AgentBookFocus()
+        let host = NSHostingView(rootView: VStack {
+            Spacer()
+            AgentBookInputView(store: store, skillStore: AgentSkillStore(agent: store),
+                historyStore: AgentHistoryStore(agent: store), focus: focus, agentName: "Codex",
+                newConversation: {}, resume: { _ in false })
+        })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 550),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return focus.inputView?.enclosingScrollView?.contentSize.height ?? 0 > 100
+        }
+        let input = try #require(focus.inputView as? NSTextView)
+        let scroll = try #require(input.enclosingScrollView)
+        let font = try #require(input.font)
+        let lineHeight = try #require(input.layoutManager).defaultLineHeight(for: font)
+        let maximumHeight = ceil(lineHeight * 15)
+        #expect(abs(scroll.contentSize.height - maximumHeight) <= 1)
+        let longDraft = Array(repeating: "error line", count: 80).joined(separator: "\n")
+        input.insertText(longDraft, replacementRange: NSRange(location: 0, length: input.string.utf16.count))
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return input.frame.height > maximumHeight * 4
+        }
+        #expect(abs(scroll.contentSize.height - maximumHeight) <= 1)
+        #expect(store.draft.agentBookDraftText == longDraft)
+        input.scrollRangeToVisible(NSRange(location: input.string.utf16.count, length: 0))
+        #expect(scroll.contentView.bounds.minY > 0)
+        #expect(scroll.documentVisibleRect.maxY >= input.bounds.maxY - lineHeight)
+
+        store.draft = [.text(String(repeating: "long error message ", count: 200))]
+        window.setContentSize(NSSize(width: 400, height: 550))
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return input.string == store.draft.agentBookDraftText && input.frame.height > maximumHeight * 2
+        }
+        #expect(scroll.contentSize.height <= maximumHeight + 1)
+        #expect(focus.inputView === input)
+
+        store.draft = [.text("short")]
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return input.string == "short" && scroll.contentSize.height < lineHeight * 2
+        }
+        #expect(scroll.contentView.bounds.minY == 0)
+
+        window.setContentSize(NSSize(width: 1400, height: 550))
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return scroll.frame.width > 700
+        }
+        #expect(scroll.frame.width < 868)
     }
 
     @Test func completionTokenRequiresCommandPositionAndHandlesUnicode() {

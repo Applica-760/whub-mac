@@ -25,54 +25,49 @@ struct AgentBookNavigationView: View {
     private var forwardLabel: String { "次のページ" }
 
     var body: some View {
-        HStack {
+        HStack(spacing: 0) {
             Button { move(-1) } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 16))
                         .foregroundStyle(canGoBack ? .primary : .tertiary)
-                    Divider().frame(height: 16)
-                    Text(canGoBack ? "\(firstPage - 1)" : "—")
+                    Text(canGoBack ? "\(firstPage - 1)" : "-")
                         .font(.system(size: 16).monospacedDigit())
                         .frame(minWidth: 24)
                         .contentTransition(.numericText())
                 }
-                .frame(width: 80, height: Self.rowHeight)
+                .frame(width: 54, height: Self.rowHeight)
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular, in: .capsule)
             .disabled(!canInteract || !canGoBack)
             .accessibilityLabel(backLabel)
             .accessibilityValue(canGoBack ? "\(firstPage - 1) / \(pageCount) ページ" : "前のページなし")
             .help(backLabel)
 
-            Spacer()
+            Divider().frame(height: 16)
 
             Button { move(1) } label: {
                 HStack(spacing: 8) {
-                    Text(canGoForward ? "\(firstPage + 1)" : "—")
+                    Text(canGoForward ? "\(firstPage + 1)" : "-")
                         .font(.system(size: 16).monospacedDigit())
                         .frame(minWidth: 24)
                         .contentTransition(.numericText())
-                    Divider().frame(height: 16)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 16))
                         .foregroundStyle(canGoForward ? .primary : .tertiary)
                         .symbolEffect(.bounce, value: reduceMotion ? 0 : continuationRevision)
                 }
-                .frame(width: 80, height: Self.rowHeight)
+                .frame(width: 54, height: Self.rowHeight)
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular, in: .capsule)
             .disabled(!canInteract || !canGoForward)
             .accessibilityLabel(forwardLabel)
             .accessibilityValue(canGoForward ? "\(firstPage + 1) / \(pageCount) ページ" : "次のページなし")
             .help(forwardLabel)
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 64)
+        .glassEffect(.regular, in: .capsule)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: spread)
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(true).eraseToAnyPublisher()) { sessionActive = $0 }
         .onReceive(featureActivity?.isActive.eraseToAnyPublisher() ?? Just(true).eraseToAnyPublisher()) { featureActive = $0 }

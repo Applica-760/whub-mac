@@ -28,58 +28,54 @@ struct AgentBookTabView: View {
                     pageCountChanged: { pageCount = $0 }, focus: bookFocus,
                     featureActivity: featureActivity
                 )
-                // Keep a small gap above the input area.
-                .padding(.bottom, 8)
-                .overlay(alignment: .bottom) {
-                    AgentBookNavigationView(
-                        spread: $spread, pageCount: pageCount, isGenerating: store.isBusy,
-                        focus: bookFocus, featureActivity: featureActivity
-                    )
-                }
-                .overlay(alignment: .bottom) {
-                    AgentBookInputView(
-                        store: store, skillStore: tab.skillStore, historyStore: tab.historyStore,
-                        focus: bookFocus, agentName: agentName,
-                        newConversation: {
-                            if store.exchanges.isEmpty { newConversation() }
-                            else { confirmsReset = true }
-                        },
-                        resume: { await bookStore.resume($0, replacing: tab.id) },
-                        isResuming: bookStore.isResuming, resumeError: bookStore.resumeError
-                    )
-                    .padding(.horizontal, AgentBookOptionControlView.inputInset)
-                }
-                .overlay(alignment: .bottomLeading) {
-                    AgentBookTabButton(
-                        tabs: bookStore.tabs, selection: tab.id,
-                        completedSessionIDs: bookStore.completedTabIDs,
-                        notificationDates: bookStore.notificationDates,
-                        featureActivity: featureActivity,
-                        select: select
-                    )
-                        .frame(width: 232, height: 36)
-                        .padding(.leading, 16)
-                        .padding(.bottom, 16)
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    AgentBookOptionControlView(
-                        store: store, canChangeKind: bookStore.canChangeKind(in: tab.id),
-                        changeKind: { bookStore.changeKind($0, in: tab.id) },
-                        hosts: bookStore.hosts, hostsError: bookStore.hostsError,
-                        canChangeHost: bookStore.canChangeHost(in: tab.id),
-                        changeHost: { host in
-                            guard isHostConnected(host) else { return }
-                            bookStore.changeHost(host, in: tab.id, servers: servers)
-                        },
-                        isHostConnected: isHostConnected
-                    )
-                        .padding(.trailing, 16)
-                        .padding(.bottom, 16)
-                }
+                .padding(.bottom, 104)
                 .overlay(alignment: .topTrailing) {
                     if let error = store.errorMessage {
                         AgentBookErrorView(message: error)
                             .padding(12)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    VStack(spacing: 0) {
+                        AgentBookInputView(
+                            store: store, skillStore: tab.skillStore, historyStore: tab.historyStore,
+                            focus: bookFocus, agentName: agentName,
+                            newConversation: {
+                                if store.exchanges.isEmpty { newConversation() }
+                                else { confirmsReset = true }
+                            },
+                            resume: { await bookStore.resume($0, replacing: tab.id) },
+                            isResuming: bookStore.isResuming, resumeError: bookStore.resumeError
+                        )
+                        HStack(spacing: 8) {
+                            AgentBookTabButton(
+                                tabs: bookStore.tabs, selection: tab.id,
+                                completedSessionIDs: bookStore.completedTabIDs,
+                                notificationDates: bookStore.notificationDates,
+                                featureActivity: featureActivity,
+                                select: select
+                            )
+                                .frame(width: 232, height: 36)
+                            Spacer(minLength: 0)
+                            AgentBookNavigationView(
+                                spread: $spread, pageCount: pageCount, isGenerating: store.isBusy,
+                                focus: bookFocus, featureActivity: featureActivity
+                            )
+                            Spacer(minLength: 0)
+                            AgentBookOptionControlView(
+                                store: store, canChangeKind: bookStore.canChangeKind(in: tab.id),
+                                changeKind: { bookStore.changeKind($0, in: tab.id) },
+                                hosts: bookStore.hosts, hostsError: bookStore.hostsError,
+                                canChangeHost: bookStore.canChangeHost(in: tab.id),
+                                changeHost: { host in
+                                    guard isHostConnected(host) else { return }
+                                    bookStore.changeHost(host, in: tab.id, servers: servers)
+                                },
+                                isHostConnected: isHostConnected
+                            )
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
                     }
                 }
             }

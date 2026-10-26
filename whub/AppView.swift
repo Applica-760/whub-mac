@@ -27,8 +27,8 @@ struct AppView: View {
         .frame(minWidth: 1000, minHeight: 550)
         .toolbar {
             WorkspaceToolbar(selection: workspaceActions?.selection ?? $section)
-            RemoteConnectionToolbar()            
-			　SettingsToolbar()
+            RemoteConnectionToolbar()
+            SettingsToolbar()
         }
     }
 

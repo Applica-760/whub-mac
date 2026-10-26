@@ -82,7 +82,6 @@ struct AgentBookExchangeView: View {
         }
         .background(AgentBookPageKeys(focus: focus, isActive: { canInteract },
                                       activateInput: focus.activateInput, move: focus.movePage, scroll: focus.scrollPage))
-        .padding(.bottom, 64)
         .onReceive(store.$exchanges.throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)) {
             updateBook($0)
         }

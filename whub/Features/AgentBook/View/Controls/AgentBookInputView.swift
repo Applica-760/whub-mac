@@ -174,7 +174,7 @@ struct AgentBookInputView: View {
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .frame(maxWidth: 868)
-        .padding(.horizontal, 16).padding(.bottom, 16).padding(.top, 8)
+        .padding(.horizontal, 16).padding(.top, 8)
         .task(id: store.isConnected) { if store.isConnected { await skillStore.load() } }
         .task(id: showsSkills) { if showsSkills { await skillStore.load() } }
         .task(id: showsResume) { if showsResume { await historyStore.load() } }
@@ -413,7 +413,7 @@ private struct AgentBookTextInput: NSViewRepresentable {
     let handleKey: (NSEvent) -> Bool
     let pasteImages: ([NSImage]) -> Void
 
-    func makeNSView(context: Context) -> AgentBookInputTextView {
+    func makeNSView(context: Context) -> AgentBookInputScrollView {
         let view = AgentBookInputTextView()
         view.bookFocus = focus
         focus.inputView = view
@@ -431,10 +431,19 @@ private struct AgentBookTextInput: NSViewRepresentable {
         view.textContainer?.lineFragmentPadding = 0
         view.textContainer?.widthTracksTextView = false
         view.isVerticallyResizable = false
-        return view
+        let scroll = AgentBookInputScrollView()
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.documentView = view
+        return scroll
     }
 
-    func updateNSView(_ view: AgentBookInputTextView, context: Context) {
+    func updateNSView(_ scroll: AgentBookInputScrollView, context: Context) {
+        guard let view = scroll.documentView as? AgentBookInputTextView else { return }
+        scroll.needsLayout = true
         focus.inputView = view
         view.setAccessibilityLabel(agentName + "に依頼する")
         let becameActive = isActive && !view.isPageActive
@@ -459,18 +468,12 @@ private struct AgentBookTextInput: NSViewRepresentable {
         }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView view: AgentBookInputTextView, context: Context) -> CGSize? {
-        guard let width = proposal.width, width.isFinite, width > 0, let font = view.font else { return nil }
-        // SwiftUI probes multiple widths; measurement must not change the live text container.
-        let storage = NSTextStorage(attributedString: view.attributedString())
-        let layout = NSLayoutManager()
-        let container = NSTextContainer(containerSize: CGSize(width: width, height: .greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0
-        storage.addLayoutManager(layout)
-        layout.addTextContainer(container)
-        layout.ensureLayout(for: container)
-        let height = max(layout.usedRect(for: container).maxY, layout.extraLineFragmentRect.maxY, layout.defaultLineHeight(for: font))
-        return CGSize(width: width, height: ceil(height))
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView scroll: AgentBookInputScrollView, context: Context) -> CGSize? {
+        guard let width = proposal.width, width.isFinite, width > 0,
+              let view = scroll.documentView as? AgentBookInputTextView,
+              let font = view.font, let layout = view.layoutManager else { return nil }
+        let maximumHeight = ceil(layout.defaultLineHeight(for: font) * 15)
+        return CGSize(width: width, height: min(view.measuredHeight(for: width), maximumHeight))
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -492,11 +495,39 @@ private struct AgentBookTextInput: NSViewRepresentable {
     }
 }
 
+private final class AgentBookInputScrollView: NSScrollView {
+    override func layout() {
+        super.layout()
+        guard let view = documentView as? AgentBookInputTextView else { return }
+        let width = max(contentSize.width, 1)
+        let size = CGSize(width: width, height: max(contentSize.height, view.measuredHeight(for: width)))
+        guard view.frame.size != size else { return }
+        view.setFrameSize(size)
+        if window?.firstResponder === view {
+            view.scrollRangeToVisible(view.selectedRange())
+        }
+    }
+}
+
 private final class AgentBookInputTextView: NSTextView {
     weak var bookFocus: AgentBookFocus?
     var isPageActive = false
     var handleKey: ((NSEvent) -> Bool)?
     var pasteImages: (([NSImage]) -> Void)?
+
+    func measuredHeight(for width: CGFloat) -> CGFloat {
+        guard let font else { return 20 }
+        // Measure separately: SwiftUI probes widths without resizing the live editor.
+        let storage = NSTextStorage(attributedString: attributedString())
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(containerSize: CGSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        storage.addLayoutManager(layout)
+        layout.addTextContainer(container)
+        layout.ensureLayout(for: container)
+        return ceil(max(layout.usedRect(for: container).maxY, layout.extraLineFragmentRect.maxY,
+                        layout.defaultLineHeight(for: font)))
+    }
 
     override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
         [.png, .tiff] + super.readablePasteboardTypes

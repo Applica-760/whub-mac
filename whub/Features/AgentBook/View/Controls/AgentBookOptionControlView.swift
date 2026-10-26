@@ -4,8 +4,6 @@ import WhubAgent
 import WhubCore
 
 struct AgentBookOptionControlView: View {
-    static let inputInset: CGFloat = 270
-
     @ObservedObject var store: AgentStore
     let canChangeKind: Bool
     let changeKind: (AgentKind) -> Void
