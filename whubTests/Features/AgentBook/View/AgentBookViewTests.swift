@@ -39,8 +39,9 @@ struct AgentBookViewTests {
         for (index, tab) in tabs.enumerated() { tab.store.draft = [.text("Seed \(index)")] }
         let connections = RemoteConnectionStore()
         let servers = RemoteServerStore(connections: connections)
+        var targetsAgentBook = false
         let host = NSHostingView(rootView: VStack {
-            AgentBookTabMenu(store: book, isActive: true)
+            AgentBookTabMenu(store: book, isActive: true, isShortcutTarget: { targetsAgentBook })
             AgentBookView(store: book).environmentObject(connections).environmentObject(servers)
         })
         let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 900),
@@ -52,6 +53,13 @@ struct AgentBookViewTests {
             host.layoutSubtreeIfNeeded()
             return window.firstResponder is NSTextView && tabs[8].store.isConnected
         }
+        let inactiveNumberKey = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .command,
+            timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            characters: "1", charactersIgnoringModifiers: "1", isARepeat: false, keyCode: 18))
+        _ = host.performKeyEquivalent(with: inactiveNumberKey)
+        #expect(book.selectedTab === tabs[8])
+        targetsAgentBook = true
         var inputs: [NSTextView] = []
 
         for (index, keyCode) in [18, 19, 20, 21, 23, 22, 26, 28, 25].enumerated() {

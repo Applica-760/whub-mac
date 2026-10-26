@@ -20,12 +20,14 @@ final class TabPaneFocus {
 
 struct TabPaneFocusView: NSViewRepresentable {
     let focus: TabPaneFocus
+    var activatesOnClick = true
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {
         let view = FocusView()
         focus.view = view
+        guard activatesOnClick else { return view }
         context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) {
             [weak view] event in
             guard let view, let window = view.window,

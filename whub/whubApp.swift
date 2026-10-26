@@ -4,19 +4,6 @@ import SwiftUI
 import WhubCore
 
 @main
-@MainActor
-enum WhubLauncher {
-    static func main() {
-        #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--markdown-ui-test") {
-            MarkdownUITestApp.main()
-            return
-        }
-        #endif
-        whubApp.main()
-    }
-}
-
 struct whubApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var files = FilesStore()
@@ -25,7 +12,7 @@ struct whubApp: App {
     @StateObject private var agentBookStore: AgentBookStore
     @StateObject private var remoteConnections: RemoteConnectionStore
     @StateObject private var remoteServers: RemoteServerStore
-    @State private var section = AppView.Section.workspace
+    @State private var section = WorkspaceSection.editor
     private let workspaceContainer: ModelContainer
 
     init() {
@@ -69,8 +56,7 @@ struct whubApp: App {
         .windowResizability(.contentMinSize)
         .modelContainer(workspaceContainer)
         .commands {
-            AppCommands(section: $section, files: files, terminalStore: terminalStore,
-                        browserStore: browserStore, agentBookStore: agentBookStore)
+            AppCommands(files: files, agentBookStore: agentBookStore)
         }
 
         Settings {

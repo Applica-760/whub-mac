@@ -59,6 +59,41 @@ struct RetainedPageContainerTests {
         #expect(coordinator.pages[1]?.view === first.view)
     }
 
+    @Test func workspaceSectionsCycleAndRetainEachPage() throws {
+        let sections: [WorkspaceSection] = [.editor, .browser, .terminal, .overview]
+        #expect(WorkspaceSection.allCases == sections)
+        #expect(WorkspaceSection.editor.moved(by: -1) == .overview)
+        #expect(WorkspaceSection.overview.moved(by: 1) == .editor)
+        for (index, section) in sections.enumerated() {
+            #expect(section.moved(by: 1) == sections[(index + 1) % sections.count])
+            #expect(section.moved(by: 1).moved(by: -1) == section)
+        }
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let coordinator = RetainedPageContainer<WorkspaceSection, RetainedInputProbe>.Coordinator()
+        var inputs: [WorkspaceSection: NSTextView] = [:]
+        let root: (WorkspaceSection, RetainedPageActivity) -> AnyView = { section, _ in
+            AnyView(RetainedInputProbe { inputs[section] = $0 })
+        }
+        for section in sections {
+            coordinator.update(container, selection: section, availablePages: nil,
+                               isActive: true, rootView: root)
+            let page = try #require(coordinator.pages[section])
+            page.view.layoutSubtreeIfNeeded()
+            let input = try #require(inputs[section])
+            input.string = section.label
+        }
+        let originalPages = coordinator.pages
+        for section in sections.reversed() {
+            coordinator.update(container, selection: section, availablePages: nil,
+                               isActive: true, rootView: root)
+            #expect(coordinator.pages[section]?.view === originalPages[section]?.view)
+            #expect(inputs[section]?.string == section.label)
+            #expect(coordinator.pages.values.filter { $0.activity.isActive.value }.count == 1)
+            #expect(coordinator.pages[section]?.activity.isActive.value == true)
+        }
+    }
+
     @Test func hiddenFeatureDeactivatesItsRetainedSession() throws {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
         let coordinator = RetainedPageContainer<Int, Text>.Coordinator()

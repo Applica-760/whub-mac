@@ -39,16 +39,6 @@
                ReferencedContainer = "container:whub.xcodeproj">
             </BuildableReference>
          </TestableReference>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "D9133CA33077887B0039C5F5"
-               BuildableName = "whubUITests.xctest"
-               ReferencedContainer = "container:whub.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

@@ -2,24 +2,17 @@ import AppKit
 import SwiftUI
 
 struct AppCommands: Commands {
-    @Binding var section: AppView.Section
+    @FocusedValue(\.workspaceActions) private var workspaceActions
     let files: FilesStore
-    let terminalStore: TerminalStore
-    let browserStore: BrowserStore
     let agentBookStore: AgentBookStore
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("新規タブ") {
-                switch section {
-                case .terminal: terminalStore.add()
-                case .browser: browserStore.add()
-                case .agentBook, .workspace: agentBookStore.add()
-                default: break
-                }
+                workspaceActions?.newTab()
             }
             .keyboardShortcut("t", modifiers: .command)
-            .disabled(section != .terminal && section != .browser && section != .agentBook && section != .workspace)
+            .disabled(workspaceActions == nil)
         }
         FilesCommands()
         CommandGroup(replacing: .sidebar) {
@@ -29,23 +22,18 @@ struct AppCommands: Commands {
             .keyboardShortcut("f", modifiers: [.command, .control])
         }
         CommandMenu("Navigate") {
-            ForEach(AppView.Section.allCases, id: \.self) { destination in
-                Button(destination.label) { section = destination }
+            ForEach(WorkspaceSection.allCases, id: \.self) { destination in
+                Button(destination.label) { workspaceActions?.selection.wrappedValue = destination }
             }
             Divider()
-            AgentBookTabMenu(store: agentBookStore, isActive: section == .agentBook || section == .workspace)
+            AgentBookTabMenu(store: agentBookStore, isActive: workspaceActions != nil,
+                             isShortcutTarget: { workspaceActions?.targetsAgentBook() == true })
             Divider()
-            Button("Previous Page") { moveSection(by: -1) }
+            Button("Previous Page") { workspaceActions?.moveSection(-1) }
                 .keyboardShortcut("h", modifiers: [.command, .shift])
-            Button("Next Page") { moveSection(by: 1) }
+            Button("Next Page") { workspaceActions?.moveSection(1) }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
             FilesNavigationMenu(store: files)
         }
-    }
-
-    private func moveSection(by offset: Int) {
-        let sections = AppView.Section.allCases
-        guard let index = sections.firstIndex(of: section) else { return }
-        section = sections[(index + offset + sections.count) % sections.count]
     }
 }

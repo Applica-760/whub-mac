@@ -7,12 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A49400000000000000000001 /* WhubGit in Frameworks */ = {isa = PBXBuildFile; productRef = A49400000000000000000002 /* WhubGit */; };
-        A49300000000000000000001 /* WhubAgent in Frameworks */ = {isa = PBXBuildFile; productRef = A49300000000000000000002 /* WhubAgent */; };
 		A49000000000000000000001 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = A49000000000000000000002 /* SwiftMath */; };
+		A49200000000000000000001 /* WhubClient in Frameworks */ = {isa = PBXBuildFile; productRef = A49200000000000000000002 /* WhubClient */; };
+		A49300000000000000000001 /* WhubAgent in Frameworks */ = {isa = PBXBuildFile; productRef = A49300000000000000000002 /* WhubAgent */; };
+		A49400000000000000000001 /* WhubGit in Frameworks */ = {isa = PBXBuildFile; productRef = A49400000000000000000002 /* WhubGit */; };
 		C8244DC530553E480038A6AF /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C8244DC430553E480038A6AF /* SwiftTerm */; };
 		C8244E5C3056B24F0038A6AF /* WhubCore in Frameworks */ = {isa = PBXBuildFile; productRef = C8244E5B3056B24F0038A6AF /* WhubCore */; };
-		A49200000000000000000001 /* WhubClient in Frameworks */ = {isa = PBXBuildFile; productRef = A49200000000000000000002 /* WhubClient */; };
 		C8FC99EA307C641200355EB0 /* whub-terminal.icon in Resources */ = {isa = PBXBuildFile; fileRef = C8FC99E9307C641200355EB0 /* whub-terminal.icon */; };
 		CAA6689B4CD1D40F57C3DB8D /* Highlighter in Frameworks */ = {isa = PBXBuildFile; productRef = E46B7CCC8930061F68FD4E6E /* Highlighter */; };
 /* End PBXBuildFile section */
@@ -25,19 +25,11 @@
 			remoteGlobalIDString = C8244D843052F9300038A6AF;
 			remoteInfo = whub;
 		};
-		D9133CA83077887B0039C5F5 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = C8244D7D3052F9300038A6AF /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = C8244D843052F9300038A6AF;
-			remoteInfo = whub;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		C8244D853052F9300038A6AF /* whub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = whub.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8B58CA43077887B0039C5F5 /* whubTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = whubTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		D9133CA43077887B0039C5F5 /* whubUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = whubUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8FC99E9307C641200355EB0 /* whub-terminal.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "whub-terminal.icon"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -50,11 +42,6 @@
 		C8B58CA53077887B0039C5F5 /* whubTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = whubTests;
-			sourceTree = "<group>";
-		};
-		D9133CA53077887B0039C5F5 /* whubUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = whubUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -81,13 +68,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		D9133CA13077887B0039C5F5 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -96,7 +76,6 @@
 			children = (
 				C8244D873052F9300038A6AF /* whub */,
 				C8B58CA53077887B0039C5F5 /* whubTests */,
-				D9133CA53077887B0039C5F5 /* whubUITests */,
 				C8FC99E9307C641200355EB0 /* whub-terminal.icon */,
 				C8244D863052F9300038A6AF /* Products */,
 			);
@@ -107,7 +86,6 @@
 			children = (
 				C8244D853052F9300038A6AF /* whub.app */,
 				C8B58CA43077887B0039C5F5 /* whubTests.xctest */,
-				D9133CA43077887B0039C5F5 /* whubUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -167,29 +145,6 @@
 			productReference = C8B58CA43077887B0039C5F5 /* whubTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		D9133CA33077887B0039C5F5 /* whubUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = D9133CAC3077887B0039C5F5 /* Build configuration list for PBXNativeTarget "whubUITests" */;
-			buildPhases = (
-				D9133CA03077887B0039C5F5 /* Sources */,
-				D9133CA13077887B0039C5F5 /* Frameworks */,
-				D9133CA23077887B0039C5F5 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				D9133CA93077887B0039C5F5 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				D9133CA53077887B0039C5F5 /* whubUITests */,
-			);
-			name = whubUITests;
-			packageProductDependencies = (
-			);
-			productName = whubUITests;
-			productReference = D9133CA43077887B0039C5F5 /* whubUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -231,7 +186,6 @@
 			targets = (
 				C8244D843052F9300038A6AF /* whub */,
 				C8B58CA33077887B0039C5F5 /* whubTests */,
-				D9133CA33077887B0039C5F5 /* whubUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -246,13 +200,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		C8B58CA23077887B0039C5F5 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		D9133CA23077887B0039C5F5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -276,13 +223,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		D9133CA03077887B0039C5F5 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -290,11 +230,6 @@
 			isa = PBXTargetDependency;
 			target = C8244D843052F9300038A6AF /* whub */;
 			targetProxy = C8B58CA83077887B0039C5F5 /* PBXContainerItemProxy */;
-		};
-		D9133CA93077887B0039C5F5 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = C8244D843052F9300038A6AF /* whub */;
-			targetProxy = D9133CA83077887B0039C5F5 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -439,7 +374,10 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
-				EXCLUDED_SOURCE_FILE_NAMES = "$(inherited) README.md";
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"$(inherited)",
+					README.md,
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSCameraUsageDescription = "手指認識のためカメラを使用します";
@@ -476,7 +414,10 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
-				EXCLUDED_SOURCE_FILE_NAMES = "$(inherited) README.md";
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"$(inherited)",
+					README.md,
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSCameraUsageDescription = "手指認識のためカメラを使用します";
@@ -519,26 +460,6 @@
 			};
 			name = Debug;
 		};
-		D9133CAA3077887B0039C5F5 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 3CC3X9AHFH;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "applica.predictive-ime.whubUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = whub;
-			};
-			name = Debug;
-		};
 		C8B58CAB3077887B0039C5F5 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -557,26 +478,6 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/whub.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/whub";
-			};
-			name = Release;
-		};
-		D9133CAB3077887B0039C5F5 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 3CC3X9AHFH;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "applica.predictive-ime.whubUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = whub;
 			};
 			name = Release;
 		};
@@ -606,15 +507,6 @@
 			buildConfigurations = (
 				C8B58CAA3077887B0039C5F5 /* Debug */,
 				C8B58CAB3077887B0039C5F5 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		D9133CAC3077887B0039C5F5 /* Build configuration list for PBXNativeTarget "whubUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				D9133CAA3077887B0039C5F5 /* Debug */,
-				D9133CAB3077887B0039C5F5 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -656,22 +548,22 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		A49400000000000000000002 /* WhubGit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = WhubGit;
-		};
-        A49300000000000000000002 /* WhubAgent */ = {
-            isa = XCSwiftPackageProductDependency;
-            productName = WhubAgent;
-        };
-		A49200000000000000000002 /* WhubClient */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = WhubClient;
-		};
 		A49000000000000000000002 /* SwiftMath */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A49000000000000000000003 /* XCRemoteSwiftPackageReference "SwiftMath" */;
 			productName = SwiftMath;
+		};
+		A49200000000000000000002 /* WhubClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = WhubClient;
+		};
+		A49300000000000000000002 /* WhubAgent */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = WhubAgent;
+		};
+		A49400000000000000000002 /* WhubGit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = WhubGit;
 		};
 		C8244DC430553E480038A6AF /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;

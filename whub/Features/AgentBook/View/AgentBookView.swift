@@ -54,11 +54,12 @@ struct AgentBookView: View {
 struct AgentBookTabMenu: View {
     @ObservedObject var store: AgentBookStore
     let isActive: Bool
+    var isShortcutTarget: () -> Bool = { true }
 
     var body: some View {
         ForEach(1...9, id: \.self) { number in
             Button("AgentBook \(number)") {
-                guard isActive, store.tabs.indices.contains(number - 1) else { return }
+                guard isActive, isShortcutTarget(), store.tabs.indices.contains(number - 1) else { return }
                 store.select(store.tabs[number - 1].id)
             }
             .keyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: .command)

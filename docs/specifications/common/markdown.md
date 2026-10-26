@@ -34,7 +34,7 @@
 - 前提：FileEditorでMarkdownファイルを開いている
 - 操作：プレビューを表示するオプションを選ぶ
 - 期待結果：対象ファイルのMarkdownプレビューが表示される
-- 対応テスト：`whubTests/Features/Files/Store/EditorStoreTests.swift / EditorStoreTests.markdownPreviewReusesDocumentsAndTracksEachOpenFile()`、`whubUITests/MarkdownUITests.swift / MarkdownUITests.testPreviewDisplaysSelectedFileAndCodeCopyButton()`（Storeの文書再利用・未保存内容保持・ファイル別表示状態に加え、隔離起動した実EditorViewのプレビューボタンをクリックし、選択中の2ファイルの内容が表示されることをライト／ダークで検証）
+- 対応テスト：`whubTests/Features/Files/Store/EditorStoreTests.swift / EditorStoreTests.markdownPreviewReusesDocumentsAndTracksEachOpenFile()`（Storeの文書再利用・未保存内容保持・ファイル別表示状態を検証。実アプリのボタン操作とライト／ダーク表示のUIテストは削除済み）
 
 ### コードブロックの操作
 
@@ -42,7 +42,7 @@
 - 前提：コードブロックを含むMarkdownがある
 - 操作：Markdownを表示する
 - 期待結果：コードブロックに対応するコピーボタンが表示される
-- 対応テスト：`whubUITests/MarkdownUITests.swift / MarkdownUITests.testPreviewDisplaysSelectedFileAndCodeCopyButton()`（2ファイルのプレビュー内のコピーボタンについて、ラベル・有効状態・操作可能な表示位置・正の表示領域をライト／ダークで検証。クリップボードへのコピー結果は本要求の対象外）
+- 対応テスト：なし（実アプリのコピーボタン表示を検証するUIテストは削除済み）。
 
 ## 非機能要件
 

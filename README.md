@@ -6,12 +6,12 @@
 
 ## できること
 
-- **Workspace**：FileとAgentBookを左右に表示。
+- **Workspace**：右にAgentBookを固定し、左をEditor／Browser／Terminal／Overviewから選択。⌘⇧H／Lで左側を切り替え。
 - **File**：ローカルのファイル編集・Git差分表示、リモートの既存ファイルの閲覧・編集・保存。
 - **Terminal / Browser**：複数タブのターミナルとブラウザ、ブックマーク管理。
 - **AgentBook**：Local／RemoteでCodexを実行。会話を中央ページと前後のプレビューで表示し、再開・モデル選択・実行承認に対応。
 - **Overview**：Todo・活動時間の記録、リモートServerの管理。
-- **Motion**：カメラ映像から手指を認識する実験機能。
+- **Motion**：実験機能のコードのみ保持。画面からはアクセスできません。
 
 ## 必要な環境
 
