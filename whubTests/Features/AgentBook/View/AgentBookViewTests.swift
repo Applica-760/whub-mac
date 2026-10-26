@@ -1,3 +1,18 @@
+// テスト一覧:
+// - numberShortcutsSwitchInputAndRetainAgentSessions(): [TAB-F-001] [TAB-F-005] [TAB-F-006]
+// - commandWConfirmsCloseAndFocusesRemainingAgentTab(): [TAB-F-007] [TAB-F-011]
+// - tailUpdateDoesNotLayOutUnchangedFrontPages(): 末尾更新で変更のない前方ページを再配置しない。
+// - incrementalLayoutMatchesFreshLayoutAcrossEditsAndResize(): 差分更新と初回レイアウトの結果が一致する。
+// - fixedPromptAreaKeepsAdditionalInputsAndAnswerOnOnePage(): 追加入力と回答を同じページに保持する。
+// - imagesAndCodeRemainOrderedAcrossPagesAndAnswerUpdates(): 画像とコードの順序を更新後も保持する。
+// - textReplacementKeepsReadingFocusAndSelection(): 本文更新で閲覧フォーカスと選択を保持する。
+// - shrinkingPagesDoesNotStealInputFocus(): ページ縮小時に入力フォーカスを奪わない。
+// - copyingSelectionRestoresCodeAndFormulaSources(): 選択範囲のコピーでコードと数式の元テキストを復元する。
+// - nativeInputAcceptsPNGAndTIFFAndSendsTypedDraft(): 画像貼付けと入力した下書きの送信。
+// - completionTokenRequiresCommandPositionAndHandlesUnicode(): 補完トークンの位置判定とUnicode対応。
+// - approvalKeysRespectIMERepeatsWindowAndBookActivity(): 承認キーのIME・リピート・Window・アクティブ状態判定。
+// - readingKeysMovePagesAndReturnToDraftWithoutConsumingEditorKeys(): 閲覧キーのページ移動と入力への復帰。
+
 import AppKit
 import Combine
 import SwiftData
@@ -9,6 +24,114 @@ import WhubCore
 
 @Suite(.serialized) @MainActor
 struct AgentBookViewTests {
+    @Test func numberShortcutsSwitchInputAndRetainAgentSessions() async throws {
+        let database = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                          configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        var backends: [TestAgentSession] = []
+        let book = AgentBookStore(context: database.mainContext, runtime: AgentRuntime(makeAdapter: { _ in
+            let adapter = TestAgentSession()
+            backends.append(adapter)
+            return adapter
+        }), notify: { _ in })
+        defer { book.disconnect() }
+        for _ in 1..<9 { book.add() }
+        let tabs = book.tabs
+        for (index, tab) in tabs.enumerated() { tab.store.draft = [.text("Seed \(index)")] }
+        let connections = RemoteConnectionStore()
+        let servers = RemoteServerStore(connections: connections)
+        let host = NSHostingView(rootView: VStack {
+            AgentBookTabMenu(store: book, isActive: true)
+            AgentBookView(store: book).environmentObject(connections).environmentObject(servers)
+        })
+        let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 900),
+                                   styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return window.firstResponder is NSTextView && tabs[8].store.isConnected
+        }
+        var inputs: [NSTextView] = []
+
+        for (index, keyCode) in [18, 19, 20, 21, 23, 22, 26, 28, 25].enumerated() {
+            let key = String(index + 1)
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: key,
+                charactersIgnoringModifiers: key, isARepeat: false, keyCode: UInt16(keyCode)))
+            #expect(host.performKeyEquivalent(with: event))
+            try await waitForEditorTest {
+                host.layoutSubtreeIfNeeded()
+                return book.selectedTab === tabs[index] && tabs[index].store.isConnected
+                    && (window.firstResponder as? NSTextView)?.string == "Seed \(index)"
+            }
+            let input = try #require(window.firstResponder as? NSTextView)
+            inputs.append(input)
+            input.insertText("Draft \(index)", replacementRange: NSRange(location: 0, length: input.string.utf16.count))
+            try await waitForEditorTest { tabs[index].store.draft.agentBookDraftText == "Draft \(index)" }
+        }
+        book.select(tabs[0].id)
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return window.firstResponder === inputs[0]
+        }
+        #expect(inputs[0].string == "Draft 0")
+        #expect(book.selectedTab === tabs[0])
+        #expect(backends.count == 9)
+        #expect(backends.allSatisfy { $0.directories.count == 1 && !$0.isClosed })
+        #expect(zip(book.tabs, tabs).allSatisfy { $0 === $1 })
+    }
+
+    @Test(arguments: [1, 2])
+    func commandWConfirmsCloseAndFocusesRemainingAgentTab(tabCount: Int) async throws {
+        let database = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                          configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let book = AgentBookStore(context: database.mainContext,
+            runtime: AgentRuntime(makeAdapter: { _ in TestAgentSession() }), notify: { _ in })
+        defer { book.disconnect() }
+        let first = book.selectedTab
+        first.store.draft = [.text("keep")]
+        if tabCount == 2 { book.add() }
+        let closing = book.selectedTab
+        let connections = RemoteConnectionStore()
+        let servers = RemoteServerStore(connections: connections)
+        let host = NSHostingView(rootView: AgentBookView(store: book)
+            .environmentObject(connections).environmentObject(servers))
+        let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 750),
+                                   styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return window.firstResponder is NSTextView && closing.store.isConnected
+        }
+
+        try sendTabTestKey("w", code: 13, to: window)
+        try await waitForEditorTest { window.attachedSheet != nil }
+        let sheet = try #require(window.attachedSheet)
+        let content = try #require(sheet.contentView)
+        let confirm = try #require(tabTestViews(in: content, of: NSButton.self).first { $0.title == "タブを閉じる" })
+        confirm.performClick(nil)
+
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return book.selectedTabID != closing.id && window.attachedSheet == nil
+                && window.firstResponder is NSTextView
+        }
+        #expect(book.tabs.count == 1 && closing.store.isClosed)
+        let input = try #require(window.firstResponder as? NSTextView)
+        if tabCount == 1 {
+            #expect(book.selectedTab !== closing)
+            #expect(book.selectedTab.store.exchanges.isEmpty && book.selectedTab.store.draft.isEmpty)
+            #expect(input.string.isEmpty)
+        } else {
+            #expect(book.selectedTab === first && input.string == "keep")
+        }
+        input.insertText("x", replacementRange: NSRange(location: input.string.utf16.count, length: 0))
+        try await waitForEditorTest { book.selectedTab.store.draft.agentBookDraftText == (tabCount == 1 ? "x" : "keepx") }
+    }
+
     @Test func tailUpdateDoesNotLayOutUnchangedFrontPages() throws {
         let book = AgentBookPageLayout()
         let probe = AgentBookLayoutProbe()

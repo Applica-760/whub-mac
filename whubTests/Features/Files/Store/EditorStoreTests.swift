@@ -1,3 +1,25 @@
+// テスト一覧:
+// - markdownPreviewReusesDocumentsAndTracksEachOpenFile(): [MD-F-005]
+// - fileEncodingPreservesLineEndingsAndBOM(): 改行形式とBOMを保持する。
+// - fileEncodingAcceptsEmptyUTF8AndRejectsInvalidBytes(): 空UTF-8の受理と不正バイトの拒否。
+// - remoteSaveKeepsNewerEditsAndPreventsDuplicateSaves(): リモート保存中の新しい編集を保持し、重複保存を防ぐ。
+// - remoteConflictAndFailedClosePreserveDraft(): リモート競合と閉鎖失敗時の下書き保持。
+// - remoteLostSaveResponseIsReconciledBeforeRetry(): 応答不明の保存結果を再試行前に照合する。
+// - remoteUndoAfterUnconfirmedSaveStillProtectsTab(): 保存結果不明のままUndoしてもタブを保護する。
+// - remoteDirtyPreviewAndReconnectKeepDraft(): 未保存プレビューと再接続時の下書き保持。
+// - remoteTracksByteChangesInCanonicallyEquivalentText(): 正規化で同値の文字列でもバイト差を検出する。
+// - remoteSavePreservesBOMLineEndingsAndCloseWaitsForSuccess(): リモート保存のBOM・改行保持と成功後の閉鎖。
+// - remoteReadsAndEdits(): リモート読込・編集・タブ操作。
+// - lateResultAfterPreviewReplacement(): プレビュー置換後の遅い読込結果を無視する。
+// - failureAndInvalidRoot(): 読込失敗と不正なルートの扱い。
+// - refreshAndFailureRetainEditableFile(): 再読込と失敗時に編集可能な文書を保持する。
+// - reconnectDiscardsOldSessionResult(): 再接続後に旧セッションの結果を無視する。
+// - refreshAndCloseDiscardPendingResult(): 再読込・閉鎖後に保留中の結果を無視する。
+// - localConflictPreservesEditsAndAdoptsLatest(): ローカル競合時に編集を保護し、最新内容を取り込む。
+// - workspaceSwitchPreservesLocalTabsAndUnsavedContents(): Workspace切替でローカルタブと未保存内容を保持する。
+// - remoteWorkspacesKeepSeparateTabsAndPendingReads(): Workspace別にリモートタブと保留読込を分離する。
+// - localEditingAndTabs(): [TAB-F-008]
+
 import AppKit
 import SwiftData
 import SwiftUI

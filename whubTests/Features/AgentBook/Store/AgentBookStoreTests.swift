@@ -1,3 +1,10 @@
+// テスト一覧:
+// - notificationsFollowTabsAcrossReorderingAndRemoval(): 並替え・削除後も通知をタブに対応付ける。
+// - newConversationReplacesOnlyItsOwnStateAndLastTabRemains(): [TAB-F-011]
+// - successfulResumeReplacesSourceInPlaceAndReusesExistingConversation(): 履歴再開のタブ置換と既存会話の再利用。
+// - failedOrCancelledResumeDoesNotReplaceSource(): 履歴再開の失敗・取消時に元タブを保持する。
+// - busyTabCannotResumeOrResetAndKindChangePreservesDraft(): 処理中の再開・リセット拒否と種類変更時の下書き保持。
+
 import AppKit
 import Combine
 import SwiftData

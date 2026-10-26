@@ -20,13 +20,13 @@
 - 前提：文章中にインラインコードを含むMarkdownがある
 - 操作：Markdownを表示する
 - 期待結果：インラインコードが文章中で通常の本文と区別できる見た目で描画される
-- 対応テスト：`whubTests/Components/Markdown/MarkdownDocumentTests.swift / MarkdownDocumentTests.inlineCodeIsVisuallyDistinctWithinRenderedParagraph()`（ライト／ダークの表示Viewで、前後の本文とコードの文字列、コード範囲のフォント・背景による区別、正の描画領域を検証。画面上の視認性の目視確認は含まない）
+- 対応テスト：`whubTests/Components/Markdown/MarkdownDocumentTests.swift / MarkdownDocumentTests.inlineCodeAndFormulaRenderWithinParagraph()`（ライト／ダークの表示Viewで、前後の本文とコードの文字列、コード範囲のフォント・背景による区別、正の描画領域を検証。画面上の視認性の目視確認は含まない）
 
 #### MD-F-004：インライン数式を描画する
 - 前提：文章中にインライン数式を含むMarkdownがある
 - 操作：Markdownを表示する
 - 期待結果：文章中に数式として描画される
-- 対応テスト：未照合
+- 対応テスト：`whubTests/Components/Markdown/MarkdownDocumentTests.swift / MarkdownDocumentTests.inlineCodeAndFormulaRenderWithinParagraph()`（ライト／ダークの表示Viewで、本文中の数式が正のサイズを持つ画像として配置され、前後の本文と同じ行にあることを検証。数式全構文と目視の網羅は含まない）
 
 ### プレビュー
 
@@ -34,7 +34,7 @@
 - 前提：FileEditorでMarkdownファイルを開いている
 - 操作：プレビューを表示するオプションを選ぶ
 - 期待結果：対象ファイルのMarkdownプレビューが表示される
-- 対応テスト：未照合
+- 対応テスト：`whubTests/Features/Files/Store/EditorStoreTests.swift / EditorStoreTests.markdownPreviewReusesDocumentsAndTracksEachOpenFile()`、`whubUITests/MarkdownUITests.swift / MarkdownUITests.testPreviewDisplaysSelectedFileAndCodeCopyButton()`（Storeの文書再利用・未保存内容保持・ファイル別表示状態に加え、隔離起動した実EditorViewのプレビューボタンをクリックし、選択中の2ファイルの内容が表示されることをライト／ダークで検証）
 
 ### コードブロックの操作
 
@@ -42,7 +42,7 @@
 - 前提：コードブロックを含むMarkdownがある
 - 操作：Markdownを表示する
 - 期待結果：コードブロックに対応するコピーボタンが表示される
-- 対応テスト：未照合
+- 対応テスト：`whubUITests/MarkdownUITests.swift / MarkdownUITests.testPreviewDisplaysSelectedFileAndCodeCopyButton()`（2ファイルのプレビュー内のコピーボタンについて、ラベル・有効状態・操作可能な表示位置・正の表示領域をライト／ダークで検証。クリップボードへのコピー結果は本要求の対象外）
 
 ## 非機能要件
 

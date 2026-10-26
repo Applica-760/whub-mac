@@ -20,6 +20,7 @@ struct MarkdownCodeBlock: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(code, forType: .string)
                 }
+                .accessibilityIdentifier("markdown.code.copy")
                 .labelStyle(.iconOnly).buttonStyle(.plain)
                 .help("コードをコピー")
                 .padding(MarkdownCodeStyle.codeInset)

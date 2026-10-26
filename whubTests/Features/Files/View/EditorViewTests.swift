@@ -1,3 +1,13 @@
+// テスト一覧:
+// - tabShortcutsPreserveEditorStateAndCloseSelectedTabs(): [TAB-F-001] [TAB-F-002] [TAB-F-006] [TAB-F-007] [TAB-F-008]
+// - fileEditorRestoresFocusAndPositionAfterFeatureSwitch(): Feature切替後の入力フォーカス・選択・スクロール位置を復元する。
+// - fileEditorFocusFollowsProjectSwitchAndPreservesPosition(): Project切替後の入力フォーカスと位置を復元する。
+// - editorPositionsAreSeparateAndClampAfterShorterContent(): 文書・Editor別の位置保持と短縮時の範囲補正。
+// - findBarPreservesUnsavedText(): 検索バーの開閉で未保存本文を保持する。
+// - alignedDiffPreservesWholeFilesAndOriginalCopyText(): 差分の行揃えと元のコピー文字列を保持する。
+// - diffRendererIsReadOnlyAlignedAndScrollsTogether(): 差分表示の読取専用・行揃え・スクロール同期。
+// - localSaveCommandPreservesEncodingAndWatcherUpdatesDocument(): 保存コマンドの文字コード保持と外部更新の反映。
+
 import AppKit
 import SwiftData
 import SwiftUI
@@ -9,6 +19,82 @@ import WhubClient
 
 @Suite @MainActor
 struct EditorViewTests {
+    @Test func tabShortcutsPreserveEditorStateAndCloseSelectedTabs() async throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/EditorTabTests/" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = FilesStore()
+        let store = files.activeEditor
+        let locations = try (1...9).map { index in
+            let url = directory.appendingPathComponent("file\(index).md")
+            try Data("# File \(index)".utf8).write(to: url)
+            let location = FileLocation.local(url)
+            store.local.load(location)
+            store.open(.file(location))
+            return location
+        }
+        let documents = try locations.map { try #require(store.file(for: $0)) }
+        let host = NSHostingView(rootView: EditorView().environmentObject(store)
+            .environmentObject(files).environmentObject(files.git))
+        let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 650),
+                                   styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return window.firstResponder is CodeTextView
+        }
+        var editors: [CodeTextView] = []
+
+        for (index, keyCode) in [18, 19, 20, 21, 23, 22, 26, 28, 25].enumerated() {
+            try sendTabTestKey(String(index + 1), code: UInt16(keyCode), to: window)
+            try await waitForEditorTest {
+                host.layoutSubtreeIfNeeded()
+                return store.selectedTab == .file(locations[index])
+                    && documents[index].editorViews.views.values.contains { $0.documentView === window.firstResponder }
+            }
+            let editor = try #require(window.firstResponder as? CodeTextView)
+            editors.append(editor)
+            #expect(store.file(for: locations[index]) === documents[index])
+            if index == 0 {
+                editor.setSelectedRange(NSRange(location: 3, length: 0))
+                editor.insertText("X", replacementRange: editor.selectedRange())
+            }
+        }
+        try sendTabTestKey("1", code: 18, to: window)
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return window.firstResponder === editors[0]
+        }
+        #expect(editors[0].string == "# FXile 1")
+        #expect(editors[0].selectedRange() == NSRange(location: 4, length: 0))
+        #expect(documents[0].hasUnsavedChanges)
+        editors[0].insertText("Y", replacementRange: editors[0].selectedRange())
+        #expect(editors[0].string == "# FXYile 1")
+        try sendTabTestKey("9", code: 25, to: window)
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return window.firstResponder === editors[8]
+        }
+        try sendTabTestKey("w", code: 13, to: window)
+        #expect(store.tabs.count == 8)
+        #expect(store.tabs.contains(try #require(store.selectedTab)))
+        #expect(store.file(for: locations[8]) == nil)
+        #expect(store.file(for: locations[0]) === documents[0])
+        #expect(documents[0].textStorage.string == "# FXYile 1")
+        for location in locations.dropFirst().dropLast() { store.close(.file(location)) }
+        try #require(store.local.fileStores[locations[0]]).save()
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return window.firstResponder === editors[0]
+        }
+        try sendTabTestKey("w", code: 13, to: window)
+        #expect(store.tabs.isEmpty && store.selectedTab == nil)
+    }
+
     @Test func fileEditorRestoresFocusAndPositionAfterFeatureSwitch() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)

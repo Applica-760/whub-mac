@@ -44,6 +44,7 @@ struct EditorView: View {
                             window.makeFirstResponder(editor)
                         }
                     }
+                    .accessibilityIdentifier("markdown.preview.toggle")
                     .buttonStyle(.glass)
                     .controlSize(.small)
                     .disabled(!isActive)

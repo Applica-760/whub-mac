@@ -1,7 +1,9 @@
 // テスト一覧:
-// - browserConsumesOnlyUnhandledPlainArrowsFromVisibleWebContent(): Webコンテンツが未処理の矢印キーだけを消費する。
+// - numberKeysSelectBrowserTabsInDisplayOrder(): [TAB-F-001]
+// - switchingBrowserTabsRestoresFocusScrollAndPageState(): [TAB-F-004] [TAB-F-006]
+// - browserConsumesOnlyUnhandledPlainArrowsFromVisibleWebContent(): 可視Webコンテンツが未処理の矢印キーだけを消費する。
 // - browserFocusesVisibleWebContentWithoutClicking(): 可視Webコンテンツへのフォーカス移動と非表示時の拒否。
-// - browserScrollsWithJKExceptWhenEditing(): 編集中を除くJ・Kスクロールと修飾キーの扱い。
+// - browserScrollsWithJKExceptWhenEditing(): 編集・IME・修飾キーと入れ子のスクロール領域を検証する。
 // - browserLoadsLocalHTMLAndRelativeResources(): ローカルHTMLと相対リソースを読み込む。
 // - commandWClosesSelectedBrowserTabAndReplacesLast(): [TAB-F-007] [TAB-F-009]
 
@@ -16,6 +18,111 @@ import WhubCore
 
 @Suite @MainActor
 struct BrowserViewTests {
+    @Test func numberKeysSelectBrowserTabsInDisplayOrder() async throws {
+        let store = BrowserStore()
+        for _ in 1..<9 { store.add() }
+        let sessions = store.sessions
+        for (index, session) in sessions.enumerated() { session.address = "Draft \(index)" }
+        let defaultsName = "BrowserNumberTests." + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(BookmarkStorage.initialData, forKey: BookmarkStorage.key)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let host = NSHostingView(rootView: BrowserView().environmentObject(store).defaultAppStorage(defaults))
+        let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 650),
+                                   styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return tabTestViews(in: host, of: NSTextField.self).contains { $0.isEditable }
+        }
+        let address = try #require(tabTestViews(in: host, of: NSTextField.self).first { $0.isEditable })
+        #expect(window.makeFirstResponder(address))
+
+        for (index, keyCode) in [18, 19, 20, 21, 23, 22, 26, 28, 25].enumerated() {
+            try sendTabTestKey(String(index + 1), code: UInt16(keyCode), to: window)
+            try await waitForEditorTest {
+                host.layoutSubtreeIfNeeded()
+                return store.selectedSession === sessions[index]
+            }
+            #expect(store.selectedSession.address == "Draft \(index)")
+        }
+        store.move(sessions[8].id, before: sessions[0].id)
+        host.layoutSubtreeIfNeeded()
+        await Task.yield()
+        try sendTabTestKey("1", code: 18, to: window)
+        #expect(store.selectedSession === sessions[8])
+        #expect(store.sessions.count == 9)
+    }
+
+    @Test func switchingBrowserTabsRestoresFocusScrollAndPageState() async throws {
+        let store = BrowserStore()
+        store.add()
+        let sessions = store.sessions
+        for (index, session) in sessions.enumerated() {
+            session.showsBookmarks = false
+            session.page.load(html: "<title>Tab \(index)</title><style>body { height: 5000px; }</style><input id='draft'>")
+        }
+        let deadline = ContinuousClock.now + .seconds(15)
+        while sessions.contains(where: { $0.page.isLoading || $0.page.title.isEmpty }) {
+            guard ContinuousClock.now < deadline else { throw SSHError.timedOut }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let host = NSHostingView(rootView: BrowserView().environmentObject(store))
+        let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 650),
+                                   styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        var pages: [WKWebView] = []
+        for index in [1, 0] {
+            if index == 0 { try sendTabTestKey("1", code: 18, to: window) }
+            try await waitForEditorTest {
+                host.layoutSubtreeIfNeeded()
+                return tabTestViews(in: host, of: WKWebView.self).contains {
+                    !$0.isHiddenOrHasHiddenAncestor && (window.firstResponder as? NSView)?.isDescendant(of: $0) == true
+                }
+            }
+            let page = try #require(tabTestViews(in: host, of: WKWebView.self).first { !$0.isHiddenOrHasHiddenAncestor })
+            pages.append(page)
+        }
+        _ = try await sessions[0].page.callJavaScript("window.keptToken = 'retained'; document.getElementById('draft').value = 'unsaved'; window.scrollTo(0, 240)")
+        try sendTabTestKey("2", code: 19, to: window)
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return (window.firstResponder as? NSView)?.isDescendant(of: pages[0]) == true
+        }
+        try sendTabTestKey("1", code: 18, to: window)
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return (window.firstResponder as? NSView)?.isDescendant(of: pages[1]) == true
+        }
+        #expect(store.selectedSession === sessions[0])
+        #expect(try await sessions[0].page.callJavaScript("return window.keptToken") as? String == "retained")
+        #expect(try await sessions[0].page.callJavaScript("return document.getElementById('draft').value") as? String == "unsaved")
+        #expect(try await sessions[0].page.callJavaScript("return window.scrollY") as? Int == 240)
+        let down = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "j", charactersIgnoringModifiers: "j", isARepeat: false, keyCode: 38))
+        window.firstResponder?.keyDown(with: down)
+        let scrollDeadline = ContinuousClock.now + .seconds(3)
+        while try await sessions[0].page.callJavaScript("return window.scrollY") as? Int != 360 {
+            guard ContinuousClock.now < scrollDeadline else {
+                Issue.record("J scroll: \(String(describing: try await sessions[0].page.callJavaScript("return window.scrollY")))")
+                throw SSHError.timedOut
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let up = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "k", charactersIgnoringModifiers: "k", isARepeat: false, keyCode: 40))
+        window.firstResponder?.keyDown(with: up)
+        let upDeadline = ContinuousClock.now + .seconds(3)
+        while try await sessions[0].page.callJavaScript("return window.scrollY") as? Int != 240 {
+            guard ContinuousClock.now < upDeadline else { throw SSHError.timedOut }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
     @Test func browserConsumesOnlyUnhandledPlainArrowsFromVisibleWebContent() throws {
         final class KeyReceiver: NSResponder {
             var count = 0

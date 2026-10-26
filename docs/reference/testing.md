@@ -22,6 +22,7 @@
 | 対象 | 配置・役割 |
 | --- | --- |
 | GUI | `whubTests/Features/<Feature>/Store・View・Model/`。実装に対応するディレクトリへ分ける |
+| UI操作 | `whubUITests/`。アプリを隔離起動し、操作から表示までをXCTestで検証する |
 | Package | `Packages/WhubPackage/Tests/<Target名>Tests/` |
 | 共通部品 | `whubTests/Components/`。部品の振る舞いを検証する |
 | 共有補助コード | `whubTests/Helpers/`。一つのファイル専用なら、その中で`private`にする |
@@ -30,11 +31,11 @@ Storeは状態遷移・保存・エラー、Viewは表示・入力・フォー�
 
 ## 3. 一つの振る舞いを検証する
 
-1. ファイル名・Suite名を`<対象名>Tests`で揃え、`@Suite struct`を使う。
+1. ファイル名・Suite名を`<対象名>Tests`で揃え、`@Suite struct`を使う。UIテストは`XCTestCase`と`test`接頭辞のメソッドを使う。
 2. 関数名は英語のlowerCamelCaseで条件と期待結果を表す。必要なら`@Test("日本語の説明")`を付ける。
 3. 本文は「準備・操作・検証」を空行で区切る。同じ振る舞いに必要な検証は複数あってよい。
-4. 結果は`#expect`、後続に必要な前提は`try #require`で確認する。エラーは`#expect(throws:)`で型を絞り、必要な値も確認する。空の`catch`や`try?`で失敗を隠さない。
-5. 入力だけ違うケースは`@Test(arguments:)`でまとめる。複数配列は全組み合わせになるため、対にした入力にはタプル配列や`zip`を使う。
+4. 結果は`#expect`、後続に必要な前提は`try #require`で確認する。エラーは`#expect(throws:)`で型を絞り、必要な値も確認する。UIテストでは`XCTAssert`系と`XCTUnwrap`を使う。空の`catch`や`try?`で失敗を隠さない。
+5. Swift Testingで入力だけ違うケースは`@Test(arguments:)`でまとめる。複数配列は全組み合わせになるため、対にした入力にはタプル配列や`zip`を使う。
 
 ## 4. 状態を分離し、条件を待つ
 

@@ -125,6 +125,11 @@ private final class MarkdownScrollView: NSScrollView {
 }
 
 private final class MarkdownTextView: NSTextView {
+    override func accessibilityChildren() -> [Any]? {
+        // NSTextView exposes attachment cells but omits the views overlaid on them.
+        (super.accessibilityChildren() ?? []) + subviews.filter { $0 is NSHostingView<MarkdownCodeBlock> }
+    }
+
     override func writeSelection(to pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         guard type == .string, let storage = textStorage else {
             return super.writeSelection(to: pasteboard, type: type)

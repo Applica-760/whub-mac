@@ -1,5 +1,5 @@
 // テスト一覧:
-// - inlineCodeIsVisuallyDistinctWithinRenderedParagraph(): [MD-F-003]
+// - inlineCodeAndFormulaRenderWithinParagraph(): [MD-F-003] [MD-F-004]
 // - markdownRendersTableAndCodeBlock(): [MD-F-001] [MD-F-002]
 
 import AppKit
@@ -11,14 +11,14 @@ import Testing
 @Suite @MainActor
 struct MarkdownDocumentTests {
     @Test(arguments: [ColorScheme.light, .dark])
-    func inlineCodeIsVisuallyDistinctWithinRenderedParagraph(colorScheme: ColorScheme) async throws {
-        let host = NSHostingView(rootView: MarkdownView(source: "Before `let value = 1` after")
+    func inlineCodeAndFormulaRenderWithinParagraph(colorScheme: ColorScheme) async throws {
+        let host = NSHostingView(rootView: MarkdownView(source: "Before `let value = 1` and $x^2$ after")
             .environment(\.colorScheme, colorScheme))
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 200)
 
         try await waitForEditorTest {
             host.layoutSubtreeIfNeeded()
-            return textView(in: host)?.string == "Before let value = 1 after\n"
+            return textView(in: host)?.string == "Before let value = 1 and \u{FFFC} after\n"
         }
 
         let text = try #require(textView(in: host))
@@ -39,6 +39,16 @@ struct MarkdownDocumentTests {
         let glyphs = manager.glyphRange(forCharacterRange: codeRange, actualCharacterRange: nil)
         let bounds = manager.boundingRect(forGlyphRange: glyphs, in: container)
         #expect(bounds.width > 0 && bounds.height > 0)
+        let formulaRange = (storage.string as NSString).range(of: "\u{FFFC}")
+        try #require(formulaRange.location != NSNotFound)
+        let attachment = try #require(storage.attribute(.attachment, at: formulaRange.location, effectiveRange: nil) as? NSTextAttachment)
+        let image = try #require(attachment.image)
+        #expect(image.size.width > 0 && image.size.height > 0)
+        let formulaGlyphs = manager.glyphRange(forCharacterRange: formulaRange, actualCharacterRange: nil)
+        let formulaBounds = manager.boundingRect(forGlyphRange: formulaGlyphs, in: container)
+        #expect(formulaBounds.width > 0 && formulaBounds.height > 0)
+        #expect(formulaBounds.minX > bounds.maxX)
+        #expect(formulaBounds.intersects(NSRect(x: formulaBounds.minX, y: bounds.minY, width: formulaBounds.width, height: bounds.height)))
         withExtendedLifetime(host) {}
     }
 
