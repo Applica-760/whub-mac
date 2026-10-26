@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import WhubAgent
 
@@ -6,6 +7,7 @@ struct AgentBookTabButton: View {
     let selection: AgentStore.ID
     let completedSessionIDs: Set<AgentStore.ID>
     let notificationDates: [AgentStore.ID: Date]
+    var featureActivity: RetainedPageActivity? = nil
     let select: (AgentStore.ID) -> Void
     @Namespace private var glassNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -53,10 +55,11 @@ struct AgentBookTabButton: View {
             HStack(spacing: 6) {
                 overflow(0..<range.lowerBound)
                 ForEach(visible, id: \.element.id) { index, tab in
-                    AgentBookRoundTab(tab: tab, session: tab.store, number: index + 1,
+                    AgentBookRoundTab(tab: tab, number: index + 1,
                                       isSelected: tab.id == selection,
                                       hasCompleted: completedSessionIDs.contains(tab.id),
-                                      notificationDate: notificationDates[tab.id]
+                                      notificationDate: notificationDates[tab.id],
+                                      featureActivity: featureActivity
                     ) {
                         select(tab.id)
                     }
@@ -106,22 +109,12 @@ struct AgentBookTabButton: View {
 
 private struct AgentBookRoundTab: View {
     @ObservedObject var tab: AgentBookTabStore
-    @ObservedObject var session: AgentStore
     let number: Int
     let isSelected: Bool
     let hasCompleted: Bool
     let notificationDate: Date?
+    let featureActivity: RetainedPageActivity?
     let select: () -> Void
-
-    private var hasPendingRequests: Bool {
-        session.exchanges.last(where: { $0.status == .running })?.pendingRequests.isEmpty == false
-    }
-
-    private var status: (color: Color, label: String)? {
-        if hasPendingRequests { return (.orange, "回答・承認待ち") }
-        if session.isBusy { return (.blue, "作業中") }
-        return hasCompleted ? (.green, "完了") : nil
-    }
 
     var body: some View {
         let purpose = tab.purpose
@@ -167,17 +160,35 @@ private struct AgentBookRoundTab: View {
                 }
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            if let status {
-                AgentBookStatusBadge(color: status.color,
-                                 isRunning: session.isBusy && !hasPendingRequests,
-                                 notificationDate: notificationDate)
-            }
-        }
-        .accessibilityLabel("\(session.agentKind.agentBookTabTitle) \(number)・\(purpose?.title ?? "番号表示")")
-        .accessibilityValue(status?.label ?? "")
+        .modifier(AgentBookTabStatus(session: tab.store, number: number,
+                                     hasCompleted: hasCompleted, notificationDate: notificationDate,
+                                     featureActivity: featureActivity))
+        .accessibilityLabel("\(tab.store.agentKind.agentBookTabTitle) \(number)・\(purpose?.title ?? "番号表示")")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .help("\(session.agentKind.agentBookTabTitle) \(number)" + (status.map { "・" + $0.label } ?? ""))
+    }
+}
+
+private struct AgentBookTabStatus: ViewModifier {
+    @ObservedObject var session: AgentStore
+    let number: Int
+    let hasCompleted: Bool
+    let notificationDate: Date?
+    let featureActivity: RetainedPageActivity?
+
+    func body(content: Content) -> some View {
+        let waiting = session.exchanges.last(where: { $0.status == .running })?.pendingRequests.isEmpty == false
+        let running = session.isBusy && !waiting
+        let label = waiting ? "回答・承認待ち" : running ? "作業中" : hasCompleted ? "完了" : ""
+        content
+            .overlay(alignment: .bottomTrailing) {
+                if waiting || running || hasCompleted {
+                    AgentBookStatusBadge(color: waiting ? .orange : running ? .blue : .green,
+                                         isRunning: running, notificationDate: notificationDate,
+                                         featureActivity: featureActivity)
+                }
+            }
+            .accessibilityValue(label)
+            .help("\(session.agentKind.agentBookTabTitle) \(number)" + (label.isEmpty ? "" : "・" + label))
     }
 }
 
@@ -185,38 +196,78 @@ private struct AgentBookStatusBadge: View {
     let color: Color
     let isRunning: Bool
     let notificationDate: Date?
+    let featureActivity: RetainedPageActivity?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isArriving = false
+    @Environment(\.isRetainedPageActive) private var isActive
+    @Environment(\.retainedPageActivity) private var activity
+    @State private var sessionActive = true
+    @State private var featureActive = true
+    @State private var pulseDimmed = false
+    @State private var arrivalScale: CGFloat = 1
+    @State private var ringProgress: CGFloat = 1
+
+    private struct AnimationState: Equatable {
+        let running: Bool
+        let enabled: Bool
+        let notificationDate: Date?
+    }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30,
-                                paused: reduceMotion || (!isRunning && !isArriving))) { context in
-            let elapsed = context.date.timeIntervalSince(notificationDate ?? .distantPast)
-            let arrival = !isRunning && !reduceMotion && elapsed >= 0 && elapsed < 0.8
-            let pulse = (1 + cos(context.date.timeIntervalSinceReferenceDate * .pi)) / 2
-            Circle().fill(color)
-                .frame(width: 5, height: 5)
-                .opacity(isRunning && !reduceMotion ? 0.35 + 0.65 * pulse : 1)
-                .scaleEffect(arrival ? 1 + 1.5 * sin(.pi * elapsed / 0.8) : 1)
-                .overlay {
-                    if arrival {
-                        Circle().stroke(color, lineWidth: 1.5)
-                            .frame(width: 5 + 24 * elapsed / 0.8,
-                                   height: 5 + 24 * elapsed / 0.8)
-                            .opacity(1 - elapsed / 0.8)
+        let animation = AnimationState(running: isRunning,
+                                       enabled: isActive && sessionActive && featureActive && !reduceMotion,
+                                       notificationDate: notificationDate)
+        Circle().fill(color)
+            .frame(width: 5, height: 5)
+            .opacity(pulseDimmed ? 0.35 : 1)
+            .scaleEffect(arrivalScale)
+            .overlay {
+                Circle().stroke(color, lineWidth: 1.5)
+                    .frame(width: 5 + 24 * ringProgress, height: 5 + 24 * ringProgress)
+                    .opacity(1 - ringProgress)
+            }
+            .allowsHitTesting(false)
+            .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(true).eraseToAnyPublisher()) {
+                sessionActive = $0
+                if !$0 { resetAnimations() }
+            }
+            .onReceive(featureActivity?.isActive.eraseToAnyPublisher() ?? Just(true).eraseToAnyPublisher()) {
+                featureActive = $0
+                if !$0 { resetAnimations() }
+            }
+            .task(id: animation) {
+                resetAnimations()
+                guard animation.enabled else { return }
+                await Task.yield()
+                guard !Task.isCancelled, activity?.isActive.value != false,
+                      featureActivity?.isActive.value != false else { return }
+                if animation.running {
+                    withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
+                        pulseDimmed = true
                     }
+                    return
                 }
-        }
-        .allowsHitTesting(false)
-        .task(id: notificationDate) {
-            isArriving = false
-            guard let notificationDate else { return }
-            let remaining = 0.8 - Date().timeIntervalSince(notificationDate)
-            guard remaining > 0 else { return }
-            isArriving = true
-            do { try await Task.sleep(for: .seconds(remaining)) }
-            catch { return }
-            isArriving = false
+                guard let date = animation.notificationDate else { return }
+                let remaining = 0.8 - Date().timeIntervalSince(date)
+                guard remaining > 0 else { return }
+                ringProgress = 0
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: remaining)) { ringProgress = 1 }
+                withAnimation(.easeOut(duration: remaining / 2)) { arrivalScale = 2.5 }
+                do { try await Task.sleep(for: .seconds(remaining / 2)) }
+                catch { return }
+                withAnimation(.easeIn(duration: remaining / 2)) { arrivalScale = 1 }
+            }
+            .onDisappear { resetAnimations() }
+    }
+
+    private func resetAnimations() {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            pulseDimmed = false
+            arrivalScale = 1
+            ringProgress = 1
         }
     }
 }

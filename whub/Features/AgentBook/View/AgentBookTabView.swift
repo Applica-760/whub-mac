@@ -54,6 +54,7 @@ struct AgentBookTabView: View {
                         tabs: bookStore.tabs, selection: tab.id,
                         completedSessionIDs: bookStore.completedTabIDs,
                         notificationDates: bookStore.notificationDates,
+                        featureActivity: featureActivity,
                         select: select
                     )
                         .frame(width: 232, height: 36)

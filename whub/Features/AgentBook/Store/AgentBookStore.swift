@@ -53,11 +53,12 @@ final class AgentBookStore: ObservableObject {
 
     func loadHosts() {
         do {
-            hosts = try HostStore(context: context).fetchHosts()
-            hostsError = nil
+            let fetched = try HostStore(context: context).fetchHosts()
+            if hosts != fetched { hosts = fetched }
+            if hostsError != nil { hostsError = nil }
         } catch {
-            hosts = []
-            hostsError = error.localizedDescription
+            if !hosts.isEmpty { hosts = [] }
+            if hostsError != error.localizedDescription { hostsError = error.localizedDescription }
         }
     }
 
@@ -127,7 +128,7 @@ final class AgentBookStore: ObservableObject {
 
     func select(_ id: AgentBookTabStore.ID) {
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
-        selectedTabID = id
+        if selectedTabID != id { selectedTabID = id }
         tab.markRead()
     }
 

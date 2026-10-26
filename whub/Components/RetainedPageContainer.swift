@@ -68,7 +68,8 @@ struct RetainedPageContainer<Page: Hashable, Content: View>: NSViewRepresentable
                     page.view.removeFromSuperview()
                 }
             }
-            if pages[selection] == nil {
+            let createsSelection = pages[selection] == nil
+            if createsSelection {
                 let activity = RetainedPageActivity()
                 let page = NSHostingView(rootView: rootView(selection, activity))
                 page.sizingOptions = []
@@ -86,14 +87,18 @@ struct RetainedPageContainer<Page: Hashable, Content: View>: NSViewRepresentable
             for (id, hosted) in pages {
                 let page = hosted.view
                 let selected = id == selection
-                if !selected, !page.isHidden,
+                let wasVisible = !page.isHidden
+                if !selected, wasVisible,
                    let responder = container.window?.firstResponder as? NSView,
                    responder.isDescendant(of: page) {
                     container.window?.makeFirstResponder(nil)
                 }
                 page.isHidden = !selected
                 page.setAccessibilityHidden(!selected)
-                page.rootView = rootView(id, hosted.activity)
+                // Hidden pages receive current content and environment when selected again.
+                if (selected || wasVisible) && !(selected && createsSelection) {
+                    page.rootView = rootView(id, hosted.activity)
+                }
                 if selected && isActive { hosted.activity.setActive(true) }
             }
 

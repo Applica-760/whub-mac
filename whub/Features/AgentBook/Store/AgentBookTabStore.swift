@@ -71,7 +71,7 @@ final class AgentBookTabStore: ObservableObject, Identifiable {
     }
 
     func markRead() {
-        hasCompleted = false
+        if hasCompleted { hasCompleted = false }
     }
 
     func disconnect() {
@@ -89,7 +89,7 @@ final class AgentBookTabStore: ObservableObject, Identifiable {
             let nextRunningIDs = Set(running.map(\.id))
             let nextApprovalIDs = Set(running.flatMap(\.pendingRequests).filter(\.isApproval).map(\.id))
             let sentExchangeID = self.store.pendingSendExchangeID
-            if !nextRunningIDs.subtracting(runningIDs).isEmpty { self.hasCompleted = false }
+            if !nextRunningIDs.subtracting(runningIDs).isEmpty { self.markRead() }
             if exchanges.contains(where: {
                 $0.status == .completed && (runningIDs.contains($0.id) || $0.id == sentExchangeID)
             }) {
