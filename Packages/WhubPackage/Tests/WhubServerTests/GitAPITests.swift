@@ -7,6 +7,7 @@
 // - GitAPITests.notifiesAndReleasesWatch(): [GITWATCH-F-004]
 // - GitAPITests.ignoresUntrackedDirectoriesButWatchesTrackedFiles(): [GITWATCH-F-005]
 // - GitAPITests.rechecksIgnoreRules(): [GITWATCH-F-006]
+// - GitAPITests.reportsWatchErrors(): [GITWATCH-F-007]
 
 import Foundation
 import Hummingbird
@@ -22,6 +23,44 @@ import Darwin
 
 @Suite struct GitAPITests {
     #if os(Linux)
+    @Test func reportsWatchErrors() async throws {
+        let limit = LinuxFileWatcher.SystemError(operation: "inotify_add_watch", code: ENOSPC)
+        let failure = LinuxFileWatcher.SystemError(operation: "poll", code: EIO)
+        for (store, expected) in [
+            (LinuxGitWatchStore(makeWatcher: { _, _, _ in throw limit }), "watch_limit_reached"),
+            (LinuxGitWatchStore(makeWatcher: { _, _, _ in throw failure }), "watch_failed"),
+        ] {
+            let fixture = try await GitFixture(git: GitAPI(watches: store))
+            defer { fixture.remove() }
+            try await fixture.app.test(.router) { client in
+                let response = try await client.execute(uri: fixture.uri("watches"), method: .post)
+                #expect(response.status == .serviceUnavailable)
+                let body = try JSONDecoder().decode([String: [String: String]].self, from: Data(response.body.readableBytesView))
+                #expect(body["error"]?["code"] == expected)
+                #expect(body["error"]?["message"]?.isEmpty == false)
+            }
+        }
+
+        let store = LinuxGitWatchStore(nextEvent: { _ in throw limit })
+        let fixture = try await GitFixture(git: GitAPI(watches: store))
+        defer { fixture.remove() }
+        try await fixture.app.test(.router) { client in
+            let start = try await client.execute(uri: fixture.uri("watches"), method: .post)
+            #expect(start.status == .ok)
+            let watch = try JSONDecoder().decode(WatchResponse.self, from: Data(start.body.readableBytesView))
+            let failed = try await client.execute(uri: "/git/watches/\(watch.id)?after=0", method: .get)
+            #expect(failed.status == .serviceUnavailable)
+            let body = try JSONDecoder().decode([String: [String: String]].self, from: Data(failed.body.readableBytesView))
+            #expect(body["error"]?["code"] == "watch_limit_reached")
+            _ = try await client.execute(uri: "/git/watches/\(watch.id)", method: .delete)
+            let expired = try await client.execute(uri: "/git/watches/\(watch.id)?after=0", method: .get)
+            #expect(expired.status == .gone)
+            let expiredBody = try JSONDecoder().decode([String: [String: String]].self, from: Data(expired.body.readableBytesView))
+            #expect(expiredBody["error"]?["code"] == "watch_expired")
+        }
+        await store.shutdown()
+    }
+
     @Test func ignoresUntrackedDirectoriesButWatchesTrackedFiles() async throws {
         let fixture = try await GitFixture()
         defer { fixture.remove() }
@@ -198,7 +237,7 @@ private final class GitFixture: Sendable {
     let root: URL
     let app: Application<RouterResponder<BasicRequestContext>>
 
-    init() async throws {
+    init(git: GitAPI = GitAPI()) async throws {
         guard let resolved = realpath(FileManager.default.temporaryDirectory.path, nil) else {
             throw GitFixtureError.invalidTemporaryDirectory
         }
@@ -210,8 +249,8 @@ private final class GitFixture: Sendable {
                                                  service: "fixture", healthURL: URL(string: "http://127.0.0.1/ping")!)
         let manager = ManagerAPI(manager: ServerManager(root: root), configuration: configuration,
                                  executable: root, running: nil)
-        app = Application(router: makeRouter(files: FilesAPI(), manager: manager, agent: AgentAPI(runtime: await AgentRuntime())))
-        do { try git(["init", "-q", "-b", "main"]) }
+        app = Application(router: makeRouter(files: FilesAPI(), manager: manager, agent: AgentAPI(runtime: await AgentRuntime()), git: git))
+        do { try self.git(["init", "-q", "-b", "main"]) }
         catch { remove(); throw error }
     }
 

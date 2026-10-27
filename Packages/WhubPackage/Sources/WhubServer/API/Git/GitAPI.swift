@@ -1,6 +1,5 @@
 import Foundation
 import Hummingbird
-import WhubGit
 
 struct GitAPI: Sendable {
     private static let maxResponseBytes = 8 * 1_048_576
@@ -19,7 +18,7 @@ struct GitAPI: Sendable {
         do {
             let (root, _) = try Self.parameters(from: query, requiresPath: false)
             return try Self.response(await watches.start(root: root))
-        } catch { return Self.errorResponse(error) }
+        } catch { return GitAPIError.response(for: error) }
         #else
         return Response(status: .notImplemented)
         #endif
@@ -35,7 +34,7 @@ struct GitAPI: Sendable {
             }
             return Response(status: .noContent, headers: [.cacheControl: "no-store"])
         } catch is CancellationError { throw CancellationError() }
-        catch { return Self.errorResponse(error) }
+        catch { return GitAPIError.response(for: error) }
         #else
         return Response(status: .notImplemented)
         #endif
@@ -47,7 +46,7 @@ struct GitAPI: Sendable {
             guard let id = UUID(uuidString: id) else { throw FilesAPIError.invalidRequest }
             try await watches.stop(id: id)
             return Response(status: .noContent, headers: [.cacheControl: "no-store"])
-        } catch { return Self.errorResponse(error) }
+        } catch { return GitAPIError.response(for: error) }
         #else
         return Response(status: .notImplemented)
         #endif
@@ -57,14 +56,14 @@ struct GitAPI: Sendable {
         do {
             let (root, _) = try Self.parameters(from: query, requiresPath: false)
             return try Self.response(await service.changes(root: root))
-        } catch { return Self.errorResponse(error) }
+        } catch { return GitAPIError.response(for: error) }
     }
 
     func diff(query: String?) async -> Response {
         do {
             let (root, path) = try Self.parameters(from: query, requiresPath: true)
             return try Self.response(await service.diff(root: root, path: path))
-        } catch { return Self.errorResponse(error) }
+        } catch { return GitAPIError.response(for: error) }
     }
 
     private static func parameters(from query: String?, requiresPath: Bool) throws -> (String, String) {
@@ -94,22 +93,4 @@ struct GitAPI: Sendable {
                         body: .init(byteBuffer: .init(bytes: data)))
     }
 
-    private static func errorResponse(_ error: any Error) -> Response {
-        #if os(Linux)
-        if let error = error as? LinuxGitWatchStore.WatchError {
-            switch error {
-            case .expired: return Response(status: .gone)
-            case .failed: return Response(status: .serviceUnavailable)
-            }
-        }
-        #endif
-        if let error = error as? FilesAPIError { return error.response }
-        if let error = error as? FilesError { return FilesAPIError(error).response }
-        if case GitError.notRepository = error {
-            let data = try! JSONEncoder().encode(["error": ["code": "not_repository", "message": "Gitリポジトリではありません。"]])
-            return Response(status: .unprocessableContent, headers: [.contentType: "application/json"],
-                            body: .init(byteBuffer: .init(bytes: data)))
-        }
-        return FilesAPIError.readFailed.response
-    }
 }

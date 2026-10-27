@@ -33,3 +33,9 @@
 ## GITWATCH-F-006：ignore設定の変更を反映する
 - `.gitignore`、Gitのindex、HEAD、設定、info/excludeの変更時に監視を再構築する。
 - 対応テスト：Packages/WhubPackage/Tests/WhubServerTests/GitAPITests.swift / GitAPITests.rechecksIgnoreRules()
+
+## GITWATCH-F-007：監視エラーを通知する
+- inotifyの監視登録がENOSPCで失敗した場合は、開始時・監視中とも503と`watch_limit_reached`を返す。
+- その他の監視失敗は503と`watch_failed`、期限切れの監視IDは410と`watch_expired`を返す。
+- 応答本文は共通の`error.code`と`error.message`を持つJSONとする。
+- 対応テスト：Packages/WhubPackage/Tests/WhubServerTests/GitAPITests.swift / GitAPITests.reportsWatchErrors()
