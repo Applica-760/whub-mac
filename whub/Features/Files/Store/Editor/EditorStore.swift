@@ -136,8 +136,10 @@ final class EditorStore: ObservableObject {
 
     private func isPrepared(_ tab: EditorTab) -> Bool {
         switch tab {
-        case let .file(location): local.fileStores[location] != nil || remote.states[location] != nil
-        case let .diff(location): location.localURL.map { local.diffStores[$0] != nil } ?? false
+        case let .file(location): return local.fileStores[location] != nil || remote.states[location] != nil
+        case let .diff(location):
+            if case .remote = location { return true }
+            return location.localURL.map { local.diffStores[$0] != nil } ?? false
         }
     }
 

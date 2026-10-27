@@ -57,6 +57,7 @@ final class FilesStore: ObservableObject {
         refreshID += 1
         activeEditor.refresh()
         git.refresh()
+        if let root = explorer.selectedLocation { remoteGitStores[root]?.refresh() }
     }
 
     func remoteGit(for root: FileLocation, hosts: [RemoteHost], connections: RemoteConnectionStore,
@@ -84,6 +85,11 @@ final class FilesStore: ObservableObject {
     }
 
     func openDiff(_ location: FileLocation, preview: Bool = false) {
+        if case .remote = location {
+            if preview { activeEditor.preview(.diff(location)) }
+            else { activeEditor.open(.diff(location)) }
+            return
+        }
         guard let url = location.localURL else { return }
         let fileURL = url.standardizedFileURL
         activeEditor.local.loadDiff(at: fileURL)

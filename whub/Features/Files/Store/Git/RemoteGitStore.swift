@@ -20,6 +20,7 @@ final class RemoteGitStore: ObservableObject {
     private var connectionChanges: AnyCancellable?
     private var listVisible = false
     private var visibleDiffPaths: Set<String> = []
+    private var usages: [UUID: (list: Bool, paths: Set<String>)] = [:]
     private var connectionID: ObjectIdentifier?
     private var serverURL: String?
     private var generation = UUID()
@@ -51,6 +52,16 @@ final class RemoteGitStore: ObservableObject {
         }
         synchronizeConnection()
         if changed { refresh() }
+    }
+
+    func setUsage(id: UUID, listVisible: Bool, visibleDiffPaths: Set<String>) {
+        if listVisible || !visibleDiffPaths.isEmpty {
+            usages[id] = (listVisible, visibleDiffPaths)
+        } else {
+            usages.removeValue(forKey: id)
+        }
+        setUsage(listVisible: usages.values.contains { $0.list },
+                 visibleDiffPaths: usages.values.reduce(into: Set<String>()) { $0.formUnion($1.paths) })
     }
 
     func refresh() {
@@ -106,6 +117,7 @@ final class RemoteGitStore: ObservableObject {
     }
 
     func stop() {
+        usages.removeAll()
         listVisible = false
         visibleDiffPaths = []
         connectionChanges = nil
@@ -125,6 +137,7 @@ final class RemoteGitStore: ObservableObject {
         connectionID = id
         serverURL = url
         isConnected = true
+        isLoading = true
         watchError = nil
         let generation = generation
         let rootPath = root.path
@@ -183,5 +196,7 @@ final class RemoteGitStore: ObservableObject {
         serverURL = nil
         isConnected = false
         isLoading = false
+        changes = []
+        diffs = [:]
     }
 }

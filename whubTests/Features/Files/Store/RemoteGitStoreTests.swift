@@ -4,6 +4,7 @@
 // - RemoteGitStoreTests.discardsResultFromPreviousConnection(): [RGITSTORE-F-003]
 // - RemoteGitStoreTests.retriesServerFailureOnlyWhileConnected(): [RGITSTORE-F-004]
 // - RemoteGitStoreTests.watchLimitRequiresManualRetry(): [RGITSTORE-F-005]
+// - RemoteGitStoreTests.sharesWatchBetweenListAndDiff()
 
 import Foundation
 import SwiftData
@@ -14,6 +15,24 @@ import WhubClient
 
 @Suite(.serialized) @MainActor
 struct RemoteGitStoreTests {
+    @Test func sharesWatchBetweenListAndDiff() async throws {
+        let fixture = try RemoteGitFixture()
+        defer { fixture.store.stop() }
+        await fixture.connections.connect(fixture.host)
+        let list = UUID()
+        let diff = UUID()
+        fixture.store.setUsage(id: list, listVisible: true, visibleDiffPaths: [])
+        fixture.store.setUsage(id: diff, listVisible: false, visibleDiffPaths: ["file.txt"])
+        try await eventually { fixture.store.diffs["file.txt"] != nil && fixture.store.changes.first != nil && GitProtocol.state.waitCount > 0 }
+        fixture.store.setUsage(id: list, listVisible: false, visibleDiffPaths: [])
+        GitProtocol.state.change(to: "after")
+        try await eventually { fixture.store.diffs["file.txt"]?.content.after == "after" }
+        #expect(GitProtocol.state.startCount == 1)
+        fixture.store.setUsage(id: diff, listVisible: false, visibleDiffPaths: [])
+        try await eventually { !fixture.store.isConnected }
+        await fixture.close()
+    }
+
     @Test func refreshesChangesAndVisibleDiffOnNotification() async throws {
         let fixture = try RemoteGitFixture()
         defer { fixture.store.stop() }

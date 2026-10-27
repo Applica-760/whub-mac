@@ -1,5 +1,6 @@
 import Combine
 import SwiftUI
+import WhubClient
 import WhubGit
 
 struct EditorView: View {
@@ -18,6 +19,9 @@ struct EditorView: View {
             if case let .diff(location) = store.selectedTab, let url = location.localURL,
                let state = store.local.diffStores[url] {
                 DiffContent(state: state).id(location)
+            } else if case let .diff(location) = store.selectedTab, case .remote = location,
+                      let root = files.explorer.selectedLocation, let git = files.remoteGitStores[root] {
+                RemoteDiffContent(git: git, location: location).id(location)
             } else if case let .file(location) = store.selectedTab, let state = store.local.fileStores[location] {
                 FileContent(state: state, editorID: editorID, refreshID: files.refreshID,
                             showsMarkdownPreview: store.markdownPreviews.contains(location)) { [weak store] in
@@ -112,6 +116,62 @@ struct EditorView: View {
             } else {
                 tabFocus.activate()
             }
+        }
+    }
+}
+
+private struct RemoteDiffContent: View {
+    @ObservedObject var git: RemoteGitStore
+    let location: FileLocation
+    @State private var usageID = UUID()
+    @Environment(\.isRetainedPageActive) private var isActive
+
+    private var path: String {
+        let prefix = git.root.path == "/" ? "/" : git.root.path + "/"
+        return location.path.hasPrefix(prefix) ? String(location.path.dropFirst(prefix.count)) : location.path
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if !git.isConnected {
+                ContentUnavailableView("接続されていません", systemImage: "network.slash")
+            } else if let error = git.watchError {
+                ContentUnavailableView("差分を取得できません", systemImage: "exclamationmark.triangle",
+                                       description: Text(error))
+                Button("再試行") { git.retry() }
+            } else if let error = git.errorMessage {
+                ContentUnavailableView("差分を取得できません", systemImage: "exclamationmark.triangle",
+                                       description: Text(error))
+            } else if let diff = git.diffs[path] {
+                if git.isLoading { ProgressView().controlSize(.small) }
+                if diff.content.type == "text", let before = diff.content.before, let after = diff.content.after {
+                    if diff.change == nil { Text("未コミットの差分はありません").foregroundStyle(.secondary) }
+                    DiffView(before: before, after: after, fileURL: URL(fileURLWithPath: location.path))
+                } else {
+                    ContentUnavailableView("テキスト比較の対象外", systemImage: "doc.badge.ellipsis",
+                                           description: Text(unsupportedMessage(diff.content.reason)))
+                }
+            } else {
+                ProgressView("差分を読み込み中…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onAppear { updateUsage(isActive) }
+        .onChange(of: isActive) { _, active in updateUsage(active) }
+        .onDisappear { updateUsage(false) }
+    }
+
+    private func updateUsage(_ active: Bool) {
+        git.setUsage(id: usageID, listVisible: false, visibleDiffPaths: active ? [path] : [])
+    }
+
+    private func unsupportedMessage(_ reason: String?) -> String {
+        switch reason {
+        case "binary": "バイナリまたはUTF-8以外のファイルです。"
+        case "conflict": "競合中のファイルです。競合を解消してから再読み込みしてください。"
+        case "submodule": "サブモジュールの比較には対応していません。"
+        case "symbolicLink": "シンボリックリンクの比較には対応していません。"
+        case "fileType": "通常ファイル以外の比較には対応していません。"
+        default: "このファイルの比較には対応していません。"
         }
     }
 }

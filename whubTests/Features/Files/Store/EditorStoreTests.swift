@@ -19,6 +19,7 @@
 // - workspaceSwitchPreservesLocalTabsAndUnsavedContents(): Workspace切替でローカルタブと未保存内容を保持する。
 // - remoteWorkspacesKeepSeparateTabsAndPendingReads(): Workspace別にリモートタブと保留読込を分離する。
 // - localEditingAndTabs(): [TAB-F-008]
+// - remoteDiffPreviewCanBeOpenedAndClosed(): リモート差分タブの操作。
 
 import AppKit
 import SwiftData
@@ -31,6 +32,19 @@ import WhubClient
 
 @Suite @MainActor
 struct EditorStoreTests {
+    @Test func remoteDiffPreviewCanBeOpenedAndClosed() throws {
+        let fixture = try ViewerFixture()
+        let location = fixture.root().appending("file.txt")
+        let files = FilesStore()
+        files.openDiff(location, preview: true)
+        #expect(files.activeEditor.selectedTab == .diff(location))
+        #expect(files.activeEditor.previewTab == .diff(location))
+        files.openDiff(location)
+        #expect(files.activeEditor.previewTab == nil)
+        files.activeEditor.close(.diff(location))
+        #expect(files.activeEditor.tabs.isEmpty)
+    }
+
     @Test func markdownPreviewReusesDocumentsAndTracksEachOpenFile() throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)

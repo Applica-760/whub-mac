@@ -10,7 +10,7 @@ final class ExplorerStore: ObservableObject {
         didSet {
             guard selectedLocation != oldValue else { return }
             cancelNameEditing()
-            if selectedLocation?.localURL == nil { showsDiff = false }
+            if selectedLocation == nil { showsDiff = false }
             remoteTree.stop()
             localTree.reset()
             errorMessage = nil

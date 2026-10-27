@@ -32,7 +32,14 @@ struct ExplorerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ExplorerPulldownView(store: store)
-            if store.showsDiff, store.selectedLocation?.localURL != nil {
+            if store.showsDiff, let root = store.selectedLocation, case .remote = root,
+               let remoteGit = files.remoteGit(for: root, hosts: hosts.compactMap { $0 as? RemoteHost },
+                                               connections: connections, servers: servers) {
+                RemoteExplorerDiffView(git: remoteGit, editor: files.activeEditor, focus: focus,
+                                       onPreview: { openDiff($0, preview: true) },
+                                       onOpen: { openDiff($0, preview: false) })
+                    .id(root)
+            } else if store.showsDiff, store.selectedLocation?.localURL != nil {
                 ExplorerDiffView(git: gitStore, editor: files.activeEditor,
                                  focus: focus,
                                  onPreview: { openDiff($0, preview: true) },
@@ -60,7 +67,7 @@ struct ExplorerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(TabPaneFocusView(focus: focus.sidebar))
         .overlay(alignment: .topTrailing) {
-            ExplorerMenuView(canRefresh: store.canRefresh, canShowDiff: store.selectedLocation?.localURL != nil,
+            ExplorerMenuView(canRefresh: store.canRefresh, canShowDiff: store.selectedLocation != nil,
                              showsDiff: Binding(get: { store.showsDiff }, set: setShowsDiff)) {
                 files.refresh()
             }

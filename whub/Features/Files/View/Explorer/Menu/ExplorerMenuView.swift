@@ -164,7 +164,7 @@ struct FilesNavigationMenu: View {
     var body: some View {
         Button("Toggle Diff Explorer") { toggleExplorerDiff?() }
             .keyboardShortcut("d", modifiers: [.command, .shift])
-            .disabled(toggleExplorerDiff == nil || store.explorer.selectedLocation?.localURL == nil || store.explorer.nameEdit != nil)
+            .disabled(toggleExplorerDiff == nil || store.explorer.selectedLocation == nil || store.explorer.nameEdit != nil)
         Button("Focus Explorer or Feature") { toggleExplorerFocus?() }
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(toggleExplorerFocus == nil || store.explorer.nameEdit != nil)
