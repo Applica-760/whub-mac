@@ -5,6 +5,7 @@
 // - browserFocusesVisibleWebContentWithoutClicking(): 可視Webコンテンツへのフォーカス移動と非表示時の拒否。
 // - browserScrollsWithJKExceptWhenEditing(): 編集・IME・修飾キーと入れ子のスクロール領域を検証する。
 // - browserLoadsLocalHTMLAndRelativeResources(): ローカルHTMLと相対リソースを読み込む。
+// - addressInputSelectsURLOrGoogleSearch(): URLと検索語を判別する。
 // - commandWClosesSelectedBrowserTabAndReplacesLast(): [TAB-F-007] [TAB-F-009]
 
 import AppKit
@@ -275,6 +276,22 @@ struct BrowserViewTests {
         #expect(try await page.callJavaScript("return document.images[0].naturalWidth") as? Int == 12)
         #expect(browser.selectedSession.address == url.absoluteString)
     }
+    @Test func addressInputSelectsURLOrGoogleSearch() throws {
+        for input in ["検索 語", "swift", "C++"] {
+            let url = try #require(BrowserStore.navigationURL(from: input))
+            let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            #expect(components.host == "www.google.com")
+            #expect(components.path == "/search")
+            #expect(components.queryItems?.first?.value == input)
+            if input == "C++" { #expect(url.absoluteString.contains("%2B%2B")) }
+        }
+        #expect(BrowserStore.navigationURL(from: "example.com")?.absoluteString == "https://example.com")
+        #expect(BrowserStore.navigationURL(from: "localhost:8080")?.absoluteString == "https://localhost:8080")
+        #expect(BrowserStore.navigationURL(from: "http://example.com")?.absoluteString == "http://example.com")
+        #expect(BrowserStore.navigationURL(from: " \n") == nil)
+        #expect(BrowserStore.navigationURL(from: "javascript://alert(1)") == nil)
+    }
+
     @Test(arguments: [1, 2])
     func commandWClosesSelectedBrowserTabAndReplacesLast(tabCount: Int) async throws {
         let store = BrowserStore()
