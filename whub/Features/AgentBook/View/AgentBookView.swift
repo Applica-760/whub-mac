@@ -4,6 +4,7 @@ import SwiftUI
 
 struct AgentBookView: View {
     @ObservedObject var store: AgentBookStore
+    var inputFocus: AgentBookFocus? = nil
     @State private var tabFocus = TabPaneFocus()
     @State private var pendingCloseID: AgentBookTabStore.ID?
     @Environment(\.retainedPageActivity) private var featureActivity
@@ -12,7 +13,7 @@ struct AgentBookView: View {
         RetainedPageContainer(selection: store.selectedTabID, availablePages: store.tabs.map(\.id)) { id in
             if let tab = store.tabs.first(where: { $0.id == id }) {
                 AgentBookTabView(bookStore: store, store: tab.store, tab: tab,
-                                 featureActivity: featureActivity, select: select)
+                                 featureActivity: featureActivity, inputFocus: inputFocus, select: select)
             }
         }
         .background(TabPaneFocusView(focus: tabFocus))

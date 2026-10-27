@@ -12,6 +12,7 @@ struct AgentBookTabView: View {
     @EnvironmentObject private var servers: RemoteServerStore
     let tab: AgentBookTabStore
     let featureActivity: RetainedPageActivity?
+    let inputFocus: AgentBookFocus?
     let select: (AgentStore.ID) -> Void
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
@@ -39,7 +40,7 @@ struct AgentBookTabView: View {
                     VStack(spacing: 0) {
                         AgentBookInputView(
                             store: store, skillStore: tab.skillStore, historyStore: tab.historyStore,
-                            focus: bookFocus, agentName: agentName,
+                            focus: bookFocus, inputFocus: inputFocus, agentName: agentName,
                             newConversation: {
                                 if store.exchanges.isEmpty { newConversation() }
                                 else { confirmsReset = true }

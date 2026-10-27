@@ -68,14 +68,15 @@ struct WorkspaceView<Container: View>: View {
     @ViewBuilder let container: (WorkspacePanes) -> Container
     @State private var leftFocus = TabPaneFocus()
     @State private var agentFocus = TabPaneFocus()
+    @State private var agentInputFocus = AgentBookFocus()
 
     var body: some View {
         let selection = Binding(get: { section }, set: selectSection)
 
-        container(WorkspacePanes(section: section, leftFocus: leftFocus, agentFocus: agentFocus))
+        container(WorkspacePanes(section: section, leftFocus: leftFocus, agentFocus: agentFocus, agentInputFocus: agentInputFocus))
         .focusedSceneValue(\.workspaceActions, WorkspaceActions(
             selection: selection,
-            activateAgentBook: { agentFocus.activate() },
+            activateAgentBook: { agentInputFocus.activateInput() },
             newTab: newTab, targetsAgentBook: targetsAgentBook
         ))
     }
@@ -108,6 +109,7 @@ struct WorkspacePanes: View {
     let section: WorkspaceSection
     let leftFocus: TabPaneFocus
     let agentFocus: TabPaneFocus
+    let agentInputFocus: AgentBookFocus
     @EnvironmentObject private var agentBook: AgentBookStore
 
     var body: some View {
@@ -117,7 +119,7 @@ struct WorkspacePanes: View {
             }
             .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
             .frame(minWidth: 300)
-            AgentBookView(store: agentBook)
+            AgentBookView(store: agentBook, inputFocus: agentInputFocus)
                 .background(TabPaneFocusView(focus: agentFocus, activatesOnClick: false))
                 .frame(minWidth: 700)
         }

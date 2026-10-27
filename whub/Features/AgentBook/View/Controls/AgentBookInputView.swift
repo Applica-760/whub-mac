@@ -29,6 +29,7 @@ struct AgentBookInputView: View {
     @ObservedObject var skillStore: AgentSkillStore
     @ObservedObject var historyStore: AgentHistoryStore
     let focus: AgentBookFocus
+    var inputFocus: AgentBookFocus? = nil
     let agentName: String
     let newConversation: () -> Void
     let resume: (AgentHistoryEntry) async -> Bool
@@ -144,7 +145,7 @@ struct AgentBookInputView: View {
                     .font(.callout)
                 }
                 HStack(alignment: .bottom, spacing: 12) {
-                    AgentBookTextInput(focus: focus, agentName: agentName, text: text, selection: $selection,
+                    AgentBookTextInput(focus: focus, inputFocus: inputFocus, agentName: agentName, text: text, selection: $selection,
                                        handleKey: handleKey, pasteImages: { images in
                                            store.draft += images.map { .image(AgentImageAttachment(image: $0)) }
                                        })
@@ -406,6 +407,7 @@ final class AgentBookFocus {
 
 private struct AgentBookTextInput: NSViewRepresentable {
     let focus: AgentBookFocus
+    let inputFocus: AgentBookFocus?
     let agentName: String
     @Environment(\.isRetainedPageActive) private var isActive
     @Binding var text: String
@@ -417,6 +419,7 @@ private struct AgentBookTextInput: NSViewRepresentable {
         let view = AgentBookInputTextView()
         view.bookFocus = focus
         focus.inputView = view
+        if isActive { inputFocus?.inputView = view }
         view.delegate = context.coordinator
         view.setAccessibilityLabel(agentName + "に依頼する")
         view.setAccessibilityHelp("⌘Enterで送信。⌘Vで画像も貼り付け。/でコマンド、$でSkillを選択。")
