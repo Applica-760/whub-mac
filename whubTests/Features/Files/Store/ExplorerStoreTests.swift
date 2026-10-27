@@ -24,12 +24,18 @@ struct ExplorerStoreTests {
         #expect(store.updateTree(gitChanges: [:], remoteChanges: [file: .added]))
         #expect(store.decorations[file] == .added)
         #expect(store.decorations[root.appending("src")] == .added)
+        #expect(!store.updateTree(gitChanges: [:], remoteChanges: [file: .added]))
         #expect(store.updateTree(gitChanges: [:], remoteChanges: [file: .modified]))
         #expect(store.decorations[file] == .modified)
         #expect(store.decorations[root.appending("src")] == .modified)
-        store.selectedLocation = .remote(hostID: host.persistentModelID, path: "/workspace/other")
+        let other = FileLocation.remote(hostID: host.persistentModelID, path: "/workspace/other")
+        store.selectedLocation = other
         #expect(store.updateTree(gitChanges: [:], remoteChanges: [file: .modified]))
         #expect(store.decorations.isEmpty)
+        store.remoteTree.update(source: .init(root: other, sessionID: ObjectIdentifier(session)), refreshID: 0) { _ in [] }
+        let otherFile = other.appending("src/file.swift")
+        #expect(store.updateTree(gitChanges: [:], remoteChanges: [otherFile: .added]))
+        #expect(store.decorations[other.appending("src")] == .added)
     }
 
     @Test func reloadUpdatesCandidatesWithoutLosingSelection() async throws {

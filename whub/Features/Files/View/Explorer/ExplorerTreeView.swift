@@ -430,9 +430,6 @@ struct RemoteFileTreeStatusView: View {
     var body: some View {
         ForEach(states.keys.sorted(), id: \.self) { path in
             switch states[path] {
-            case .loading:
-                Text("\(path.isEmpty ? "ルート" : path)：取得中…")
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
             case let .failed(message):
                 Text("\(path.isEmpty ? "ルート" : path)：\(message) — リロードで再取得")
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
