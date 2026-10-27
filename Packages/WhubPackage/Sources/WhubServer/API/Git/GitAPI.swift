@@ -21,7 +21,7 @@ struct GitAPI: Sendable {
         } catch { return Self.errorResponse(error) }
     }
 
-    private static func parameters(from query: String?, requiresPath: Bool) throws -> (URL, String) {
+    private static func parameters(from query: String?, requiresPath: Bool) throws -> (String, String) {
         guard let query, !query.isEmpty else { throw FilesAPIError.invalidPath }
         var values: [String: String] = [:]
         for field in query.split(separator: "&", omittingEmptySubsequences: false) {
@@ -38,7 +38,7 @@ struct GitAPI: Sendable {
         guard (!requiresPath && path.isEmpty) || (requiresPath && !path.isEmpty && !path.hasPrefix("/") &&
               !path.contains("\0") && !path.split(separator: "/").contains("..") &&
               path.split(separator: "/").contains(where: { $0 != "." })) else { throw FilesAPIError.invalidPath }
-        return (URL(fileURLWithPath: root).standardizedFileURL, path)
+        return (root, path)
     }
 
     private static func response<T: Encodable>(_ value: T) throws -> Response {

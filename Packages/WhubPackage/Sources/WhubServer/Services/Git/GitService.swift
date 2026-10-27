@@ -29,19 +29,21 @@ struct GitService: Sendable {
         }
     }
 
-    func changes(root: URL) async throws -> [Change] {
-        _ = try FilesService(root: root.path)
-        let changes = try await Git.fileChanges(at: root)
-        let prefix = root.path == "/" ? "/" : root.path + "/"
+    func changes(root: String) async throws -> [Change] {
+        _ = try FilesService(root: root)
+        let rootURL = URL(fileURLWithPath: root).standardizedFileURL
+        let changes = try await Git.fileChanges(at: rootURL)
+        let prefix = rootURL.path == "/" ? "/" : rootURL.path + "/"
         return changes.compactMap { url, change -> Change? in
             guard url.path.hasPrefix(prefix) else { return nil }
             return Change(path: String(url.path.dropFirst(prefix.count)), change: Self.name(change))
         }.sorted { $0.path < $1.path }
     }
 
-    func diff(root: URL, path: String) async throws -> Diff {
-        _ = try FilesService(root: root.path)
-        let diff = try await Git.fileDiff(at: root.appendingPathComponent(path), in: root)
+    func diff(root: String, path: String) async throws -> Diff {
+        _ = try FilesService(root: root)
+        let rootURL = URL(fileURLWithPath: root).standardizedFileURL
+        let diff = try await Git.fileDiff(at: rootURL.appendingPathComponent(path), in: rootURL)
         let content: Diff.Content
         switch diff.content {
         case let .text(before, after):
