@@ -24,7 +24,7 @@ let package = Package(
         .executableTarget(name: "WhubCLI", dependencies: ["WhubCore"]),
         .executableTarget(
             name: "WhubServer",
-            dependencies: ["WhubAgent", .product(name: "Hummingbird", package: "hummingbird")]
+            dependencies: ["WhubAgent", "WhubGit", .product(name: "Hummingbird", package: "hummingbird")]
         ),
         .testTarget(name: "WhubCoreTests", dependencies: ["WhubCore"]),
         .testTarget(name: "WhubGitTests", dependencies: ["WhubGit"]),

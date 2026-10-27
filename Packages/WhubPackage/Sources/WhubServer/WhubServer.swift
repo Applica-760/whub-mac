@@ -36,7 +36,8 @@ struct WhubServer {
 
         let runtime = AgentRuntime()
         defer { runtime.shutdown() }
-        let router = makeRouter(files: FilesAPI(), manager: try managerAPI(environment), agent: AgentAPI(runtime: runtime))
+        let router = makeRouter(files: FilesAPI(), manager: try managerAPI(environment), agent: AgentAPI(runtime: runtime),
+                                git: GitAPI())
 
         let app = Application(
             router: router,
