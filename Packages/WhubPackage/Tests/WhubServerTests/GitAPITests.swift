@@ -5,6 +5,8 @@
 // - GitAPITests.rejectsInvalidPaths(): [GITAPI-F-004]
 // - GitAPITests.reportsNonRepository(): [GITAPI-F-005]
 // - GitAPITests.notifiesAndReleasesWatch(): [GITWATCH-F-004]
+// - GitAPITests.ignoresUntrackedDirectoriesButWatchesTrackedFiles(): [GITWATCH-F-005]
+// - GitAPITests.rechecksIgnoreRules(): [GITWATCH-F-006]
 
 import Foundation
 import Hummingbird
@@ -20,6 +22,40 @@ import Darwin
 
 @Suite struct GitAPITests {
     #if os(Linux)
+    @Test func ignoresUntrackedDirectoriesButWatchesTrackedFiles() async throws {
+        let fixture = try await GitFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(at: fixture.root.appendingPathComponent("ignored/nested"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: fixture.root.appendingPathComponent("tracked"), withIntermediateDirectories: true)
+        try fixture.write(".gitignore", "ignored/\ntracked/\n")
+        try fixture.write("ignored/nested/file", "ignored")
+        try fixture.write("tracked/file", "tracked")
+        try fixture.git(["add", "-f", "tracked/file"])
+        let git = fixture.root.appendingPathComponent(".git")
+        let watcher = try LinuxFileWatcher(roots: [fixture.root, git], worktree: fixture.root, managementDirectories: [git])
+        try fixture.write("ignored/nested/file", "modified")
+        #expect(try watcher.nextEvent(timeoutMilliseconds: 150) == nil)
+        try fixture.write("tracked/file", "modified")
+        #expect(try watcher.nextEvent(timeoutMilliseconds: 2_000) == .changed)
+    }
+
+    @Test func rechecksIgnoreRules() async throws {
+        let fixture = try await GitFixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(at: fixture.root.appendingPathComponent("ignored"), withIntermediateDirectories: true)
+        try fixture.write(".gitignore", "ignored/\n")
+        try fixture.write("ignored/file", "before")
+        let store = LinuxGitWatchStore()
+        let watch = try await store.start(root: fixture.root.path)
+        try fixture.write(".gitignore", "")
+        let updated = try await store.wait(id: watch.id, after: watch.revision, timeout: .seconds(3))
+        #expect(updated != nil)
+        try fixture.write("ignored/file", "after")
+        let changed = try await store.wait(id: watch.id, after: try #require(updated), timeout: .seconds(3))
+        #expect(changed != nil)
+        await store.shutdown()
+    }
+
     @Test func notifiesAndReleasesWatch() async throws {
         let fixture = try await GitFixture()
         defer { fixture.remove() }

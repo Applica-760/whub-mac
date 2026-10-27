@@ -28,7 +28,7 @@ actor LinuxGitWatchStore {
         let key = url.path
         if repositories[key] == nil {
             let roots = directories.union([url])
-            let watcher = try LinuxFileWatcher(roots: roots)
+            let watcher = try LinuxFileWatcher(roots: roots, worktree: url, managementDirectories: directories)
             repositories[key] = Repository()
             repositories[key]?.task = Task.detached { [weak self] in
                 var watcher = watcher
@@ -37,7 +37,7 @@ actor LinuxGitWatchStore {
                         let event = try watcher.nextEvent(timeoutMilliseconds: 250)
                         guard !Task.isCancelled else { return }
                         if event == .rescan {
-                            watcher = try LinuxFileWatcher(roots: roots)
+                            watcher = try LinuxFileWatcher(roots: roots, worktree: url, managementDirectories: directories)
                         }
                         guard let self, await self.received(key: key, changed: event != nil) else { return }
                     } catch {

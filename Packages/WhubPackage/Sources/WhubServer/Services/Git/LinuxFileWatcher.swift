@@ -15,10 +15,42 @@ final class LinuxFileWatcher: @unchecked Sendable {
 
     private let descriptor: Int32
     private var directories: [Int32: URL] = [:]
+    private let worktree: URL?
+    private let managementDirectories: Set<URL>
+    private let trackedDirectories: Set<String>
     private static let mask = UInt32(IN_MODIFY | IN_ATTRIB | IN_CLOSE_WRITE | IN_CREATE | IN_DELETE |
                                      IN_MOVED_FROM | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF)
 
-    init(roots: Set<URL>) throws {
+    init(roots: Set<URL>, worktree: URL? = nil, managementDirectories: Set<URL> = []) throws {
+        self.worktree = worktree?.standardizedFileURL
+        self.managementDirectories = Set(managementDirectories.map(\.standardizedFileURL))
+        if let worktree {
+            let index = try Self.git(["ls-files", "--cached", "-z"], at: worktree)
+            guard index.status == 0 else { throw SystemError(operation: "git ls-files", code: index.status) }
+            let head = try Self.git(["rev-parse", "--verify", "--quiet", "HEAD"], at: worktree)
+            var files = index.data
+            if head.status == 0 {
+                let tree = try Self.git(["ls-tree", "-r", "--name-only", "-z", "HEAD"], at: worktree)
+                guard tree.status == 0 else { throw SystemError(operation: "git ls-tree", code: tree.status) }
+                files.append(tree.data)
+            } else if head.status != 1 {
+                throw SystemError(operation: "git rev-parse", code: head.status)
+            }
+            var tracked: Set<String> = []
+            for path in files.split(separator: 0) {
+                guard let name = String(data: path, encoding: .utf8) else {
+                    throw SystemError(operation: "git path encoding", code: EINVAL)
+                }
+                var parent = (name as NSString).deletingLastPathComponent
+                while !parent.isEmpty && parent != "." {
+                    tracked.insert(parent)
+                    parent = (parent as NSString).deletingLastPathComponent
+                }
+            }
+            trackedDirectories = tracked
+        } else {
+            trackedDirectories = []
+        }
         descriptor = inotify_init1(Int32(IN_CLOEXEC | IN_NONBLOCK))
         guard descriptor >= 0 else { throw SystemError(operation: "inotify_init1", code: errno) }
         do {
@@ -61,7 +93,15 @@ final class LinuxFileWatcher: @unchecked Sendable {
                    let parent = directories[event.wd], !name.isEmpty {
                     try addDirectoryTree(parent.appendingPathComponent(name, isDirectory: true))
                 }
-                if event.mask & UInt32(IN_DELETE_SELF | IN_MOVE_SELF) != 0 ||
+                let parent = directories[event.wd]
+                let path = parent?.appendingPathComponent(name).standardizedFileURL
+                let rulesChanged = name == ".gitignore" || managementDirectories.contains { directory in
+                    path == directory.appendingPathComponent("index") ||
+                    path == directory.appendingPathComponent("HEAD") ||
+                    path == directory.appendingPathComponent("info/exclude") ||
+                    path == directory.appendingPathComponent("config")
+                }
+                if rulesChanged || event.mask & UInt32(IN_DELETE_SELF | IN_MOVE_SELF) != 0 ||
                     (event.mask & UInt32(IN_ISDIR) != 0 && event.mask & UInt32(IN_DELETE | IN_MOVED_FROM) != 0) {
                     result = .rescan
                 } else if result == nil {
@@ -77,6 +117,7 @@ final class LinuxFileWatcher: @unchecked Sendable {
         let manager = FileManager.default
         var pending = [root]
         while let directory = pending.popLast() {
+            if try shouldIgnore(directory) { continue }
             let wd = inotify_add_watch(descriptor, directory.path, Self.mask | UInt32(IN_ONLYDIR | IN_DONT_FOLLOW))
             guard wd >= 0 else { throw SystemError(operation: "inotify_add_watch", code: errno) }
             directories[wd] = directory
@@ -85,6 +126,36 @@ final class LinuxFileWatcher: @unchecked Sendable {
                 if values.isDirectory == true && values.isSymbolicLink != true { pending.append(child) }
             }
         }
+    }
+
+    private func shouldIgnore(_ directory: URL) throws -> Bool {
+        guard let worktree else { return false }
+        let path = directory.standardizedFileURL.path
+        let prefix = worktree.path == "/" ? "/" : worktree.path + "/"
+        guard path.hasPrefix(prefix), !managementDirectories.contains(where: {
+            path == $0.path || path.hasPrefix($0.path + "/")
+        }) else { return false }
+        let relative = String(path.dropFirst(prefix.count))
+        guard !trackedDirectories.contains(relative) else { return false }
+        let result = try Self.git(["check-ignore", "-q", "--no-index", "--", relative + "/"], at: worktree)
+        switch result.status {
+        case 0: return true
+        case 1: return false
+        default: throw SystemError(operation: "git check-ignore", code: result.status)
+        }
+    }
+
+    private static func git(_ arguments: [String], at directory: URL) throws -> (data: Data, status: Int32) {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", directory.path] + arguments
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (data, process.terminationStatus)
     }
 }
 #endif

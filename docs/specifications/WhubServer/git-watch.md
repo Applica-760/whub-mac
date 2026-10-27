@@ -24,3 +24,12 @@
 - DELETE `/git/watches/<id>` は購読を解除する。存在しない監視IDは410を返す。
 - 同じrootの購読は監視を共有する。60秒間利用されない購読は期限切れとなる。
 - 対応テスト：Packages/WhubPackage/Tests/WhubServerTests/GitAPITests.swift / GitAPITests.notifiesAndReleasesWatch()
+
+## GITWATCH-F-005：Gitの無視対象を監視から除外する
+- Gitのignore設定で無視され、追跡済みファイルを含まないディレクトリは監視しない。
+- Gitの管理ディレクトリと、indexまたはHEADにあるファイルは監視を維持する。
+- 対応テスト：Packages/WhubPackage/Tests/WhubServerTests/GitAPITests.swift / GitAPITests.ignoresUntrackedDirectoriesButWatchesTrackedFiles()
+
+## GITWATCH-F-006：ignore設定の変更を反映する
+- `.gitignore`、Gitのindex、HEAD、設定、info/excludeの変更時に監視を再構築する。
+- 対応テスト：Packages/WhubPackage/Tests/WhubServerTests/GitAPITests.swift / GitAPITests.rechecksIgnoreRules()
