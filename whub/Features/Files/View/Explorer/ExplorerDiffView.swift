@@ -106,7 +106,8 @@ private struct DiffFileList: NSViewRepresentable {
                 urls = parent.changes.keys.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
                 table.reloadData()
             }
-            if case let .diff(url) = parent.selectedTab, let row = urls.firstIndex(of: url) {
+            if case let .diff(location) = parent.selectedTab, let url = location.localURL,
+               let row = urls.firstIndex(of: url) {
                 if table.selectedRow != row { table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
             } else { table.deselectAll(nil) }
         }

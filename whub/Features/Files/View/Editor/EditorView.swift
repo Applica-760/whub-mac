@@ -15,8 +15,9 @@ struct EditorView: View {
 
     var body: some View {
         WidgetFrame {
-            if case let .diff(url) = store.selectedTab, let state = store.local.diffStores[url] {
-                DiffContent(state: state).id(url)
+            if case let .diff(location) = store.selectedTab, let url = location.localURL,
+               let state = store.local.diffStores[url] {
+                DiffContent(state: state).id(location)
             } else if case let .file(location) = store.selectedTab, let state = store.local.fileStores[location] {
                 FileContent(state: state, editorID: editorID, refreshID: files.refreshID,
                             showsMarkdownPreview: store.markdownPreviews.contains(location)) { [weak store] in

@@ -87,8 +87,8 @@ final class FilesStore: ObservableObject {
         guard let url = location.localURL else { return }
         let fileURL = url.standardizedFileURL
         activeEditor.local.loadDiff(at: fileURL)
-        if preview { activeEditor.preview(.diff(fileURL)) }
-        else { activeEditor.open(.diff(fileURL)) }
+        if preview { activeEditor.preview(.diff(.local(fileURL))) }
+        else { activeEditor.open(.diff(.local(fileURL))) }
     }
 
     func openMarkdownPreview(_ location: FileLocation) {

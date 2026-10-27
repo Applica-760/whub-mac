@@ -22,11 +22,11 @@ struct EditorTabBarView: View {
             isShortcutTarget: tabFocus.contains
         ) { tab, isSelected, actions in
             switch tab {
-            case let .diff(url):
-                TabBar(title: url.lastPathComponent + " · Diff", icon: Image(systemName: "arrow.left.arrow.right"),
+            case let .diff(location):
+                TabBar(title: location.name + " · Diff", icon: Image(systemName: "arrow.left.arrow.right"),
                        isSelected: isSelected, isPreview: tab == store.previewTab,
                        openAction: { store.open(tab) }, action: actions.select, closeAction: actions.close)
-                    .help(url.path + " — HEAD ↔ 保存済み")
+                    .help(location.path + " — HEAD ↔ 保存済み")
             case let .file(location):
                 if let fileStore = store.local.fileStores[location], let fileURL = location.localURL {
                     let titleColor: Color? = switch gitStore.changes[fileURL.standardizedFileURL] {

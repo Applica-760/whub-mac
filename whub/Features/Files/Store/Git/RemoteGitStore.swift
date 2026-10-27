@@ -16,6 +16,7 @@ final class RemoteGitStore: ObservableObject {
     private let host: RemoteHost
     private let connections: RemoteConnectionStore
     private let servers: RemoteServerStore
+    private let retryInterval: Duration
     private var connectionChanges: AnyCancellable?
     private var listVisible = false
     private var visibleDiffPaths: Set<String> = []
@@ -28,11 +29,13 @@ final class RemoteGitStore: ObservableObject {
     private var watchTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
 
-    init(root: FileLocation, host: RemoteHost, connections: RemoteConnectionStore, servers: RemoteServerStore) {
+    init(root: FileLocation, host: RemoteHost, connections: RemoteConnectionStore, servers: RemoteServerStore,
+         retryInterval: Duration = .seconds(10)) {
         self.root = root
         self.host = host
         self.connections = connections
         self.servers = servers
+        self.retryInterval = retryInterval
         connectionChanges = connections.$states.dropFirst().receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.synchronizeConnection() }
     }
@@ -126,30 +129,42 @@ final class RemoteGitStore: ObservableObject {
         let generation = generation
         let rootPath = root.path
         watchTask = Task { [weak self, host, servers] in
-            do {
-                let client = try await servers.client(for: host)
-                let watch = try await client.git.watch(root: rootPath)
-                guard let self, !Task.isCancelled, self.generation == generation else {
-                    await watch.stop()
-                    return
-                }
-                self.client = client
-                self.watch = watch
-                self.refresh()
-                for try await _ in watch.updates {
-                    guard !Task.isCancelled, self.generation == generation else { break }
+            while !Task.isCancelled {
+                do {
+                    let client = try await servers.client(for: host)
+                    let watch = try await client.git.watch(root: rootPath)
+                    guard let self, !Task.isCancelled, self.generation == generation else {
+                        await watch.stop()
+                        return
+                    }
+                    self.client = client
+                    self.watch = watch
+                    self.watchError = nil
                     self.refresh()
+                    for try await _ in watch.updates {
+                        guard !Task.isCancelled, self.generation == generation else { return }
+                        self.refresh()
+                    }
+                    return
+                } catch {
+                    guard let self, !Task.isCancelled, self.generation == generation else { return }
+                    self.watchError = error.localizedDescription
+                    self.requestID += 1
+                    self.loadTask?.cancel()
+                    self.loadTask = nil
+                    self.isLoading = false
+                    self.client = nil
+                    self.watch = nil
+                    if case WhubClientError.api(_, "watch_limit_reached", _) = error {
+                        self.watchTask = nil
+                        return
+                    }
+                    do { try await Task.sleep(for: self.retryInterval) } catch { return }
+                    guard !Task.isCancelled, self.generation == generation,
+                          let connection = self.connections.connection(for: host),
+                          ObjectIdentifier(connection) == id,
+                          servers.configuredURL(for: host) == url else { return }
                 }
-            } catch {
-                guard let self, !Task.isCancelled, self.generation == generation else { return }
-                self.watchError = error.localizedDescription
-                self.requestID += 1
-                self.loadTask?.cancel()
-                self.loadTask = nil
-                self.isLoading = false
-                self.client = nil
-                self.watch = nil
-                self.watchTask = nil
             }
         }
     }

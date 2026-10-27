@@ -56,7 +56,7 @@ final class EditorStore: ObservableObject {
             let target: URL?
             switch tab {
             case let .file(location): target = location.localURL
-            case let .diff(url): target = url
+            case let .diff(location): target = location.localURL
             }
             guard let target else { continue }
             let paths = [target.standardizedFileURL.path, target.resolvingSymlinksInPath().path]
@@ -137,7 +137,7 @@ final class EditorStore: ObservableObject {
     private func isPrepared(_ tab: EditorTab) -> Bool {
         switch tab {
         case let .file(location): local.fileStores[location] != nil || remote.states[location] != nil
-        case let .diff(url): local.diffStores[url] != nil
+        case let .diff(location): location.localURL.map { local.diffStores[$0] != nil } ?? false
         }
     }
 
@@ -147,7 +147,8 @@ final class EditorStore: ObservableObject {
             markdownPreviews.remove(location)
             local.close(location)
             remote.close(location)
-        case let .diff(url): local.closeDiff(at: url)
+        case let .diff(location):
+            if let url = location.localURL { local.closeDiff(at: url) }
         }
     }
 

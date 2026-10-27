@@ -2,6 +2,8 @@
 // - RemoteGitStoreTests.refreshesChangesAndVisibleDiffOnNotification(): [RGITSTORE-F-001]
 // - RemoteGitStoreTests.stopsWhileDisconnectedAndReloadsOnReconnect(): [RGITSTORE-F-002]
 // - RemoteGitStoreTests.discardsResultFromPreviousConnection(): [RGITSTORE-F-003]
+// - RemoteGitStoreTests.retriesServerFailureOnlyWhileConnected(): [RGITSTORE-F-004]
+// - RemoteGitStoreTests.watchLimitRequiresManualRetry(): [RGITSTORE-F-005]
 
 import Foundation
 import SwiftData
@@ -65,6 +67,43 @@ struct RemoteGitStoreTests {
         await fixture.close()
     }
 
+    @Test func retriesServerFailureOnlyWhileConnected() async throws {
+        let fixture = try RemoteGitFixture(retryInterval: .milliseconds(100))
+        defer { fixture.store.stop() }
+        await fixture.connections.connect(fixture.host)
+        fixture.store.setUsage(listVisible: true, visibleDiffPaths: [])
+        try await eventually { fixture.store.changes.first?.path == "before.txt" && GitProtocol.state.waitCount > 0 }
+        GitProtocol.state.setUnavailable(true)
+        try await eventually { fixture.store.watchError != nil && GitProtocol.state.startCount >= 2 }
+        GitProtocol.state.setValue("after")
+        GitProtocol.state.setUnavailable(false)
+        try await eventually { fixture.store.changes.first?.path == "after.txt" && fixture.store.watchError == nil }
+        GitProtocol.state.setUnavailable(true)
+        try await eventually { fixture.store.watchError != nil }
+        await fixture.connections.disconnect(fixture.host)
+        try await eventually { !fixture.store.isConnected }
+        let count = GitProtocol.state.startCount
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(GitProtocol.state.startCount == count)
+        await fixture.close()
+    }
+
+    @Test func watchLimitRequiresManualRetry() async throws {
+        let fixture = try RemoteGitFixture(retryInterval: .milliseconds(100))
+        defer { fixture.store.stop() }
+        GitProtocol.state.setLimitReached(true)
+        await fixture.connections.connect(fixture.host)
+        fixture.store.setUsage(listVisible: true, visibleDiffPaths: [])
+        try await eventually { fixture.store.watchError != nil }
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(GitProtocol.state.startCount == 1)
+        GitProtocol.state.setLimitReached(false)
+        fixture.store.retry()
+        try await eventually { fixture.store.changes.first?.path == "before.txt" && fixture.store.watchError == nil }
+        #expect(GitProtocol.state.startCount == 2)
+        await fixture.close()
+    }
+
     private func eventually(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(3)
         while !condition() {
@@ -83,7 +122,7 @@ private final class RemoteGitFixture {
     let session: URLSession
     let store: RemoteGitStore
 
-    init() throws {
+    init(retryInterval: Duration = .seconds(10)) throws {
         GitProtocol.state.reset()
         container = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
                                        configurations: ModelConfiguration(isStoredInMemoryOnly: true))
@@ -102,7 +141,7 @@ private final class RemoteGitFixture {
         servers = RemoteServerStore(connections: connections, session: session, forward: { _, _, _ in 31001 },
                                     cancel: { _, _, _, _ in })
         store = RemoteGitStore(root: .remote(hostID: host.persistentModelID, path: "/workspace/repo"),
-                               host: host, connections: connections, servers: servers)
+                               host: host, connections: connections, servers: servers, retryInterval: retryInterval)
     }
 
     func close() async {
@@ -151,6 +190,8 @@ private final class GitProtocol: URLProtocol, @unchecked Sendable {
         if !body.isEmpty { client?.urlProtocol(self, didLoad: Data(body.utf8)) }
         client?.urlProtocolDidFinishLoading(self)
     }
+
+    func fail() { client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost)) }
 }
 
 private final class GitProtocolState: @unchecked Sendable {
@@ -163,6 +204,8 @@ private final class GitProtocolState: @unchecked Sendable {
     private var stops = 0
     private var waits = 0
     private var revision = 0
+    private var unavailable = false
+    private var limitReached = false
 
     var currentValue: String { lock.withLock { value } }
     var startCount: Int { lock.withLock { starts } }
@@ -171,18 +214,28 @@ private final class GitProtocolState: @unchecked Sendable {
     var hasHeldChanges: Bool { lock.withLock { heldChanges != nil } }
 
     func reset() {
-        lock.withLock { value = "before"; pending = nil; heldChanges = nil; holdChanges = false; starts = 0; stops = 0; waits = 0; revision = 0 }
+        lock.withLock { value = "before"; pending = nil; heldChanges = nil; holdChanges = false; starts = 0; stops = 0; waits = 0; revision = 0; unavailable = false; limitReached = false }
     }
 
     func start(_ request: GitProtocol) {
-        let current = lock.withLock { starts += 1; return revision }
-        request.reply(status: 200, body: "{\"id\":\"\(UUID().uuidString)\",\"revision\":\(current)}")
+        let state = lock.withLock { starts += 1; return (revision, unavailable, limitReached) }
+        if state.1 { request.fail() }
+        else if state.2 { request.reply(status: 503, body: "{\"error\":{\"code\":\"watch_limit_reached\",\"message\":\"limit\"}}") }
+        else { request.reply(status: 200, body: "{\"id\":\"\(UUID().uuidString)\",\"revision\":\(state.0)}") }
     }
 
-    func wait(_ request: GitProtocol) { lock.withLock { waits += 1; pending = request } }
+    func wait(_ request: GitProtocol) {
+        let shouldFail = lock.withLock { waits += 1; if !unavailable { pending = request }; return unavailable }
+        if shouldFail { request.fail() }
+    }
     func stopped() { lock.withLock { stops += 1 } }
     func cancelWait(_ request: GitProtocol) { lock.withLock { if pending === request { pending = nil } } }
     func setValue(_ value: String) { lock.withLock { self.value = value } }
+    func setLimitReached(_ value: Bool) { lock.withLock { limitReached = value } }
+    func setUnavailable(_ value: Bool) {
+        let request = lock.withLock { unavailable = value; let request = value ? pending : nil; if value { pending = nil }; return request }
+        request?.fail()
+    }
     func holdFirstChanges() { lock.withLock { holdChanges = true } }
 
     func changes(_ request: GitProtocol) {
