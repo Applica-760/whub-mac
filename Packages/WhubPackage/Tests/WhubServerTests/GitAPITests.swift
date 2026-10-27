@@ -8,12 +8,18 @@
 // - GitAPITests.ignoresUntrackedDirectoriesButWatchesTrackedFiles(): [GITWATCH-F-005]
 // - GitAPITests.rechecksIgnoreRules(): [GITWATCH-F-006]
 // - GitAPITests.reportsWatchErrors(): [GITWATCH-F-007]
+// - GitAPITests.clientReadsChangesAndDiff()
+// - GitAPITests.clientContinuesWaitingForChanges()
+// - GitAPITests.clientReportsWatchFailure()
+// - GitAPITests.clientReceivesWatchUpdates()
 
 import Foundation
 import Hummingbird
 import HummingbirdTesting
 import Testing
 import WhubAgent
+import struct WhubClient.WhubClient
+import enum WhubClient.WhubClientError
 @testable import WhubServer
 #if os(Linux)
 import Glibc
@@ -22,7 +28,98 @@ import Darwin
 #endif
 
 @Suite struct GitAPITests {
+    @Test func clientReportsWatchFailure() async throws {
+        let router = Router<BasicRequestContext>()
+        router.post("git/watches") { _, _ in
+            return Response(status: .serviceUnavailable,
+                            body: .init(byteBuffer: .init(string: "{\"error\":{\"code\":\"watch_limit_reached\",\"message\":\"limit\"}}")))
+        }
+        try await Application(router: router).test(.live) { transport in
+            let port = try #require(transport.port)
+            let client = try WhubClient(baseURL: #require(URL(string: "http://localhost:\(port)")))
+            await #expect(throws: WhubClientError.api(status: 503, code: "watch_limit_reached", message: "limit")) {
+                try await client.git.watch(root: "/repo")
+            }
+        }
+    }
+
+    @Test func clientContinuesWaitingForChanges() async throws {
+        let state = GitClientWatchTestState()
+        let id = UUID()
+        let router = Router<BasicRequestContext>()
+        router.post("git/watches") { _, _ in
+            let body = "{\"id\":\"\(id.uuidString)\",\"revision\":0}"
+            return Response(status: .ok, body: .init(byteBuffer: .init(string: body)))
+        }
+        router.get("git/watches/:id") { _, _ in
+            let count = await state.waited()
+            if count == 1 { return Response(status: .noContent) }
+            if count == 2 { return Response(status: .ok, body: .init(byteBuffer: .init(string: "{\"revision\":1}"))) }
+            try await Task.sleep(for: .seconds(10))
+            return Response(status: .noContent)
+        }
+        router.delete("git/watches/:id") { _, _ in
+            await state.stopped()
+            return Response(status: .noContent)
+        }
+        let app = Application(router: router)
+        try await app.test(.live) { transport in
+            let port = try #require(transport.port)
+            let client = try WhubClient(baseURL: #require(URL(string: "http://localhost:\(port)")))
+            let watch = try await client.git.watch(root: "/repo")
+            #expect(watch.initialRevision == 0)
+            var iterator = watch.updates.makeAsyncIterator()
+            #expect(try await iterator.next() == 1)
+            await watch.stop()
+            #expect(await state.waitCount >= 2)
+            #expect(await state.stopCount == 1)
+        }
+    }
+
+    @Test func clientReadsChangesAndDiff() async throws {
+        let fixture = try await GitFixture()
+        defer { fixture.remove() }
+        try fixture.write("a + 日本語.txt", "before")
+        try fixture.git(["add", "."])
+        try fixture.git(["commit", "-q", "-m", "initial"])
+        try fixture.write("a + 日本語.txt", "after")
+        try await fixture.app.test(.live) { transport in
+            let port = try #require(transport.port)
+            let client = try WhubClient(baseURL: #require(URL(string: "http://localhost:\(port)")))
+            let changes = try await client.git.changes(root: fixture.root.path)
+            #expect(changes.count == 1)
+            #expect(changes.first?.path == "a + 日本語.txt")
+            #expect(changes.first?.change == "modified")
+            let diff = try await client.git.diff(root: fixture.root.path, path: "a + 日本語.txt")
+            #expect(diff.content.before == "before")
+            #expect(diff.content.after == "after")
+            await #expect(throws: WhubClientError.invalidPath) {
+                try await client.git.diff(root: fixture.root.path, path: "../outside")
+            }
+        }
+    }
+
     #if os(Linux)
+    @Test func clientReceivesWatchUpdates() async throws {
+        let fixture = try await GitFixture()
+        defer { fixture.remove() }
+        try await fixture.app.test(.live) { transport in
+            let port = try #require(transport.port)
+            let client = try WhubClient(baseURL: #require(URL(string: "http://localhost:\(port)")))
+            let watch = try await client.git.watch(root: fixture.root.path)
+            let writer = Task {
+                try await Task.sleep(for: .seconds(6))
+                try fixture.write("watched.txt", "changed")
+            }
+            var iterator = watch.updates.makeAsyncIterator()
+            let revision = try await iterator.next()
+            try await writer.value
+            #expect(try #require(revision) > watch.initialRevision)
+            await watch.stop()
+            #expect(try await iterator.next() == nil)
+        }
+    }
+
     @Test func reportsWatchErrors() async throws {
         let limit = LinuxFileWatcher.SystemError(operation: "inotify_add_watch", code: ENOSPC)
         let failure = LinuxFileWatcher.SystemError(operation: "poll", code: EIO)
@@ -214,6 +311,13 @@ import Darwin
             #expect(body["error"]?["code"] == "not_repository")
         }
     }
+}
+
+private actor GitClientWatchTestState {
+    private(set) var waitCount = 0
+    private(set) var stopCount = 0
+    func waited() -> Int { waitCount += 1; return waitCount }
+    func stopped() { stopCount += 1 }
 }
 
 #if os(Linux)
