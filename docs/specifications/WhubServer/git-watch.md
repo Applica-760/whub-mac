@@ -9,7 +9,7 @@
 ## GITWATCH-F-002：追加されたディレクトリを監視する
 - 前提：作業ツリーを監視している
 - 操作：ディレクトリを追加し、その中にファイルを作成する
-- 期待結果：ディレクトリ構成の再確認とファイルの変更が通知される
+- 期待結果：追加されたディレクトリとファイルの変更が通知される
 - 対応テスト：Packages/WhubPackage/Tests/WhubServerTests/LinuxFileWatcherTests.swift / LinuxFileWatcherTests.detectsChangesInNewDirectories()
 
 ## GITWATCH-F-003：ファイルの読み取りでは通知しない
@@ -17,3 +17,10 @@
 - 操作：ファイルを読み取る
 - 期待結果：変更は通知されない
 - 対応テスト：Packages/WhubPackage/Tests/WhubServerTests/LinuxFileWatcherTests.swift / LinuxFileWatcherTests.doesNotReportFileReads()
+
+## GITWATCH-F-004：HTTPで変更を待機し監視を解除する
+- POST `/git/watches?root=<absolute path>` は監視IDと更新番号を返す。
+- GET `/git/watches/<id>?after=<revision>` は更新番号が進むと番号を返し、5秒間変更がなければ204を返す。
+- DELETE `/git/watches/<id>` は購読を解除する。存在しない監視IDは410を返す。
+- 同じrootの購読は監視を共有する。60秒間利用されない購読は期限切れとなる。
+- 対応テスト：Packages/WhubPackage/Tests/WhubServerTests/GitAPITests.swift / GitAPITests.notifiesAndReleasesWatch()

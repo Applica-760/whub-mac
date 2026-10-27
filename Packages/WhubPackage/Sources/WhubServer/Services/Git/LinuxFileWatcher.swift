@@ -2,7 +2,7 @@
 import Foundation
 import Glibc
 
-final class LinuxFileWatcher {
+final class LinuxFileWatcher: @unchecked Sendable {
     enum Event: Equatable {
         case changed
         case rescan
@@ -61,7 +61,8 @@ final class LinuxFileWatcher {
                    let parent = directories[event.wd], !name.isEmpty {
                     try addDirectoryTree(parent.appendingPathComponent(name, isDirectory: true))
                 }
-                if event.mask & UInt32(IN_ISDIR | IN_DELETE_SELF | IN_MOVE_SELF) != 0 {
+                if event.mask & UInt32(IN_DELETE_SELF | IN_MOVE_SELF) != 0 ||
+                    (event.mask & UInt32(IN_ISDIR) != 0 && event.mask & UInt32(IN_DELETE | IN_MOVED_FROM) != 0) {
                     result = .rescan
                 } else if result == nil {
                     result = .changed

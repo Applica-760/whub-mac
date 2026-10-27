@@ -4,6 +4,7 @@
 // - GitAPITests.reportsUnsupportedBinaryContent(): [GITAPI-F-003]
 // - GitAPITests.rejectsInvalidPaths(): [GITAPI-F-004]
 // - GitAPITests.reportsNonRepository(): [GITAPI-F-005]
+// - GitAPITests.notifiesAndReleasesWatch(): [GITWATCH-F-004]
 
 import Foundation
 import Hummingbird
@@ -18,6 +19,32 @@ import Darwin
 #endif
 
 @Suite struct GitAPITests {
+    #if os(Linux)
+    @Test func notifiesAndReleasesWatch() async throws {
+        let fixture = try await GitFixture()
+        defer { fixture.remove() }
+        try await fixture.app.test(.router) { client in
+            let start = try await client.execute(uri: fixture.uri("watches"), method: .post)
+            #expect(start.status == .ok)
+            let watch = try JSONDecoder().decode(WatchResponse.self, from: Data(start.body.readableBytesView))
+            let unchanged = try await client.execute(uri: "/git/watches/\(watch.id)?after=\(watch.revision)", method: .get)
+            #expect(unchanged.status == .noContent)
+            let writer = Task {
+                try await Task.sleep(for: .milliseconds(200))
+                try fixture.write("watched.txt", "changed")
+            }
+            let changed = try await client.execute(uri: "/git/watches/\(watch.id)?after=\(watch.revision)", method: .get)
+            try await writer.value
+            #expect(changed.status == .ok)
+            let update = try JSONDecoder().decode(WatchUpdate.self, from: Data(changed.body.readableBytesView))
+            #expect(update.revision > watch.revision)
+            let stop = try await client.execute(uri: "/git/watches/\(watch.id)", method: .delete)
+            #expect(stop.status == .noContent)
+            let expired = try await client.execute(uri: "/git/watches/\(watch.id)?after=0", method: .get)
+            #expect(expired.status == .gone)
+        }
+    }
+    #endif
     @Test func listsSavedChangesAgainstHEAD() async throws {
         let fixture = try await GitFixture()
         defer { fixture.remove() }
@@ -113,6 +140,11 @@ import Darwin
         }
     }
 }
+
+#if os(Linux)
+private struct WatchResponse: Decodable { let id: UUID; let revision: UInt64 }
+private struct WatchUpdate: Decodable { let revision: UInt64 }
+#endif
 
 private struct DiffResponse: Decodable {
     struct Content: Decodable {

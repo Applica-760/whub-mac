@@ -6,6 +6,52 @@ struct GitAPI: Sendable {
     private static let maxResponseBytes = 8 * 1_048_576
 
     private let service = GitService()
+    #if os(Linux)
+    let watches: LinuxGitWatchStore
+
+    init(watches: LinuxGitWatchStore = LinuxGitWatchStore()) {
+        self.watches = watches
+    }
+    #endif
+
+    func startWatch(query: String?) async -> Response {
+        #if os(Linux)
+        do {
+            let (root, _) = try Self.parameters(from: query, requiresPath: false)
+            return try Self.response(await watches.start(root: root))
+        } catch { return Self.errorResponse(error) }
+        #else
+        return Response(status: .notImplemented)
+        #endif
+    }
+
+    func waitWatch(id: String, query: String?) async throws -> Response {
+        #if os(Linux)
+        do {
+            guard let id = UUID(uuidString: id), let query, query.hasPrefix("after="),
+                  let revision = UInt64(query.dropFirst(6)) else { throw FilesAPIError.invalidRequest }
+            if let revision = try await watches.wait(id: id, after: revision) {
+                return try Self.response(["revision": revision])
+            }
+            return Response(status: .noContent, headers: [.cacheControl: "no-store"])
+        } catch is CancellationError { throw CancellationError() }
+        catch { return Self.errorResponse(error) }
+        #else
+        return Response(status: .notImplemented)
+        #endif
+    }
+
+    func stopWatch(id: String) async -> Response {
+        #if os(Linux)
+        do {
+            guard let id = UUID(uuidString: id) else { throw FilesAPIError.invalidRequest }
+            try await watches.stop(id: id)
+            return Response(status: .noContent, headers: [.cacheControl: "no-store"])
+        } catch { return Self.errorResponse(error) }
+        #else
+        return Response(status: .notImplemented)
+        #endif
+    }
 
     func changes(query: String?) async -> Response {
         do {
@@ -49,6 +95,14 @@ struct GitAPI: Sendable {
     }
 
     private static func errorResponse(_ error: any Error) -> Response {
+        #if os(Linux)
+        if let error = error as? LinuxGitWatchStore.WatchError {
+            switch error {
+            case .expired: return Response(status: .gone)
+            case .failed: return Response(status: .serviceUnavailable)
+            }
+        }
+        #endif
         if let error = error as? FilesAPIError { return error.response }
         if let error = error as? FilesError { return FilesAPIError(error).response }
         if case GitError.notRepository = error {

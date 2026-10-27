@@ -39,7 +39,7 @@ import Testing
         let child = fixture.directory.appendingPathComponent("new")
 
         try FileManager.default.createDirectory(at: child, withIntermediateDirectories: false)
-        #expect(try watcher.nextEvent(timeoutMilliseconds: 2_000) == .rescan)
+        #expect(try watcher.nextEvent(timeoutMilliseconds: 2_000) == .changed)
         try drain(watcher)
         try Data("new".utf8).write(to: child.appendingPathComponent("file"))
         #expect(try watcher.nextEvent(timeoutMilliseconds: 2_000) == .changed)
