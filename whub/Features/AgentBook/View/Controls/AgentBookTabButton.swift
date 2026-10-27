@@ -217,12 +217,12 @@ private struct AgentBookStatusBadge: View {
                                        enabled: isActive && sessionActive && featureActive && !reduceMotion,
                                        notificationDate: notificationDate)
         Circle().fill(color)
-            .frame(width: 5, height: 5)
+            .frame(width: 10, height: 10)
             .opacity(pulseDimmed ? 0.35 : 1)
             .scaleEffect(arrivalScale)
             .overlay {
                 Circle().stroke(color, lineWidth: 1.5)
-                    .frame(width: 5 + 24 * ringProgress, height: 5 + 24 * ringProgress)
+                    .frame(width: 10 + 24 * ringProgress, height: 10 + 24 * ringProgress)
                     .opacity(1 - ringProgress)
             }
             .allowsHitTesting(false)
