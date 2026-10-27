@@ -23,7 +23,7 @@ final class BrowserSession: Identifiable {
     }
 
     func loadAddress() {
-        guard let url = BrowserStore.url(from: address) else { return }
+        guard let url = BrowserStore.navigationURL(from: address) else { return }
         address = url.absoluteString
         page.load(url)
         showsBookmarks = false
@@ -91,6 +91,21 @@ final class BrowserStore: ObservableObject {
 
     func select(_ id: BrowserSession.ID) {
         selectedSessionID = id
+    }
+
+    static func navigationURL(from input: String) -> URL? {
+        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        if value.contains("://") { return url(from: value) }
+        if value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+           let direct = url(from: value), let host = direct.host,
+           host.contains(".") || host == "localhost" || host.contains(":") {
+            return direct
+        }
+        var search = URLComponents(string: "https://www.google.com/search")!
+        search.queryItems = [URLQueryItem(name: "q", value: value)]
+        search.percentEncodedQuery = search.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        return search.url
     }
 
     static func url(from input: String) -> URL? {

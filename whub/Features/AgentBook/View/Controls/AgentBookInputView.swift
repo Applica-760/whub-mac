@@ -151,22 +151,18 @@ struct AgentBookInputView: View {
                                        })
                         .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
                         .accessibilityAction(named: Text("送信")) { submit() }
-                    ZStack {
-                        Color.clear
-                        if store.isBusy {
-                            Button(store.isStopping ? "停止中…" : "停止", systemImage: "stop.fill") {
-                                Task { await store.interrupt() }
-                            }
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.plain)
-                            .frame(width: 24, height: 24)
-                            .background(.quaternary, in: Circle())
-                            .contentShape(Circle())
-                            .help(store.isStopping ? "停止中…" : "停止")
-                            .disabled(store.isStopping)
+                    if store.isBusy {
+                        Button(store.isStopping ? "停止中…" : "停止", systemImage: "stop.fill") {
+                            Task { await store.interrupt() }
                         }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.plain)
+                        .frame(width: 24, height: 24)
+                        .background(.quaternary, in: Circle())
+                        .contentShape(Circle())
+                        .help(store.isStopping ? "停止中…" : "停止")
+                        .disabled(store.isStopping)
                     }
-                    .frame(width: 24, height: 24)
                 }
             }
             .padding(.horizontal, 20)

@@ -83,7 +83,7 @@ struct BrowserView: View {
                 }
                 .labelStyle(.iconOnly)
 
-                TextField("URL", text: $session.address)
+                TextField("URL/検索", text: $session.address)
                     .textFieldStyle(.roundedBorder)
                     .focused($focusedAddress, equals: session.id)
                     .onSubmit {
