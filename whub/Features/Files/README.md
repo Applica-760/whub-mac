@@ -33,7 +33,8 @@ Files/
 │   │   └── FileEncoding.swift     // UTF-8の読み書きと、保存時の改行・BOMの保持を担当
 │   ├── Git/
 │   │   ├── GitStore.swift         // 選択ルートのGit変更一覧・取得状態を保持
-│   │   └── LocalDiffStore.swift   // ファイル単位の差分・取得状態を保持し、変更を監視
+│   │   ├── LocalDiffStore.swift   // ファイル単位の差分・取得状態を保持し、変更を監視
+│   │   └── RemoteGitStore.swift   // Hostとリポジトリ単位の監視・差分取得を管理
 │   └── FileWatcher.swift          // ファイルシステムの変更を通知
 └── View/
     ├── Explorer/

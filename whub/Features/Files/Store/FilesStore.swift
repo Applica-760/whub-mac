@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftData
 import WhubCore
 import WhubGit
 
@@ -10,6 +11,7 @@ final class FilesStore: ObservableObject {
     private var editorsByWorkspace: [FileLocation?: EditorStore] = [:]
     private var workspaceChanges: AnyCancellable?
     let git = GitStore()
+    private(set) var remoteGitStores: [FileLocation: RemoteGitStore] = [:]
     @Published private(set) var refreshID = 0
     private var rootChanges: AnyCancellable?
 
@@ -55,6 +57,20 @@ final class FilesStore: ObservableObject {
         refreshID += 1
         activeEditor.refresh()
         git.refresh()
+    }
+
+    func remoteGit(for root: FileLocation, hosts: [RemoteHost], connections: RemoteConnectionStore,
+                   servers: RemoteServerStore) -> RemoteGitStore? {
+        guard case let .remote(hostID, _) = root,
+              let host = hosts.first(where: { $0.persistentModelID == hostID }) else { return nil }
+        if let store = remoteGitStores[root] { return store }
+        let store = RemoteGitStore(root: root, host: host, connections: connections, servers: servers)
+        remoteGitStores[root] = store
+        return store
+    }
+
+    func releaseRemoteGit(for root: FileLocation) {
+        remoteGitStores.removeValue(forKey: root)?.stop()
     }
 
     func preview(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore) {
