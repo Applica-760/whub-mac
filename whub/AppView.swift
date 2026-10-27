@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AppView: View {
     @EnvironmentObject private var browser: BrowserStore
+    @EnvironmentObject private var files: FilesStore
     @FocusedValue(\.workspaceActions) private var workspaceActions
     @Binding var section: WorkspaceSection
     @State private var explorerFocus = ExplorerFocusNavigation()
@@ -16,6 +17,7 @@ struct AppView: View {
             WorkspaceView(section: $section) { panes in
                 RetainedPageContainer(selection: true, focus: explorerFocus.content) { _ in
                     panes
+                        .environmentObject(files.activeEditor)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
