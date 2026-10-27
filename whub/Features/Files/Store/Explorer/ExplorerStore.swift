@@ -156,7 +156,7 @@ final class ExplorerStore: ObservableObject {
         }
     }
     private(set) var contentRevision = 0
-    private(set) var decorations: [URL: GitChange] = [:]
+    private(set) var decorations: [FileLocation: GitChange] = [:]
     private var treeRootLocation: FileLocation?
     private var loadedTreeRevision = -1
     private var isVisible = false
@@ -219,18 +219,29 @@ final class ExplorerStore: ObservableObject {
         }
     }
 
-    func updateTree(gitChanges: [URL: GitChange]) -> Bool {
+    func updateTree(gitChanges: [URL: GitChange], remoteChanges: [FileLocation: GitChange] = [:]) -> Bool {
         let rootChanged = treeRootLocation != treeLocation
-        if case .remote = selectedLocation {
-            guard rootChanged || loadedTreeRevision != treeRevision else { return false }
+        if case let .remote(hostID, rootPath) = selectedLocation {
+            let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
+            let files = remoteChanges.reduce(into: [URL: GitChange]()) { result, entry in
+                guard case let .remote(fileHostID, path) = entry.key, fileHostID == hostID else { return }
+                result[URL(fileURLWithPath: path).standardizedFileURL] = entry.value
+            }
+            let nextDecorations: [FileLocation: GitChange] = treeLocation == selectedLocation
+                ? Dictionary(uniqueKeysWithValues: TreeDiff.changes(for: files, under: rootURL).map {
+                    (FileLocation.remote(hostID: hostID, path: $0.key.path), $0.value)
+                }) : [:]
+            guard rootChanged || loadedTreeRevision != treeRevision || decorations != nextDecorations else { return false }
             treeRootLocation = treeLocation
             loadedTreeRevision = treeRevision
-            decorations = [:]
+            decorations = nextDecorations
             contentRevision += 1
             return true
         }
         let refreshed = localTree.updateTree()
-        let nextDecorations = TreeDiff.changes(for: gitChanges, under: rootURL)
+        let nextDecorations = Dictionary(uniqueKeysWithValues: TreeDiff.changes(for: gitChanges, under: rootURL).map {
+            (FileLocation.local($0.key.standardizedFileURL), $0.value)
+        })
         guard rootChanged || refreshed || decorations != nextDecorations else { return false }
         treeRootLocation = treeLocation
         loadedTreeRevision = treeRevision

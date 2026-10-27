@@ -5,16 +5,31 @@
 // - RemoteGitStoreTests.retriesServerFailureOnlyWhileConnected(): [RGITSTORE-F-004]
 // - RemoteGitStoreTests.watchLimitRequiresManualRetry(): [RGITSTORE-F-005]
 // - RemoteGitStoreTests.sharesWatchBetweenListAndDiff()
+// - RemoteGitStoreTests.convertsChangesForRemoteFiles()
 
 import Foundation
 import SwiftData
 import Testing
 import WhubClient
+import WhubGit
 @testable import WhubCore
 @testable import whub
 
 @Suite(.serialized) @MainActor
 struct RemoteGitStoreTests {
+    @Test func convertsChangesForRemoteFiles() async throws {
+        let fixture = try RemoteGitFixture()
+        defer { fixture.store.stop() }
+        GitProtocol.state.setValue("src/before")
+        await fixture.connections.connect(fixture.host)
+        fixture.store.setUsage(listVisible: true, visibleDiffPaths: [])
+        let root = fixture.store.root
+        try await eventually { fixture.store.fileChanges[root.appending("src/before.txt")] == .modified }
+        await fixture.connections.disconnect(fixture.host)
+        try await eventually { !fixture.store.isConnected && fixture.store.fileChanges.isEmpty }
+        await fixture.close()
+    }
+
     @Test func sharesWatchBetweenListAndDiff() async throws {
         let fixture = try RemoteGitFixture()
         defer { fixture.store.stop() }

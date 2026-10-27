@@ -131,7 +131,7 @@ struct ExplorerViewTests {
         explorer.selectedLocation = .local(url.deletingLastPathComponent())
         explorer.showsDiff = true
         explorer.selectedLocation = remote
-        #expect(!explorer.showsDiff)
+        #expect(explorer.showsDiff)
     }
 
     @Test func eachOutlineRendersSharedTreeUpdates() throws {

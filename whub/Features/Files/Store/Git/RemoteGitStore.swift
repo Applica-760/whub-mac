@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import WhubClient
 import WhubCore
+import WhubGit
 
 @MainActor
 final class RemoteGitStore: ObservableObject {
@@ -12,6 +13,12 @@ final class RemoteGitStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var watchError: String?
+
+    var fileChanges: [FileLocation: GitChange] {
+        changes.reduce(into: [:]) { result, change in
+            result[root.appending(change.path)] = change.change == "added" ? .added : change.change == "deleted" ? .deleted : .modified
+        }
+    }
 
     private let host: RemoteHost
     private let connections: RemoteConnectionStore

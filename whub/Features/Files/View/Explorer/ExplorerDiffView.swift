@@ -30,9 +30,7 @@ struct RemoteExplorerDiffView: View {
             } else if git.changes.isEmpty {
                 Text("未コミットの差分はありません").foregroundStyle(.secondary)
             } else {
-                DiffFileList(changes: Dictionary(uniqueKeysWithValues: git.changes.map {
-                    (git.root.appending($0.path), $0.change == "added" ? .added : $0.change == "deleted" ? .deleted : .modified)
-                }), root: git.root, selectedTab: editor.selectedTab, focus: focus,
+                DiffFileList(changes: git.fileChanges, root: git.root, selectedTab: editor.selectedTab, focus: focus,
                 onPreview: onPreview, onOpen: onOpen, onShowMarkdownPreview: { _ in })
             }
         }
