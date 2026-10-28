@@ -23,7 +23,7 @@ struct LocalCodeEditorView: View {
                 onEdit: onEdit,
                 source: source,
                 language: codeLanguages[fileURL.pathExtension.lowercased()],
-                hunks: diffStore.hunks(for: .local(fileURL), source: source)
+                hunks: diffStore.hunks(for: .local(fileURL), source: source), location: .local(fileURL)
             )
         }
         .background(Color(nsColor: .textBackgroundColor))

@@ -17,6 +17,7 @@ struct CodeEditorView: NSViewRepresentable {
     let hunks: [LineDiffHunk]
     var diffLines: [DiffLine]? = nil
     var onScrollView: ((NSScrollView) -> Void)? = nil
+    var location: FileLocation? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -105,6 +106,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.observe(state.textStorage)
         guard let textView = scrollView.documentView as? CodeTextView else { return }
         textView.explorerFocus = explorerFocus
+        textView.location = location
         textView.onEdit = onEdit
         textView.diffLines = diffLines
         guard isActive else { return }
@@ -191,6 +193,7 @@ private final class CodeScrollView: NSScrollView {
 final class CodeTextView: NSTextView {
     weak var fileStore: FileStore?
     weak var explorerFocus: ExplorerFocusNavigation?
+    var location: FileLocation?
     var editorID: String?
     var onEdit: (() -> Void)?
     var diffLines: [DiffLine]?
@@ -226,6 +229,12 @@ final class CodeTextView: NSTextView {
     override func resignFirstResponder() -> Bool {
         savePosition()
         return super.resignFirstResponder()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted, let location { explorerFocus?.onEditorFocus?(location) }
+        return accepted
     }
 
     override func copy(_ sender: Any?) {

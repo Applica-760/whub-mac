@@ -65,8 +65,11 @@ struct ExplorerView: View {
         }
         .focusedSceneValue(\.toggleExplorerDiff, { setShowsDiff(!store.showsDiff) })
         .onChange(of: store.showsDiff, initial: true) { gitStore.setDiffEnabled(store.showsDiff) }
-        .onAppear { store.startWatching() }
-        .onDisappear { store.stopWatching() }
+        .onAppear {
+            focus.onEditorFocus = { [weak store] location in store?.revealInTree(location) }
+            store.startWatching()
+        }
+        .onDisappear { focus.onEditorFocus = nil; store.stopWatching() }
         .task(id: store.updateID(projects: projects, hosts: hosts, connections: connections,
                                  refreshID: files.refreshID)) {
             await store.update(projects: projects, hosts: hosts, connections: connections, servers: servers,
@@ -152,6 +155,7 @@ extension FocusedValues {
 }
 
 final class ExplorerFocusNavigation {
+    var onEditorFocus: ((FileLocation) -> Void)?
     let sidebar = TabPaneFocus()
     let content = TabPaneFocus()
     weak var list: NSTableView?

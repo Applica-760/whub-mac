@@ -32,7 +32,7 @@ struct RemoteViewerView: View {
                     RemoteCodeEditorView(git: git, location: location, file: file, source: source, editorID: editorID)
                 } else {
                     CodeEditorView(state: file, editorID: editorID, onEdit: {}, source: source,
-                                   language: codeLanguages[(location.name as NSString).pathExtension.lowercased()], hunks: [])
+                                   language: codeLanguages[(location.name as NSString).pathExtension.lowercased()], hunks: [], location: location)
                         .background(Color(nsColor: .textBackgroundColor))
                 }
             } else {
@@ -69,7 +69,7 @@ private struct RemoteCodeEditorView: View {
     var body: some View {
         CodeEditorView(state: file, editorID: editorID, onEdit: {}, source: source,
                        language: codeLanguages[(location.name as NSString).pathExtension.lowercased()],
-                       hunks: diffStore.hunks(for: location, source: source))
+                       hunks: diffStore.hunks(for: location, source: source), location: location)
             .background(Color(nsColor: .textBackgroundColor))
             .onAppear { updateUsage(isActive) }
             .onChange(of: isActive) { _, active in updateUsage(active) }

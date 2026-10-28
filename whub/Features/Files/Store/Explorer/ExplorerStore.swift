@@ -43,6 +43,30 @@ final class ExplorerStore: ObservableObject {
     func cancelNameEditing() { nameEdit = nil }
 
     @Published var showsDiff = false
+    @Published private(set) var expansionRevision = 0
+    var expandedLocations: [FileLocation: Set<FileLocation>] = [:]
+
+    func revealInTree(_ location: FileLocation) {
+        guard let root = selectedLocation else { return }
+        let prefix = root.path == "/" ? "/" : root.path + "/"
+        guard location.path.hasPrefix(prefix) else { return }
+        switch (root, location) {
+        case (.local, .local): break
+        case let (.remote(rootHost, _), .remote(host, _)) where rootHost == host: break
+        default: return
+        }
+        var parent = (location.path as NSString).deletingLastPathComponent
+        var expanded = expandedLocations[root] ?? []
+        while parent != root.path && parent.hasPrefix(prefix) {
+            switch root {
+            case .local: expanded.insert(.local(URL(fileURLWithPath: parent)))
+            case let .remote(hostID, _): expanded.insert(.remote(hostID: hostID, path: parent))
+            }
+            parent = (parent as NSString).deletingLastPathComponent
+        }
+        expandedLocations[root] = expanded
+        expansionRevision += 1
+    }
     let localWorkspace = LocalWorkspaceStore()
     let localTree = LocalTreeStore()
     var projects: [Project] { localWorkspace.projects }

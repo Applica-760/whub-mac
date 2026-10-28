@@ -138,6 +138,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
         private var renderedRevision: Int?
         private var renderedEditingItem: ExplorerItem?
         private var renderedRootLocation: FileLocation?
+        private var renderedExpansionRevision = -1
         private var isRestoring = false
         var onCommitName: () throws -> Void = {}
         private var nameEdit: ExplorerStore.NameEdit? { store.nameEdit }
@@ -217,7 +218,6 @@ struct ExplorerOutlineView: NSViewRepresentable {
             let rootChanged = renderedRootLocation != store.treeLocation
             updateNameEditingDisplay()
             if nameEdit != nil { return }
-            let expandedLocations = Set(store.cachedItems.filter { outlineView.isItemExpanded($0) }.map(\.location))
             let selectedLocations = outlineView.selectedRowIndexes.compactMap {
                 (outlineView.item(atRow: $0) as? ExplorerItem)?.location
             }
@@ -228,16 +228,22 @@ struct ExplorerOutlineView: NSViewRepresentable {
             let topOffset = topRow >= 0 ? origin.y - outlineView.rect(ofRow: topRow).minY : 0
 
             _ = store.updateTree(gitChanges: gitChanges, remoteChanges: remoteChanges)
-            guard renderedRevision != store.contentRevision else { return }
+            guard renderedRevision != store.contentRevision || renderedExpansionRevision != store.expansionRevision else { return }
             renderedRevision = store.contentRevision
+            renderedExpansionRevision = store.expansionRevision
             renderedRootLocation = store.treeLocation
             isRestoring = true
             defer { isRestoring = false }
             outlineView.reloadData()
-            if rootChanged {
+            if let root = store.treeLocation, let expanded = store.expandedLocations[root] {
+                restoreExpansion(in: store.rootItems, locations: expanded, outlineView: outlineView)
+            } else if rootChanged {
                 expandChangedDirectories(in: store.rootItems, outlineView: outlineView)
-            } else {
-                restoreExpansion(in: store.rootItems, locations: expandedLocations, outlineView: outlineView)
+                if let root = store.treeLocation {
+                    store.expandedLocations[root] = Set(store.cachedItems.filter { outlineView.isItemExpanded($0) }.map(\.location))
+                }
+            }
+            if !rootChanged {
                 var selection = IndexSet()
                 var scrollOrigin = origin
                 for row in 0..<outlineView.numberOfRows {
@@ -256,8 +262,9 @@ struct ExplorerOutlineView: NSViewRepresentable {
 
         private func restoreExpansion(in items: [ExplorerItem], locations: Set<FileLocation>, outlineView: NSOutlineView) {
             for item in items where item.isDirectory {
-                if locations.contains(item.location) { outlineView.expandItem(item) }
-                if locations.contains(where: { $0.path.hasPrefix(item.location.path + "/") }) {
+                if locations.contains(item.location) {
+                    store.expand(item)
+                    outlineView.expandItem(item)
                     restoreExpansion(in: store.children(for: item), locations: locations, outlineView: outlineView)
                 }
             }
@@ -295,7 +302,14 @@ struct ExplorerOutlineView: NSViewRepresentable {
 
         func outlineViewItemWillExpand(_ notification: Notification) {
             guard !isRestoring, let item = notification.userInfo?["NSObject"] as? ExplorerItem else { return }
+            if let root = store.treeLocation { store.expandedLocations[root, default: []].insert(item.location) }
             store.expand(item)
+        }
+
+        func outlineViewItemDidCollapse(_ notification: Notification) {
+            guard !isRestoring, let root = store.treeLocation,
+                  let item = notification.userInfo?["NSObject"] as? ExplorerItem else { return }
+            store.expandedLocations[root]?.remove(item.location)
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
