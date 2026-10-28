@@ -26,6 +26,27 @@ import WhubCore
 
 @Suite(.serialized) @MainActor
 struct AgentBookViewTests {
+    @Test func textLinkUsesAgentBookHandler() throws {
+        let surface = AgentBookTextSurface(book: AgentBookPageLayout())
+        let text = NSTextView()
+        let url = try #require(URL(string: "https://example.com"))
+        var opened: URL?
+        surface.openLink = { opened = $0; return true }
+        #expect(surface.textView(text, clickedOnLink: url, at: 0))
+        #expect(opened == url)
+        #expect(!surface.textView(text, clickedOnLink: 42, at: 0))
+    }
+
+    @Test func linkFilePathsUseSessionDirectory() throws {
+        let path = WorkspaceView<EmptyView>.filePath
+        #expect(path(try #require(URL(string: "src/main.swift:12:3")), "/work/project") == "/work/project/src/main.swift")
+        #expect(path(try #require(URL(string: "../other.swift#L4")), "/work/project") == "/work/other.swift")
+        #expect(path(try #require(URL(string: "file:///work/My%20File.swift:5")), nil) == "/work/My File.swift")
+        #expect(path(try #require(URL(string: "/work/file.swift:9")), nil) == "/work/file.swift")
+        #expect(path(try #require(URL(string: "relative.swift")), nil) == nil)
+        #expect(path(try #require(URL(string: "mailto:test@example.com")), "/work") == nil)
+    }
+
     @Test func numberShortcutsSwitchInputAndRetainAgentSessions() async throws {
         let database = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))

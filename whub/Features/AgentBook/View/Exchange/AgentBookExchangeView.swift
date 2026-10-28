@@ -10,6 +10,7 @@ struct AgentBookExchangeView: View {
     let pageCountChanged: (Int) -> Void
     let focus: AgentBookFocus
     var featureActivity: RetainedPageActivity? = nil
+    let openLink: (URL) -> Bool
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
     @StateObject private var book: AgentBookPageLayout
@@ -18,13 +19,14 @@ struct AgentBookExchangeView: View {
 
     init(store: AgentStore, agentName: String, spread: Binding<Int>,
          pageCountChanged: @escaping (Int) -> Void, focus: AgentBookFocus,
-         featureActivity: RetainedPageActivity? = nil) {
+         featureActivity: RetainedPageActivity? = nil, openLink: @escaping (URL) -> Bool = { _ in false }) {
         self.store = store
         self.agentName = agentName
         self._spread = spread
         self.pageCountChanged = pageCountChanged
         self.focus = focus
         self.featureActivity = featureActivity
+        self.openLink = openLink
         self._book = StateObject(wrappedValue: AgentBookPageLayout())
     }
 
@@ -38,7 +40,7 @@ struct AgentBookExchangeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AgentBookTextView(book: book, focus: focus, header: { exchange in
+            AgentBookTextView(book: book, focus: focus, openLink: openLink, header: { exchange in
                 AnyView(
                     AgentBookExchangeHeader(exchange: exchange, agentName: agentName, isActive: canInteract)
                         .overlay(alignment: .bottom) {

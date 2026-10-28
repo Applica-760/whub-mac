@@ -79,8 +79,8 @@ final class FilesStore: ObservableObject {
         activeEditor.preview(.file(location))
     }
 
-    func open(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore) {
-        prepare(location, hosts: hosts, connections: connections, servers: servers)
+    func open(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
+        prepare(location, hosts: hosts, connections: connections, servers: servers, root: root)
         activeEditor.open(.file(location))
     }
 
@@ -104,12 +104,12 @@ final class FilesStore: ObservableObject {
         activeEditor.setMarkdownPreviewVisible(true, for: location)
     }
 
-    private func prepare(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore) {
+    private func prepare(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
         switch location {
         case .local:
             activeEditor.local.load(location)
         case .remote:
-            activeEditor.remote.load(location, root: explorer.treeLocation,
+            activeEditor.remote.load(location, root: root ?? explorer.treeLocation,
                                hosts: hosts.compactMap { $0 as? RemoteHost }, connections: connections, servers: servers)
         }
     }

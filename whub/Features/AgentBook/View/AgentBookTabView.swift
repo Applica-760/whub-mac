@@ -14,6 +14,7 @@ struct AgentBookTabView: View {
     let featureActivity: RetainedPageActivity?
     let inputFocus: AgentBookFocus?
     let select: (AgentStore.ID) -> Void
+    let openLink: (URL, AgentStore) -> Bool
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
     @State private var bookFocus = AgentBookFocus()
@@ -27,7 +28,7 @@ struct AgentBookTabView: View {
                 AgentBookExchangeView(
                     store: store, agentName: agentName, spread: $spread,
                     pageCountChanged: { pageCount = $0 }, focus: bookFocus,
-                    featureActivity: featureActivity
+                    featureActivity: featureActivity, openLink: { openLink($0, store) }
                 )
                 .padding(.bottom, 104)
                 .overlay(alignment: .topTrailing) {

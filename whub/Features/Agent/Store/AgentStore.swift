@@ -23,6 +23,7 @@ final class AgentStore: ObservableObject, Identifiable {
 
     let agentKind: AgentKind
     var conversationID: String? { state?.conversationID }
+    var directory: String? { state?.directory }
     var selectedModelOption: AgentModelOption? { state?.selectedModelOption }
     var isConnected: Bool { !isDisconnected && !isTransportDisconnected && state?.isClosed == false }
     var isClosed: Bool { isDisconnected || state?.isClosed == true }

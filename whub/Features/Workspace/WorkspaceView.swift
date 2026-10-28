@@ -1,5 +1,7 @@
 import AppKit
+import SwiftData
 import SwiftUI
+import WhubCore
 
 enum WorkspaceSection: CaseIterable, Hashable {
     case editor, browser, terminal, overview
@@ -65,6 +67,9 @@ struct WorkspaceView<Container: View>: View {
     @EnvironmentObject private var agentBook: AgentBookStore
     @EnvironmentObject private var browser: BrowserStore
     @EnvironmentObject private var terminal: TerminalStore
+    @EnvironmentObject private var files: FilesStore
+    @EnvironmentObject private var connections: RemoteConnectionStore
+    @EnvironmentObject private var servers: RemoteServerStore
     @ViewBuilder let container: (WorkspacePanes) -> Container
     @State private var leftFocus = TabPaneFocus()
     @State private var agentFocus = TabPaneFocus()
@@ -73,7 +78,7 @@ struct WorkspaceView<Container: View>: View {
     var body: some View {
         let selection = Binding(get: { section }, set: selectSection)
 
-        container(WorkspacePanes(section: section, leftFocus: leftFocus, agentFocus: agentFocus, agentInputFocus: agentInputFocus))
+        container(WorkspacePanes(section: section, leftFocus: leftFocus, agentFocus: agentFocus, agentInputFocus: agentInputFocus, openLink: openLink))
         .focusedSceneValue(\.workspaceActions, WorkspaceActions(
             selection: selection,
             activateAgentBook: { agentInputFocus.activateInput() },
@@ -84,6 +89,41 @@ struct WorkspaceView<Container: View>: View {
     private func selectSection(_ next: WorkspaceSection) {
         leftFocus.activate()
         section = next
+    }
+
+    private func openLink(_ url: URL, store: AgentStore) -> Bool {
+        if ["http", "https"].contains(url.scheme?.lowercased()) {
+            browser.open(url)
+            selectSection(.browser)
+            return true
+        }
+        guard let path = Self.filePath(for: url, directory: store.directory) else { return false }
+        let location: FileLocation
+        let root: FileLocation?
+        let hosts: [WhubCore.Host]
+        switch store.target {
+        case .local:
+            location = .local(URL(fileURLWithPath: path))
+            root = nil
+            hosts = []
+        case .remote(let host, _):
+            location = .remote(hostID: host.persistentModelID, path: path)
+            root = .remote(hostID: host.persistentModelID, path: (path as NSString).deletingLastPathComponent)
+            hosts = [host]
+        }
+        files.open(location, hosts: hosts, connections: connections, servers: servers, root: root)
+        selectSection(.editor)
+        return true
+    }
+
+    static func filePath(for url: URL, directory: String?) -> String? {
+        let raw = url.isFileURL ? url.path : (url.relativeString.removingPercentEncoding ?? url.relativeString)
+        let path = raw.replacingOccurrences(of: #"(?::[0-9]+(?::[0-9]+)?|#L[0-9]+(?:-L[0-9]+)?)$"#,
+                                            with: "", options: .regularExpression)
+        guard !path.isEmpty, url.isFileURL || URL(string: path)?.scheme == nil else { return nil }
+        if path.hasPrefix("/") { return (path as NSString).standardizingPath }
+        guard let directory, directory.hasPrefix("/") else { return nil }
+        return ((directory as NSString).appendingPathComponent(path) as NSString).standardizingPath
     }
 
     private func targetsAgentBook() -> Bool {
@@ -110,6 +150,7 @@ struct WorkspacePanes: View {
     let leftFocus: TabPaneFocus
     let agentFocus: TabPaneFocus
     let agentInputFocus: AgentBookFocus
+    let openLink: (URL, AgentStore) -> Bool
     @EnvironmentObject private var agentBook: AgentBookStore
 
     var body: some View {
@@ -119,7 +160,7 @@ struct WorkspacePanes: View {
             }
             .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
             .frame(minWidth: 300)
-            AgentBookView(store: agentBook, inputFocus: agentInputFocus)
+            AgentBookView(store: agentBook, inputFocus: agentInputFocus, openLink: openLink)
                 .background(TabPaneFocusView(focus: agentFocus, activatesOnClick: false))
                 .frame(minWidth: 700)
         }

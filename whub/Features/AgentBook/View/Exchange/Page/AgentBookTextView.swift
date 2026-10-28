@@ -5,6 +5,7 @@ import SwiftUI
 struct AgentBookTextView: NSViewRepresentable {
     @ObservedObject var book: AgentBookPageLayout
     let focus: AgentBookFocus
+    let openLink: (URL) -> Bool
     let header: (AgentExchange) -> AnyView
     let promptControl: (UUID) -> AnyView
     @Environment(\.colorScheme) private var colorScheme
@@ -17,6 +18,7 @@ struct AgentBookTextView: NSViewRepresentable {
 
     func updateNSView(_ view: AgentBookTextSurface, context: Context) {
         focus.readingView = view
+        view.openLink = openLink
         view.colorScheme = colorScheme
         view.headerContent = header
         view.promptContent = promptControl
@@ -28,7 +30,14 @@ struct AgentBookTextView: NSViewRepresentable {
     }
 }
 
-final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
+final class AgentBookTextSurface: NSView, AgentBookReadingSurface, NSTextViewDelegate {
+    var openLink: ((URL) -> Bool)?
+
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        guard let url = link as? URL else { return false }
+        return openLink?(url) ?? false
+    }
+
     private let book: AgentBookPageLayout
     var colorScheme: ColorScheme = .light
     private var pages: [String: NSScrollView] = [:]
@@ -173,6 +182,7 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
                 scroll.scrollerStyle = .overlay
                 page = AgentBookNativeTextView(frame: .zero, textContainer: model.container)
                 page.readingSurface = self
+                page.delegate = self
                 page.isEditable = false
                 page.isSelectable = true
                 page.isRichText = true
@@ -240,6 +250,7 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface {
                     inner.autohidesScrollers = true
                     inner.scrollerStyle = .overlay
                     text = NSTextView(frame: .zero)
+                    text.delegate = self
                     text.isEditable = false
                     text.isSelectable = true
                     text.isRichText = true
