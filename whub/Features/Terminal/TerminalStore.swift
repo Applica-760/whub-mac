@@ -102,9 +102,9 @@ final class TerminalStore: ObservableObject {
     @Published private(set) var sessions: [TerminalSession]
     @Published private(set) var selectedSessionID: TerminalSession.ID
     private let context: ModelContext
-    private let makeSession: (String) -> TerminalSession
+    private let makeSession: @MainActor (String) -> TerminalSession
 
-    init(context: ModelContext, makeSession: @escaping (String) -> TerminalSession = TerminalSession.init(currentDirectory:)) {
+    init(context: ModelContext, makeSession: @escaping @MainActor (String) -> TerminalSession = TerminalSession.init(currentDirectory:)) {
         self.context = context
         self.makeSession = makeSession
         let session = makeSession(Self.currentDirectory(in: context))
