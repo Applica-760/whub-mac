@@ -2,6 +2,7 @@ import AppKit
 import SwiftData
 import SwiftUI
 import WhubCore
+import WhubGit
 
 struct ExplorerSidebar: View {
     let onFileSelect: () -> Void
@@ -32,35 +33,32 @@ struct ExplorerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ExplorerPulldownView(store: store)
-            if store.showsDiff, store.selectedLocation?.localURL != nil {
+            if store.showsDiff, let root = store.selectedLocation, case .remote = root,
+               let remoteGit = files.remoteGit(for: root, hosts: hosts.compactMap { $0 as? RemoteHost },
+                                               connections: connections, servers: servers) {
+                RemoteExplorerDiffView(git: remoteGit, editor: files.activeEditor, focus: focus,
+                                       onPreview: { openDiff($0, preview: true) },
+                                       onOpen: { openDiff($0, preview: false) })
+                    .id(root)
+            } else if store.showsDiff, store.selectedLocation?.localURL != nil {
                 ExplorerDiffView(git: gitStore, editor: files.activeEditor,
                                  focus: focus,
                                  onPreview: { openDiff($0, preview: true) },
                                  onOpen: { openDiff($0, preview: false) },
                                  onShowMarkdownPreview: showMarkdownPreview)
+            } else if let root = store.selectedLocation, case .remote = root,
+                      let remoteGit = files.remoteGit(for: root, hosts: hosts.compactMap { $0 as? RemoteHost },
+                                                      connections: connections, servers: servers) {
+                RemoteTreeGitView(git: remoteGit) { changes in explorerTree(remoteChanges: changes) }
+                    .id(root)
             } else {
-                ExplorerTreeView(
-                    store: store,
-                    gitStore: gitStore,
-                    focus: focus,
-                    onFilePreview: { location in
-                        files.preview(location, hosts: hosts, connections: connections, servers: servers)
-                        onFileSelect()
-                    },
-                    onFileOpen: { location in
-                        files.open(location, hosts: hosts, connections: connections, servers: servers)
-                        onFileSelect()
-                    },
-                    onShowDiff: { openDiff($0, preview: false) },
-                    onAction: performAction,
-                    onCommitName: files.commitName
-                )
+                explorerTree(remoteChanges: [:])
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(TabPaneFocusView(focus: focus.sidebar))
         .overlay(alignment: .topTrailing) {
-            ExplorerMenuView(canRefresh: store.canRefresh, canShowDiff: store.selectedLocation?.localURL != nil,
+            ExplorerMenuView(canRefresh: store.canRefresh, canShowDiff: store.selectedLocation != nil,
                              showsDiff: Binding(get: { store.showsDiff }, set: setShowsDiff)) {
                 files.refresh()
             }
@@ -74,6 +72,21 @@ struct ExplorerView: View {
             await store.update(projects: projects, hosts: hosts, connections: connections, servers: servers,
                                refreshID: files.refreshID, context: context)
         }
+    }
+
+    private func explorerTree(remoteChanges: [FileLocation: GitChange]) -> some View {
+        ExplorerTreeView(
+            store: store, gitStore: gitStore, remoteChanges: remoteChanges, focus: focus,
+            onFilePreview: { location in
+                files.preview(location, hosts: hosts, connections: connections, servers: servers)
+                onFileSelect()
+            },
+            onFileOpen: { location in
+                files.open(location, hosts: hosts, connections: connections, servers: servers)
+                onFileSelect()
+            },
+            onShowDiff: { openDiff($0, preview: false) }, onAction: performAction, onCommitName: files.commitName
+        )
     }
 
     private func performAction(_ action: ExplorerContextMenu.Action, location: FileLocation) {

@@ -24,13 +24,13 @@ struct GitStoreTests {
         let diff = try #require(files.activeEditor.local.diffStores[file])
         try await waitForGitTest { !diff.isLoading }
         #expect(diff.diff?.content == .text(before: "before\n", after: "after\n"))
-        files.activeEditor.close(.diff(file))
+        files.activeEditor.close(.diff(.local(file)))
         try FileManager.default.removeItem(at: parent)
         files.openDiff(.local(file))
         let deleted = try #require(files.activeEditor.local.diffStores[file])
         try await waitForGitTest { !deleted.isLoading }
         #expect(deleted.diff?.content == .text(before: "before\n", after: ""))
-        files.activeEditor.close(.diff(file))
+        files.activeEditor.close(.diff(.local(file)))
         files.explorer.localTree.reset()
     }
 
@@ -47,20 +47,20 @@ struct GitStoreTests {
         let diff = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
         try await waitForGitTest { !diff.isLoading }
         #expect(diff.diff?.content == .text(before: "", after: "original\n"))
-        #expect(files.activeEditor.tabs == [.file(location), .diff(fixture.firstFile)])
-        #expect(files.activeEditor.previewTab == .diff(fixture.firstFile))
+        #expect(files.activeEditor.tabs == [.file(location), .diff(.local(fixture.firstFile))])
+        #expect(files.activeEditor.previewTab == .diff(.local(fixture.firstFile)))
         #expect(document.hasUnsavedChanges)
         files.openDiff(location)
         #expect(files.activeEditor.previewTab == nil)
         files.openDiff(.local(fixture.secondFile), preview: true)
-        #expect(files.activeEditor.previewTab == .diff(fixture.secondFile))
+        #expect(files.activeEditor.previewTab == .diff(.local(fixture.secondFile)))
         files.openDiff(location, preview: true)
-        #expect(files.activeEditor.selectedTab == .diff(fixture.firstFile))
-        #expect(files.activeEditor.previewTab == .diff(fixture.secondFile))
-        files.activeEditor.close(.diff(fixture.firstFile))
+        #expect(files.activeEditor.selectedTab == .diff(.local(fixture.firstFile)))
+        #expect(files.activeEditor.previewTab == .diff(.local(fixture.secondFile)))
+        files.activeEditor.close(.diff(.local(fixture.firstFile)))
         #expect(files.activeEditor.file(for: location) === document)
         #expect(files.activeEditor.local.diffStores[fixture.firstFile] == nil)
-        files.activeEditor.close(.diff(fixture.secondFile))
+        files.activeEditor.close(.diff(.local(fixture.secondFile)))
         document.content = .text("original\n")
         files.activeEditor.close(.file(location))
         #expect(files.activeEditor.tabs.isEmpty)
@@ -103,7 +103,7 @@ struct GitStoreTests {
         try await waitForGitTest { !diff.isLoading }
         #expect(diff.diff?.change == .deleted)
         files.activeEditor.close(.file(location))
-        files.activeEditor.close(.diff(fixture.firstFile))
+        files.activeEditor.close(.diff(.local(fixture.firstFile)))
         files.explorer.localTree.reset()
     }
 
@@ -147,7 +147,7 @@ struct GitStoreTests {
         try await waitForGitTest { !second.isLoading }
         #expect(first.diff == nil)
         #expect(second.diff?.fileURL == fixture.secondFile)
-        files.activeEditor.close(.diff(fixture.secondFile))
+        files.activeEditor.close(.diff(.local(fixture.secondFile)))
         let failed = LocalDiffStore(fileURL: fixture.secondFile, directory: fixture.first)
         try await waitForGitTest { !failed.isLoading }
         #expect(failed.errorMessage != nil)
@@ -191,18 +191,18 @@ struct GitStoreTests {
         #expect(lines.baseline?.source == "")
         #expect(lines.errorMessage == nil)
         await lines.update(source: "one\ntwo\n")
-        let hunks = lines.hunks(for: fixture.firstFile, source: "one\ntwo\n")
+        let hunks = lines.hunks(for: .local(fixture.firstFile), source: "one\ntwo\n")
         #expect(hunks.count == 1)
         #expect(hunks.first?.newLines == 0..<2)
-        #expect(lines.hunks(for: fixture.secondFile, source: "one\ntwo\n").isEmpty)
-        #expect(lines.hunks(for: fixture.firstFile, source: "changed\n").isEmpty)
+        #expect(lines.hunks(for: .local(fixture.secondFile), source: "one\ntwo\n").isEmpty)
+        #expect(lines.hunks(for: .local(fixture.firstFile), source: "changed\n").isEmpty)
         let pending = Task { await lines.update(source: "changed\n") }
         await Task.yield()
         pending.cancel()
         await pending.value
-        #expect(lines.hunks(for: fixture.firstFile, source: "changed\n").isEmpty)
+        #expect(lines.hunks(for: .local(fixture.firstFile), source: "changed\n").isEmpty)
         await lines.load(fileURL: fixture.secondFile, gitStore: git)
-        #expect(lines.hunks(for: fixture.firstFile, source: "one\ntwo\n").isEmpty)
+        #expect(lines.hunks(for: .local(fixture.firstFile), source: "one\ntwo\n").isEmpty)
         git.reset()
         #expect(git.changes.isEmpty)
     }

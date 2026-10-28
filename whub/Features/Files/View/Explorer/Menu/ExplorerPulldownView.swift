@@ -9,6 +9,8 @@ struct ExplorerPulldownView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 picker
+                ExplorerLoadingView(store: store.remoteWorkspace, sources: store.remoteSources,
+                                    treeLoading: store.remoteTree.states.values.contains(.loading))
                 // Reserve the menu trigger position; the expanded menu overlays the explorer.
                 Color.clear.frame(width: 36, height: 36)
             }
@@ -94,6 +96,25 @@ struct RemoteWorkspaceMenuItems: View {
     }
 }
 
+private struct ExplorerLoadingView: View {
+    @ObservedObject var store: RemoteWorkspaceStore
+    let sources: [RemoteWorkspaceStore.Source]
+    let treeLoading: Bool
+
+    private var isLoading: Bool {
+        treeLoading || sources.contains { store.states[$0.hostID] == .loading }
+    }
+
+    var body: some View {
+        ProgressView()
+            .controlSize(.mini)
+            .frame(width: 16, height: 16)
+            .opacity(isLoading ? 1 : 0)
+            .accessibilityLabel("一覧を取得中")
+            .accessibilityHidden(!isLoading)
+    }
+}
+
 struct RemoteWorkspaceStatusView: View {
     @ObservedObject var store: RemoteWorkspaceStore
     let sources: [RemoteWorkspaceStore.Source]
@@ -102,9 +123,7 @@ struct RemoteWorkspaceStatusView: View {
         ForEach(sources, id: \.hostID) { source in
             if let state = store.states[source.hostID] {
                 switch state {
-                case .loading:
-                    Text("\(source.hostName)：一覧を取得中…")
-                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+                case .loading: EmptyView()
                 case let .failed(message):
                     Text("\(source.hostName)：\(message)")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal)

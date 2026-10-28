@@ -30,6 +30,8 @@ public struct WhubClient: Sendable {
 
     public var files: FilesAPI { FilesAPI(client: self) }
 
+    public var git: GitAPI { GitAPI(client: self) }
+
     public var manager: ManagerAPI { ManagerAPI(client: self) }
 
     public var agent: AgentAPI { AgentAPI(client: self) }

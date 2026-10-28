@@ -137,7 +137,7 @@ final class GitStore: ObservableObject {
 @MainActor
 final class GitLineStore: ObservableObject {
     struct Baseline: Equatable {
-        let fileURL: URL
+        let location: FileLocation
         let source: String
     }
 
@@ -146,8 +146,16 @@ final class GitLineStore: ObservableObject {
     @Published private var hunks: [LineDiffHunk] = []
     private var diffSource: String?
 
-    func hunks(for fileURL: URL, source: String) -> [LineDiffHunk] {
-        baseline?.fileURL == fileURL && diffSource == source ? hunks : []
+    func hunks(for location: FileLocation, source: String) -> [LineDiffHunk] {
+        baseline?.location == location && diffSource == source ? hunks : []
+    }
+
+    func setBaseline(location: FileLocation, source: String?) {
+        let next = source.map { Baseline(location: location, source: $0) }
+        guard baseline != next else { return }
+        baseline = next
+        diffSource = nil
+        hunks = []
     }
 
     func load(fileURL: URL, gitStore: GitStore) async {
@@ -158,7 +166,7 @@ final class GitLineStore: ObservableObject {
         do {
             let loaded = try await Git.baselineText(at: fileURL)
             guard !Task.isCancelled else { return }
-            if let loaded { baseline = Baseline(fileURL: fileURL, source: loaded) }
+            setBaseline(location: .local(fileURL), source: loaded)
             try await gitStore.refreshStatus(for: fileURL)
         } catch GitError.notRepository {
             gitStore.clearStatus(for: fileURL)

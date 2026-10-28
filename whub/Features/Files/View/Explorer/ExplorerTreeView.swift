@@ -2,9 +2,32 @@ import AppKit
 import SwiftUI
 import WhubGit
 
+struct RemoteTreeGitView<Content: View>: View {
+    @ObservedObject var git: RemoteGitStore
+    let content: ([FileLocation: GitChange]) -> Content
+    @State private var usageID = UUID()
+    @Environment(\.isRetainedPageActive) private var isActive
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let error = git.watchError {
+                Text(error).foregroundStyle(.secondary).padding(.horizontal)
+                Button("再試行") { git.retry() }.padding(.horizontal)
+            } else if let error = git.errorMessage {
+                Text(error).foregroundStyle(.secondary).padding(.horizontal)
+            }
+            content(git.fileChanges)
+        }
+        .onAppear { git.setUsage(id: usageID, listVisible: isActive, visibleDiffPaths: []) }
+        .onChange(of: isActive) { _, active in git.setUsage(id: usageID, listVisible: active, visibleDiffPaths: []) }
+        .onDisappear { git.setUsage(id: usageID, listVisible: false, visibleDiffPaths: []) }
+    }
+}
+
 struct ExplorerTreeView: View {
     @ObservedObject var store: ExplorerStore
     @ObservedObject var gitStore: GitStore
+    var remoteChanges: [FileLocation: GitChange] = [:]
     let focus: ExplorerFocusNavigation
     let onFilePreview: (FileLocation) -> Void
     let onFileOpen: (FileLocation) -> Void
@@ -33,7 +56,7 @@ struct ExplorerTreeView: View {
                     RemoteFileTreeStatusView(states: store.remoteTree.states)
                 }
                 ExplorerOutlineView(
-                    store: store, basePath: store.treeBasePath, gitChanges: gitStore.changes, focus: focus,
+                    store: store, basePath: store.treeBasePath, gitChanges: gitStore.changes, remoteChanges: remoteChanges, focus: focus,
                     onFilePreview: onFilePreview, onFileOpen: onFileOpen, onShowDiff: onShowDiff, onAction: onAction, onCommitName: onCommitName
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -47,6 +70,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
     @ObservedObject var store: ExplorerStore
     let basePath: String?
     let gitChanges: [URL: GitChange]
+    let remoteChanges: [FileLocation: GitChange]
     let focus: ExplorerFocusNavigation
     let onFilePreview: (FileLocation) -> Void
     let onFileOpen: (FileLocation) -> Void
@@ -85,7 +109,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
         outlineView.target = context.coordinator
         outlineView.doubleAction = #selector(Coordinator.openSelectedFile(_:))
         context.coordinator.outlineView = outlineView
-        context.coordinator.update(basePath: basePath, gitChanges: gitChanges)
+        context.coordinator.update(basePath: basePath, gitChanges: gitChanges, remoteChanges: remoteChanges)
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -103,7 +127,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
         context.coordinator.onCommitName = onCommitName
         context.coordinator.onFilePreview = onFilePreview
         context.coordinator.onFileOpen = onFileOpen
-        context.coordinator.update(basePath: basePath, gitChanges: gitChanges)
+        context.coordinator.update(basePath: basePath, gitChanges: gitChanges, remoteChanges: remoteChanges)
     }
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
@@ -187,7 +211,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
             self.onFileOpen = onFileOpen
         }
 
-        func update(basePath: String?, gitChanges: [URL: GitChange]) {
+        func update(basePath: String?, gitChanges: [URL: GitChange], remoteChanges: [FileLocation: GitChange] = [:]) {
             guard let outlineView else { return }
             (outlineView as? FileOutlineControl)?.basePath = basePath
             let rootChanged = renderedRootLocation != store.treeLocation
@@ -203,7 +227,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
             let topLocation = (outlineView.item(atRow: topRow) as? ExplorerItem)?.location
             let topOffset = topRow >= 0 ? origin.y - outlineView.rect(ofRow: topRow).minY : 0
 
-            _ = store.updateTree(gitChanges: gitChanges)
+            _ = store.updateTree(gitChanges: gitChanges, remoteChanges: remoteChanges)
             guard renderedRevision != store.contentRevision else { return }
             renderedRevision = store.contentRevision
             renderedRootLocation = store.treeLocation
@@ -240,7 +264,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
         }
 
         private func expandChangedDirectories(in items: [ExplorerItem], outlineView: NSOutlineView) {
-            for item in items where item.isDirectory && item.location.localURL.flatMap({ store.decorations[$0.standardizedFileURL] }) != nil {
+            for item in items where item.isDirectory && store.decorations[item.location] != nil {
                 outlineView.expandItem(item)
                 expandChangedDirectories(in: store.children(for: item), outlineView: outlineView)
             }
@@ -311,7 +335,8 @@ struct ExplorerOutlineView: NSViewRepresentable {
             let cell = (outlineView.makeView(withIdentifier: identifier, owner: nil) as? ExplorerItemView)
                 ?? ExplorerItemView(identifier: identifier)
             let edit = nameEdit?.item === item ? nameEdit : nil
-            cell.update(item: item, change: item.location.localURL.flatMap { store.decorations[$0.standardizedFileURL] },
+            let location = item.location.localURL.map { FileLocation.local($0.standardizedFileURL) } ?? item.location
+            cell.update(item: item, change: store.decorations[location],
                         unavailable: store.isUnavailable(item), editingName: edit?.name, editingOperation: edit?.operation)
             cell.textField?.delegate = edit == nil ? nil : self
             return cell
@@ -405,9 +430,6 @@ struct RemoteFileTreeStatusView: View {
     var body: some View {
         ForEach(states.keys.sorted(), id: \.self) { path in
             switch states[path] {
-            case .loading:
-                Text("\(path.isEmpty ? "ルート" : path)：取得中…")
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
             case let .failed(message):
                 Text("\(path.isEmpty ? "ルート" : path)：\(message) — リロードで再取得")
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal)

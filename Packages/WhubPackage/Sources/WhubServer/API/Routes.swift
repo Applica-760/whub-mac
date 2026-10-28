@@ -1,8 +1,25 @@
 import Hummingbird
 
-func makeRouter(files: FilesAPI, manager: ManagerAPI, agent: AgentAPI) -> Router<BasicRequestContext> {
+func makeRouter(files: FilesAPI, manager: ManagerAPI, agent: AgentAPI, git: GitAPI = GitAPI()) -> Router<BasicRequestContext> {
     let router = Router()
     router.get("ping") { _, _ -> String in "pong" }
+
+	// Git API
+    router.post("git/watches") { request, _ -> Response in
+        await git.startWatch(query: request.uri.query)
+    }
+    router.get("git/watches/:id") { request, context -> Response in
+        try await git.waitWatch(id: context.parameters.get("id") ?? "", query: request.uri.query)
+    }
+    router.delete("git/watches/:id") { _, context -> Response in
+        await git.stopWatch(id: context.parameters.get("id") ?? "")
+    }
+    router.get("git/changes") { request, _ -> Response in
+        await git.changes(query: request.uri.query)
+    }
+    router.get("git/diff") { request, _ -> Response in
+        await git.diff(query: request.uri.query)
+    }
 
     // Files API
     router.get("files/list") { request, _ -> Response in

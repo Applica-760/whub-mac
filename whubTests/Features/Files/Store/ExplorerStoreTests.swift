@@ -4,10 +4,40 @@ import SwiftData
 import Testing
 import WebKit
 import WhubCore
+import WhubGit
 @testable import whub
 
 @Suite @MainActor
 struct ExplorerStoreTests {
+    @Test func remoteDecorationsUpdateAndClearWhenRootChanges() throws {
+        let container = try explorerTestModelContainer()
+        let host = try HostStore(context: container.mainContext).addRemote(
+            name: "server", basePath: "/workspace", hostname: "unused", user: "test", identityFile: ""
+        )
+        let root = FileLocation.remote(hostID: host.persistentModelID, path: "/workspace/app")
+        let store = ExplorerStore()
+        let session = NSObject()
+        store.selectedLocation = root
+        store.remoteTree.update(source: .init(root: root, sessionID: ObjectIdentifier(session)), refreshID: 0) { _ in [] }
+        defer { store.stopWatching() }
+        let file = root.appending("src/file.swift")
+        #expect(store.updateTree(gitChanges: [:], remoteChanges: [file: .added]))
+        #expect(store.decorations[file] == .added)
+        #expect(store.decorations[root.appending("src")] == .added)
+        #expect(!store.updateTree(gitChanges: [:], remoteChanges: [file: .added]))
+        #expect(store.updateTree(gitChanges: [:], remoteChanges: [file: .modified]))
+        #expect(store.decorations[file] == .modified)
+        #expect(store.decorations[root.appending("src")] == .modified)
+        let other = FileLocation.remote(hostID: host.persistentModelID, path: "/workspace/other")
+        store.selectedLocation = other
+        #expect(store.updateTree(gitChanges: [:], remoteChanges: [file: .modified]))
+        #expect(store.decorations.isEmpty)
+        store.remoteTree.update(source: .init(root: other, sessionID: ObjectIdentifier(session)), refreshID: 0) { _ in [] }
+        let otherFile = other.appending("src/file.swift")
+        #expect(store.updateTree(gitChanges: [:], remoteChanges: [otherFile: .added]))
+        #expect(store.decorations[other.appending("src")] == .added)
+    }
+
     @Test func reloadUpdatesCandidatesWithoutLosingSelection() async throws {
         let container = try explorerTestModelContainer()
         let context = container.mainContext

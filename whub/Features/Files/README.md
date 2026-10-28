@@ -1,6 +1,6 @@
 # Files
 
-ローカル・リモートのファイル一覧、ファイル編集、ローカルのGit差分表示を担当する。
+ローカル・リモートのファイル一覧、ファイル編集、Git差分表示を担当する。
 
 ## 構成と責務
 
@@ -33,7 +33,8 @@ Files/
 │   │   └── FileEncoding.swift     // UTF-8の読み書きと、保存時の改行・BOMの保持を担当
 │   ├── Git/
 │   │   ├── GitStore.swift         // 選択ルートのGit変更一覧・取得状態を保持
-│   │   └── LocalDiffStore.swift   // ファイル単位の差分・取得状態を保持し、変更を監視
+│   │   ├── LocalDiffStore.swift   // ファイル単位の差分・取得状態を保持し、変更を監視
+│   │   └── RemoteGitStore.swift   // Hostとリポジトリ単位の監視・差分取得を管理
 │   └── FileWatcher.swift          // ファイルシステムの変更を通知
 └── View/
     ├── Explorer/
@@ -43,6 +44,7 @@ Files/
     │   └── …                     // 項目表示・選択メニュー・コンテキストメニュー
     └── Editor/
         ├── EditorView.swift       // ファイル・差分の表示を切り替え、フォーカスを復元
+        ├── DiffContentView.swift  // ローカル・リモートの差分取得状態と比較結果を表示
         ├── EditorTabBarView.swift // 共通タブ部品に、ファイル名・変更状態・操作を接続
         ├── Text/
         │   ├── CodeEditorView.swift
@@ -50,7 +52,7 @@ Files/
         │   ├── LocalCodeEditorView.swift
         │   │                      // ローカル本文と行単位のGit差分を表示
         │   ├── RemoteViewerView.swift
-        │   │                      // リモート本文と通信・保存状態を表示
+        │   │                      // リモート本文・通信状態・行単位のGit差分を表示
         │   ├── DiffView.swift     // ファイルの差分を表示
         │   └── …
         └── Binary/

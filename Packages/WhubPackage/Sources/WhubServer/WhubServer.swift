@@ -36,13 +36,29 @@ struct WhubServer {
 
         let runtime = AgentRuntime()
         defer { runtime.shutdown() }
-        let router = makeRouter(files: FilesAPI(), manager: try managerAPI(environment), agent: AgentAPI(runtime: runtime))
+        #if os(Linux)
+        let watches = LinuxGitWatchStore()
+        let git = GitAPI(watches: watches)
+        #else
+        let git = GitAPI()
+        #endif
+        let router = makeRouter(files: FilesAPI(), manager: try managerAPI(environment), agent: AgentAPI(runtime: runtime),
+                                git: git)
 
         let app = Application(
             router: router,
             configuration: .init(address: .hostname(host, port: port))
         )
-        try await app.runService()
+        do { try await app.runService() }
+        catch {
+            #if os(Linux)
+            await watches.shutdown()
+            #endif
+            throw error
+        }
+        #if os(Linux)
+        await watches.shutdown()
+        #endif
     }
 
     static func managerAPI(_ values: [String: String]) throws -> ManagerAPI {

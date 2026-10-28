@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftData
 import WhubCore
 import WhubGit
 
@@ -10,6 +11,7 @@ final class FilesStore: ObservableObject {
     private var editorsByWorkspace: [FileLocation?: EditorStore] = [:]
     private var workspaceChanges: AnyCancellable?
     let git = GitStore()
+    private(set) var remoteGitStores: [FileLocation: RemoteGitStore] = [:]
     @Published private(set) var refreshID = 0
     private var rootChanges: AnyCancellable?
 
@@ -55,6 +57,21 @@ final class FilesStore: ObservableObject {
         refreshID += 1
         activeEditor.refresh()
         git.refresh()
+        if let root = explorer.selectedLocation { remoteGitStores[root]?.refresh() }
+    }
+
+    func remoteGit(for root: FileLocation, hosts: [RemoteHost], connections: RemoteConnectionStore,
+                   servers: RemoteServerStore) -> RemoteGitStore? {
+        guard case let .remote(hostID, _) = root,
+              let host = hosts.first(where: { $0.persistentModelID == hostID }) else { return nil }
+        if let store = remoteGitStores[root] { return store }
+        let store = RemoteGitStore(root: root, host: host, connections: connections, servers: servers)
+        remoteGitStores[root] = store
+        return store
+    }
+
+    func releaseRemoteGit(for root: FileLocation) {
+        remoteGitStores.removeValue(forKey: root)?.stop()
     }
 
     func preview(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore) {
@@ -68,11 +85,16 @@ final class FilesStore: ObservableObject {
     }
 
     func openDiff(_ location: FileLocation, preview: Bool = false) {
+        if case .remote = location {
+            if preview { activeEditor.preview(.diff(location)) }
+            else { activeEditor.open(.diff(location)) }
+            return
+        }
         guard let url = location.localURL else { return }
         let fileURL = url.standardizedFileURL
         activeEditor.local.loadDiff(at: fileURL)
-        if preview { activeEditor.preview(.diff(fileURL)) }
-        else { activeEditor.open(.diff(fileURL)) }
+        if preview { activeEditor.preview(.diff(.local(fileURL))) }
+        else { activeEditor.open(.diff(.local(fileURL))) }
     }
 
     func openMarkdownPreview(_ location: FileLocation) {
