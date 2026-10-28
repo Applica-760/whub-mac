@@ -54,6 +54,7 @@ final class ExplorerContextMenu: NSMenu {
     private let relativePath: String?
 
     init(location: FileLocation, isDirectory: Bool, basePath: String?, allowsActions: Bool = true,
+         allowsFileOperations: Bool = true,
          onEdit: @escaping (ExplorerStore.NameEdit.Operation) -> Void = { _ in },
          onAction: @escaping (Action, FileLocation) -> Void = { _, _ in },
          onShowDiff: @escaping (FileLocation) -> Void) {
@@ -70,7 +71,7 @@ final class ExplorerContextMenu: NSMenu {
         }
         super.init(title: "")
         autoenablesItems = false
-        let localActions = location.localURL != nil && allowsActions
+        let localActions = allowsActions && allowsFileOperations
         if localActions {
             add(.newFile)
             add(.newFolder)
@@ -79,11 +80,13 @@ final class ExplorerContextMenu: NSMenu {
         add(.copyPath)
         add(.copyRelativePath, enabled: relativePath != nil)
         addItem(.separator())
-        add(.showDiff, enabled: location.localURL != nil && !isDirectory)
+        add(.showDiff, enabled: !isDirectory)
         if localActions {
             add(.rename)
             add(.trash)
-            if !isDirectory, ["html", "htm"].contains((location.path as NSString).pathExtension.lowercased()) {
+        }
+        if allowsActions {
+            if location.localURL != nil, !isDirectory, ["html", "htm"].contains((location.path as NSString).pathExtension.lowercased()) {
                 add(.openInBrowser)
             } else if !isDirectory, EditorStore.supportsMarkdownPreview(location) {
                 add(.showPreview)

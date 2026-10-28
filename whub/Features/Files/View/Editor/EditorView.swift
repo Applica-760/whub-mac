@@ -28,7 +28,7 @@ struct EditorView: View {
                 .id(location)
             } else if case let .file(location) = store.selectedTab, case .remote = location {
                 RemoteViewerView(store: store.remote, git: files.explorer.selectedLocation.flatMap { files.remoteGitStores[$0] },
-                                 location: location, editorID: editorID)
+                                 location: location, editorID: editorID, showsMarkdownPreview: store.markdownPreviews.contains(location))
                     .id(location)
             } else {
                 Text("Select a file")
@@ -140,20 +140,31 @@ private struct FileContent: View {
     @ViewBuilder private var fileContent: some View {
         switch state.document.content {
         case let .text(source):
-            HSplitView {
+            MarkdownSplitView(source: source, showsPreview: showsMarkdownPreview) {
                 LocalCodeEditorView(fileURL: state.fileURL, source: source, refreshID: refreshID,
-                                   state: state, editorID: editorID, onEdit: onEdit)
-                    .frame(minWidth: 180)
-                if showsMarkdownPreview {
-                    MarkdownView(source: source)
-                        .frame(minWidth: 180)
-                        .background(Color(nsColor: .textBackgroundColor))
-                }
+                                    state: state, editorID: editorID, onEdit: onEdit)
             }
         case .binary:
             BinaryView(fileURL: state.fileURL)
         case let .error(message):
             Text(message).foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct MarkdownSplitView<Content: View>: View {
+    let source: String
+    let showsPreview: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HSplitView {
+            content.frame(minWidth: 180)
+            if showsPreview {
+                MarkdownView(source: source)
+                    .frame(minWidth: 180)
+                    .background(Color(nsColor: .textBackgroundColor))
+            }
         }
     }
 }

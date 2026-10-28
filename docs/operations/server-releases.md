@@ -17,6 +17,16 @@ Linux上のSwift・Git・systemd userサービスが必要。更新は対象Serv
 
 Files APIの閲覧ルートはMacが保持する。`/files/list`・`/files/read`の`root`は絶対パス、`path`は配下の相対パス（省略時は空）。`WHUB_SERVER_ROOT`は使わない。
 
+## ゴミ箱からの復元
+
+Linuxでは `gio trash --list` でゴミ箱内のURIを確認し、復元先の絶対パスを指定する。
+
+```sh
+gio move --no-target-directory 'trash:///対象のURI' '/元のディレクトリ/ファイル名'
+```
+
+`gio move` は復元先が存在すると上書きするため、実行前に復元先が存在しないことを確認する。対象環境では `gio trash --restore` が日本語を含む元パスを正しく復元できないことを確認した。
+
 ## Manager APIを有効にする
 
 HTTP起動は`whub-server`。サービスに次の環境変数を設定する。Files／Manager APIは両方必須で、設定不足なら起動を拒否する。

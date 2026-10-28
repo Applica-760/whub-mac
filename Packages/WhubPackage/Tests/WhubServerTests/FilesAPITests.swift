@@ -133,6 +133,7 @@ private final class FilesFixture: Sendable {
 #if os(Linux)
 @Test func filesTrashCanBeRestored() async throws {
     let fixture = try await FilesFixture()
+    defer { withExtendedLifetime(fixture) {} }
     let fm = FileManager.default
     let fileName = "whub-trash-test-\(UUID().uuidString)"
     let folderName = "whub-trash-test-\(UUID().uuidString)"
@@ -143,11 +144,11 @@ private final class FilesFixture: Sendable {
     try fm.createDirectory(at: folder, withIntermediateDirectories: false)
     try content.write(to: folder.appendingPathComponent("nested"))
 
-    func restore(_ name: String) throws {
+    @Sendable func restore(_ name: String, destination: URL) throws {
         for _ in 0..<30 {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["gio", "trash", "--restore", "trash:///\(name)"]
+            process.arguments = ["gio", "move", "--no-target-directory", "trash:///\(name)", destination.path]
             process.standardError = FileHandle.nullDevice
             try process.run()
             process.waitUntilExit()
@@ -163,7 +164,7 @@ private final class FilesFixture: Sendable {
         for name in [fileName, folderName] {
             try await client.files.trash(root: fixture.first.path, path: name)
             #expect(!fm.fileExists(atPath: fixture.first.appendingPathComponent(name).path))
-            try restore(name)
+            try restore(name, destination: fixture.first.appendingPathComponent(name))
         }
     }
     #expect(try Data(contentsOf: file) == content)

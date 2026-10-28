@@ -7,6 +7,7 @@ struct RemoteViewerView: View {
     let git: RemoteGitStore?
     let location: FileLocation
     let editorID: String
+    let showsMarkdownPreview: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,12 +29,14 @@ struct RemoteViewerView: View {
                 if let message = remote.message { Text(message).foregroundStyle(.orange).padding(8) }
             }
             if let file = store.file(for: location), case let .text(source) = file.content {
-                if let git {
-                    RemoteCodeEditorView(git: git, location: location, file: file, source: source, editorID: editorID)
-                } else {
-                    CodeEditorView(state: file, editorID: editorID, onEdit: {}, source: source,
-                                   language: codeLanguages[(location.name as NSString).pathExtension.lowercased()], hunks: [], location: location)
-                        .background(Color(nsColor: .textBackgroundColor))
+                MarkdownSplitView(source: source, showsPreview: showsMarkdownPreview) {
+                    if let git {
+                        RemoteCodeEditorView(git: git, location: location, file: file, source: source, editorID: editorID)
+                    } else {
+                        CodeEditorView(state: file, editorID: editorID, onEdit: {}, source: source,
+                                       language: codeLanguages[(location.name as NSString).pathExtension.lowercased()], hunks: [], location: location)
+                            .background(Color(nsColor: .textBackgroundColor))
+                    }
                 }
             } else {
                 Spacer()

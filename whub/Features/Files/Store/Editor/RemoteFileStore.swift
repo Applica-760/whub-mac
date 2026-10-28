@@ -66,9 +66,13 @@ final class RemoteFileStore: ObservableObject {
             || document?.editorViews.hasMarkedText == true
     }
 
+    var isFileOperationLocked = false {
+        didSet { document?.isFileOperationLocked = isFileOperationLocked }
+    }
+
     var canSave: Bool {
         guard let request, document != nil,
-              !isSaving, job == nil, pendingSave == nil else { return false }
+              !isFileOperationLocked, !isSaving, job == nil, pendingSave == nil else { return false }
         return request.connection == nil || request.connection?() != nil
     }
 
@@ -121,6 +125,7 @@ final class RemoteFileStore: ObservableObject {
                     }
                 } else {
                     let document = FileStore(content: .text(text), isEditable: true)
+                    document.isFileOperationLocked = isFileOperationLocked
                     self.document = document
                     savedText = text
                     documentChanges = document.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }

@@ -38,7 +38,7 @@ struct ExplorerView: View {
                                                connections: connections, servers: servers) {
                 RemoteExplorerDiffView(git: remoteGit, editor: files.activeEditor, focus: focus,
                                        onPreview: { openDiff($0, preview: true) },
-                                       onOpen: { openDiff($0, preview: false) })
+                                       onOpen: { openDiff($0, preview: false) }, onShowMarkdownPreview: showMarkdownPreview)
                     .id(root)
             } else if store.showsDiff, store.selectedLocation?.localURL != nil {
                 ExplorerDiffView(git: gitStore, editor: files.activeEditor,
@@ -88,33 +88,49 @@ struct ExplorerView: View {
                 files.open(location, hosts: hosts, connections: connections, servers: servers)
                 onFileSelect()
             },
-            onShowDiff: { openDiff($0, preview: false) }, onAction: performAction, onCommitName: files.commitName
+            onShowDiff: { openDiff($0, preview: false) }, onAction: performAction, onCommitName: commitName
         )
     }
 
     private func performAction(_ action: ExplorerContextMenu.Action, location: FileLocation) {
-        guard let url = location.localURL else { return }
         do {
             switch action {
             case .openInBrowser:
-                onOpenInBrowser(url)
+                if let url = location.localURL { onOpenInBrowser(url) }
             case .showPreview:
                 showMarkdownPreview(location)
             case .trash:
                 let alert = NSAlert()
-                alert.messageText = "\(url.lastPathComponent)をゴミ箱に移動しますか？"
+                alert.messageText = "\(location.name)をゴミ箱に移動しますか？"
                 alert.addButton(withTitle: "キャンセル")
                 alert.addButton(withTitle: "ゴミ箱に移動")
                 guard alert.runModal() == .alertSecondButtonReturn else { return }
-                try files.trash(url)
+                if let url = location.localURL { try files.trash(url) }
+                else {
+                    Task {
+                        do { try await files.trashRemote(location, hosts: hosts, connections: connections, servers: servers) }
+                        catch { EditorDialogs.show(error: error) }
+                    }
+                }
             }
         } catch {
             EditorDialogs.show(error: error)
         }
     }
 
+    private func commitName() throws {
+        guard case .remote = store.nameEdit?.target else { try files.commitName(); return }
+        Task {
+            do { try await files.commitRemoteName(hosts: hosts, connections: connections, servers: servers) }
+            catch { EditorDialogs.show(error: error) }
+        }
+    }
+
     private func showMarkdownPreview(_ location: FileLocation) {
-        files.openMarkdownPreview(location)
+        if case .remote = location {
+            files.open(location, hosts: hosts, connections: connections, servers: servers)
+            files.activeEditor.setMarkdownPreviewVisible(true, for: location)
+        } else { files.openMarkdownPreview(location) }
         onFileSelect()
     }
 

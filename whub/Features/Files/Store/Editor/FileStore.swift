@@ -14,6 +14,13 @@ final class FileStore: ObservableObject {
     }
     @Published private(set) var savedSource: String?
     let isEditable: Bool
+    var isFileOperationLocked = false {
+        didSet {
+            for view in editorViews.views.values {
+                (view.documentView as? NSTextView)?.isEditable = isEditable && !isFileOperationLocked
+            }
+        }
+    }
     let textStorage: NSTextStorage
     let undoManager = UndoManager()
     let editorViews = CodeEditorViews()

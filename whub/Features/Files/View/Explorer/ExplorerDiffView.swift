@@ -9,6 +9,7 @@ struct RemoteExplorerDiffView: View {
     let focus: ExplorerFocusNavigation
     let onPreview: (FileLocation) -> Void
     let onOpen: (FileLocation) -> Void
+    let onShowMarkdownPreview: (FileLocation) -> Void
     @State private var usageID = UUID()
     @Environment(\.isRetainedPageActive) private var isActive
 
@@ -31,7 +32,7 @@ struct RemoteExplorerDiffView: View {
                 Text("未コミットの差分はありません").foregroundStyle(.secondary)
             } else {
                 DiffFileList(changes: git.fileChanges, root: git.root, selectedTab: editor.selectedTab, focus: focus,
-                onPreview: onPreview, onOpen: onOpen, onShowMarkdownPreview: { _ in })
+                onPreview: onPreview, onOpen: onOpen, onShowMarkdownPreview: onShowMarkdownPreview)
             }
         }
         .padding(.horizontal)
@@ -106,10 +107,9 @@ private struct DiffFileList: NSViewRepresentable {
         table.target = context.coordinator
         table.doubleAction = #selector(Coordinator.openFile(_:))
         table.menuForRow = { [weak coordinator = context.coordinator] row in
-            guard let coordinator, coordinator.locations.indices.contains(row),
-                  coordinator.locations[row].localURL != nil else { return nil }
+            guard let coordinator, coordinator.locations.indices.contains(row) else { return nil }
             return ExplorerContextMenu(location: coordinator.locations[row], isDirectory: false,
-                                       basePath: coordinator.parent.root.path,
+                                       basePath: coordinator.parent.root.path, allowsFileOperations: false,
                                        onAction: { [weak coordinator] action, location in
                                            if case .showPreview = action { coordinator?.parent.onShowMarkdownPreview(location) }
                                        }, onShowDiff: coordinator.parent.onOpen)

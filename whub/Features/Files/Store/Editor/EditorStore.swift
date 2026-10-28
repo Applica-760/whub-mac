@@ -21,7 +21,7 @@ final class EditorStore: ObservableObject {
     }
 
     static func supportsMarkdownPreview(_ location: FileLocation) -> Bool {
-        location.localURL?.pathExtension.lowercased() == "md"
+        (location.path as NSString).pathExtension.lowercased() == "md"
     }
 
     var markdownPreviewLocation: FileLocation? {
@@ -32,8 +32,10 @@ final class EditorStore: ObservableObject {
 
     func setMarkdownPreviewVisible(_ visible: Bool, for location: FileLocation) {
         if visible {
-            guard Self.supportsMarkdownPreview(location), tabs.contains(.file(location)),
-                  case .text = file(for: location)?.content else { return }
+            guard Self.supportsMarkdownPreview(location), tabs.contains(.file(location)) else { return }
+            if case .local = location {
+                guard case .text = file(for: location)?.content else { return }
+            }
             markdownPreviews.insert(location)
         } else {
             markdownPreviews.remove(location)
@@ -49,24 +51,29 @@ final class EditorStore: ObservableObject {
         case editing(String)
     }
 
-    func tabsForFileOperation(under url: URL) throws -> [EditorTab] {
-        let roots = [url.standardizedFileURL.path, url.resolvingSymlinksInPath().path]
-        var affected: [EditorTab] = []
-        for tab in tabs {
-            let target: URL?
+    func tabsForFileOperation(under location: FileLocation) throws -> [EditorTab] {
+        return try tabs.filter { tab in
+            let target: FileLocation
             switch tab {
-            case let .file(location): target = location.localURL
-            case let .diff(location): target = location.localURL
+            case let .file(value), let .diff(value): target = value
             }
-            guard let target else { continue }
-            let paths = [target.standardizedFileURL.path, target.resolvingSymlinksInPath().path]
-            guard paths.contains(where: { path in roots.contains { path == $0 || path.hasPrefix($0 + "/") } }) else { continue }
-            if case let .file(location) = tab, local.fileStores[location]?.blocksFileOperation == true {
-                throw FileOperationError.editing(target.lastPathComponent)
+            let matches: Bool
+            switch (location, target) {
+            case let (.local(root), .local(url)):
+                let roots = [root.standardizedFileURL.path, root.resolvingSymlinksInPath().path]
+                let paths = [url.standardizedFileURL.path, url.resolvingSymlinksInPath().path]
+                matches = paths.contains { path in roots.contains { path == $0 || path.hasPrefix($0 + "/") } }
+            case let (.remote(hostID, path), .remote(targetHost, targetPath)):
+                matches = targetHost == hostID && (targetPath == path || targetPath.hasPrefix(path + "/"))
+            default: matches = false
             }
-            affected.append(tab)
+            guard matches else { return false }
+            if case .file = tab,
+               local.fileStores[target]?.blocksFileOperation == true || remote.fileStores[target]?.needsCloseConfirmation == true {
+                throw FileOperationError.editing(target.name)
+            }
+            return true
         }
-        return affected
     }
 
     func open(_ tab: EditorTab) {
@@ -125,6 +132,10 @@ final class EditorStore: ObservableObject {
         if previewTab == tab { previewTab = nil }
         guard selectedTab == tab else { return }
         selectedTab = index < tabs.count ? tabs[index] : tabs.last
+    }
+
+    func closeAfterFileOperation(_ tab: EditorTab) {
+        finishClose(tab)
     }
 
     func move(_ tab: EditorTab, before target: EditorTab?) {

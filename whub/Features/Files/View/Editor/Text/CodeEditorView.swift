@@ -65,7 +65,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onEdit = onEdit
         textView.diffLines = diffLines
         textView.drawsBackground = false
-        textView.isEditable = state.isEditable
+        textView.isEditable = state.isEditable && !state.isFileOperationLocked
         textView.isRichText = false
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
@@ -250,14 +250,14 @@ final class CodeTextView: NSTextView {
         fileStore?.saveAction?()
     }
 
-    @objc func undo(_ sender: Any?) { undoManager?.undo() }
-    @objc func redo(_ sender: Any?) { undoManager?.redo() }
+    @objc func undo(_ sender: Any?) { if isEditable { undoManager?.undo() } }
+    @objc func redo(_ sender: Any?) { if isEditable { undoManager?.redo() } }
 
     override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
-        case #selector(undo(_:)): return undoManager?.canUndo == true
-        case #selector(redo(_:)): return undoManager?.canRedo == true
-        case #selector(saveDocument(_:)): return fileStore?.isEditable == true && fileStore?.canSave?() == true
+        case #selector(undo(_:)): return isEditable && undoManager?.canUndo == true
+        case #selector(redo(_:)): return isEditable && undoManager?.canRedo == true
+        case #selector(saveDocument(_:)): return isEditable && fileStore?.canSave?() == true
         default: return super.validateMenuItem(menuItem)
         }
     }

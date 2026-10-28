@@ -21,18 +21,19 @@ final class ExplorerStore: ObservableObject {
         let operation: Operation
         let item: ExplorerItem
         let parent: ExplorerItem?
-        let target: URL
+        let target: FileLocation
         var name: String
     }
     @Published private(set) var nameEdit: NameEdit?
 
     func beginNameEditing(_ operation: NameEdit.Operation, item: ExplorerItem, parent: ExplorerItem?) {
-        guard let url = item.location.localURL, !isUnavailable(item) else { return }
+        guard !isUnavailable(item) else { return }
         let creating = operation != .rename
         let directory = creating && item.isDirectory ? item : parent
-        let target = creating ? (item.isDirectory ? url : url.deletingLastPathComponent()) : url
+        let target = creating && !item.isDirectory
+            ? item.location.parent : item.location
         let editingItem = creating
-            ? ExplorerItem(location: .local(target.appendingPathComponent(UUID().uuidString)), isDirectory: operation == .newFolder)
+            ? ExplorerItem(location: target.appending(UUID().uuidString), isDirectory: operation == .newFolder)
             : item
         nameEdit = NameEdit(operation: operation, item: editingItem, parent: directory, target: target,
                             name: creating ? "" : item.location.name)
@@ -220,6 +221,9 @@ final class ExplorerStore: ObservableObject {
     }
 
     func basePath(projects: [Project]) -> String? {
+        if case let .remote(hostID, _) = selectedLocation {
+            return hosts.first { $0.persistentModelID == hostID }?.basePath
+        }
         if selectedRootURL?.standardizedFileURL == basePathURL, let basePathURL { return basePathURL.path }
         return projects.first { project in
             guard project.host is LocalHost, let selectedRootURL else { return false }

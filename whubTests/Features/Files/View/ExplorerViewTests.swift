@@ -248,7 +248,7 @@ struct ExplorerViewTests {
         coordinator.onCommitName = {
             let edit = try #require(store.nameEdit)
             #expect(edit.operation == .rename)
-            #expect(edit.target == folder.appendingPathComponent("existing.txt"))
+            #expect(edit.target == .local(folder.appendingPathComponent("existing.txt")))
             #expect(edit.name == "renamed.txt")
             committed = true
             store.cancelNameEditing()

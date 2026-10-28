@@ -22,6 +22,13 @@ nonisolated enum FileLocation: Hashable, Sendable {
         }
     }
 
+    var parent: FileLocation {
+        switch self {
+        case let .local(url): .local(url.deletingLastPathComponent())
+        case let .remote(hostID, path): .remote(hostID: hostID, path: (path as NSString).deletingLastPathComponent)
+        }
+    }
+
     var localURL: URL? {
         guard case let .local(url) = self else { return nil }
         return url
