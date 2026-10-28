@@ -6,6 +6,7 @@
 // - RemoteGitStoreTests.watchLimitRequiresManualRetry(): [RGITSTORE-F-005]
 // - RemoteGitStoreTests.sharesWatchBetweenListAndDiff()
 // - RemoteGitStoreTests.convertsChangesForRemoteFiles()
+// - RemoteGitStoreTests.lineMarkersFollowBaselineAndUnsavedContent()
 
 import Foundation
 import SwiftData
@@ -17,6 +18,34 @@ import WhubGit
 
 @Suite(.serialized) @MainActor
 struct RemoteGitStoreTests {
+    @Test func lineMarkersFollowBaselineAndUnsavedContent() async throws {
+        let fixture = try RemoteGitFixture()
+        defer { fixture.store.stop() }
+        let location = fixture.store.root.appending("file.txt")
+        let lines = GitLineStore()
+        await fixture.connections.connect(fixture.host)
+        let editor = UUID()
+        let diff = UUID()
+        fixture.store.setUsage(id: editor, listVisible: false, visibleDiffPaths: ["file.txt"])
+        fixture.store.setUsage(id: diff, listVisible: false, visibleDiffPaths: ["file.txt"])
+        try await eventually { fixture.store.diffs["file.txt"] != nil && GitProtocol.state.waitCount > 0 }
+        lines.setBaseline(location: location, source: fixture.store.diffs["file.txt"]?.content.before)
+        await lines.update(source: "unsaved")
+        #expect(lines.hunks(for: location, source: "unsaved").count == 1)
+        #expect(lines.hunks(for: location, source: "original").isEmpty)
+        lines.setBaseline(location: location, source: "unsaved")
+        #expect(lines.hunks(for: location, source: "unsaved").isEmpty)
+        await lines.update(source: "unsaved")
+        #expect(lines.hunks(for: location, source: "unsaved").isEmpty)
+        fixture.store.setUsage(id: diff, listVisible: false, visibleDiffPaths: [])
+        #expect(fixture.store.diffs["file.txt"] != nil)
+        await fixture.connections.disconnect(fixture.host)
+        try await eventually { !fixture.store.isConnected && fixture.store.diffs.isEmpty }
+        lines.setBaseline(location: location, source: nil)
+        #expect(lines.baseline == nil)
+        await fixture.close()
+    }
+
     @Test func convertsChangesForRemoteFiles() async throws {
         let fixture = try RemoteGitFixture()
         defer { fixture.store.stop() }

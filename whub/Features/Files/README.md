@@ -52,7 +52,7 @@ Files/
         │   ├── LocalCodeEditorView.swift
         │   │                      // ローカル本文と行単位のGit差分を表示
         │   ├── RemoteViewerView.swift
-        │   │                      // リモート本文と通信・保存状態を表示
+        │   │                      // リモート本文・通信状態・行単位のGit差分を表示
         │   ├── DiffView.swift     // ファイルの差分を表示
         │   └── …
         └── Binary/

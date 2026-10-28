@@ -27,7 +27,8 @@ struct EditorView: View {
                 }
                 .id(location)
             } else if case let .file(location) = store.selectedTab, case .remote = location {
-                RemoteViewerView(store: store.remote, location: location, editorID: editorID)
+                RemoteViewerView(store: store.remote, git: files.explorer.selectedLocation.flatMap { files.remoteGitStores[$0] },
+                                 location: location, editorID: editorID)
                     .id(location)
             } else {
                 Text("Select a file")

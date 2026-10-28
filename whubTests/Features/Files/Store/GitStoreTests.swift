@@ -191,18 +191,18 @@ struct GitStoreTests {
         #expect(lines.baseline?.source == "")
         #expect(lines.errorMessage == nil)
         await lines.update(source: "one\ntwo\n")
-        let hunks = lines.hunks(for: fixture.firstFile, source: "one\ntwo\n")
+        let hunks = lines.hunks(for: .local(fixture.firstFile), source: "one\ntwo\n")
         #expect(hunks.count == 1)
         #expect(hunks.first?.newLines == 0..<2)
-        #expect(lines.hunks(for: fixture.secondFile, source: "one\ntwo\n").isEmpty)
-        #expect(lines.hunks(for: fixture.firstFile, source: "changed\n").isEmpty)
+        #expect(lines.hunks(for: .local(fixture.secondFile), source: "one\ntwo\n").isEmpty)
+        #expect(lines.hunks(for: .local(fixture.firstFile), source: "changed\n").isEmpty)
         let pending = Task { await lines.update(source: "changed\n") }
         await Task.yield()
         pending.cancel()
         await pending.value
-        #expect(lines.hunks(for: fixture.firstFile, source: "changed\n").isEmpty)
+        #expect(lines.hunks(for: .local(fixture.firstFile), source: "changed\n").isEmpty)
         await lines.load(fileURL: fixture.secondFile, gitStore: git)
-        #expect(lines.hunks(for: fixture.firstFile, source: "one\ntwo\n").isEmpty)
+        #expect(lines.hunks(for: .local(fixture.firstFile), source: "one\ntwo\n").isEmpty)
         git.reset()
         #expect(git.changes.isEmpty)
     }
