@@ -3,6 +3,8 @@ import Hummingbird
 import WhubAgent
 import HummingbirdTesting
 import Testing
+import struct WhubClient.WhubClient
+import enum WhubClient.WhubClientError
 #if os(Linux)
 import Glibc
 #else
@@ -79,6 +81,95 @@ private final class FilesFixture: Sendable {
         }
     }
 }
+
+@Test func filesCreateAndRenameWithoutOverwriting() async throws {
+    let fixture = try await FilesFixture()
+    try await fixture.app.test(.router) { client in
+        let folder = fixture.uri("create-directory", root: fixture.first, path: "folder")
+        let createdFolder = try await client.execute(uri: folder, method: .post)
+        #expect(createdFolder.status == .noContent)
+        let file = fixture.uri("create-file", root: fixture.first, path: "folder/one.txt")
+        let createdFile = try await client.execute(uri: file, method: .post)
+        #expect(createdFile.status == .noContent)
+        let duplicate = try await client.execute(uri: file, method: .post)
+        #expect(duplicate.status == .conflict)
+        let rename = fixture.uri("rename", root: fixture.first, path: "folder/one.txt")
+        let headers: HTTPFields = [.contentType: "application/json"]
+        let renamed = try await client.execute(uri: rename, method: .post, headers: headers,
+                                               body: .init(string: #"{"name":"two.txt"}"#))
+        #expect(renamed.status == .noContent)
+        #expect(FileManager.default.fileExists(atPath: fixture.first.appendingPathComponent("folder/two.txt").path))
+        _ = try await client.execute(uri: file, method: .post)
+        let collision = try await client.execute(uri: rename, method: .post, headers: headers,
+                                                 body: .init(string: #"{"name":"two.txt"}"#))
+        #expect(collision.status == .conflict)
+        let invalidTrash = try await client.execute(uri: fixture.uri("trash", root: fixture.first, path: "../second"), method: .post)
+        #expect(invalidTrash.status == .badRequest)
+        let invalidRename = try await client.execute(uri: rename, method: .post, headers: headers,
+                                                     body: .init(string: #"{"name":"../escape"}"#))
+        #expect(invalidRename.status == .badRequest)
+    }
+}
+
+@Test func filesClientCreatesAndRenames() async throws {
+    let fixture = try await FilesFixture()
+    try await fixture.app.test(.live) { transport in
+        let port = try #require(transport.port)
+        let client = try WhubClient(baseURL: #require(URL(string: "http://localhost:\(port)")))
+        let root = fixture.first.path
+        try await client.files.createDirectory(root: root, path: "folder")
+        try await client.files.createFile(root: root, path: "folder/a + 日本語.txt")
+        try await client.files.rename(root: root, path: "folder/a + 日本語.txt", name: "renamed.txt")
+        #expect(FileManager.default.fileExists(atPath: fixture.first.appendingPathComponent("folder/renamed.txt").path))
+        await #expect(throws: WhubClientError.api(status: 409, code: "already_exists", message: "同じ名前の項目が既に存在します。")) {
+            try await client.files.createFile(root: root, path: "folder/renamed.txt")
+        }
+        await #expect(throws: WhubClientError.invalidPath) {
+            try await client.files.trash(root: root, path: "../outside")
+        }
+    }
+}
+
+#if os(Linux)
+@Test func filesTrashCanBeRestored() async throws {
+    let fixture = try await FilesFixture()
+    let fm = FileManager.default
+    let fileName = "whub-trash-test-\(UUID().uuidString)"
+    let folderName = "whub-trash-test-\(UUID().uuidString)"
+    let file = fixture.first.appendingPathComponent(fileName)
+    let folder = fixture.first.appendingPathComponent(folderName)
+    let content = Data("restore me".utf8)
+    try content.write(to: file)
+    try fm.createDirectory(at: folder, withIntermediateDirectories: false)
+    try content.write(to: folder.appendingPathComponent("nested"))
+
+    func restore(_ name: String) throws {
+        for _ in 0..<30 {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["gio", "trash", "--restore", "trash:///\(name)"]
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+            if process.terminationStatus == 0 { return }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        Issue.record("ゴミ箱から復元できません: \(name)")
+    }
+
+    try await fixture.app.test(.live) { transport in
+        let port = try #require(transport.port)
+        let client = try WhubClient(baseURL: #require(URL(string: "http://localhost:\(port)")))
+        for name in [fileName, folderName] {
+            try await client.files.trash(root: fixture.first.path, path: name)
+            #expect(!fm.fileExists(atPath: fixture.first.appendingPathComponent(name).path))
+            try restore(name)
+        }
+    }
+    #expect(try Data(contentsOf: file) == content)
+    #expect(try Data(contentsOf: folder.appendingPathComponent("nested")) == content)
+}
+#endif
 
 @Test func filesKeepSymlinkAndTextRestrictions() async throws {
     let fixture = try await FilesFixture()

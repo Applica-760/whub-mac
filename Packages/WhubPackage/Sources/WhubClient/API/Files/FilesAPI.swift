@@ -32,6 +32,29 @@ public struct FilesAPI: Sendable {
         return try client.decode(Reply.self, from: data).text
     }
 
+    public func createFile(root: String, path: String) async throws {
+        try await operate("create-file", root: root, path: path)
+    }
+
+    public func createDirectory(root: String, path: String) async throws {
+        try await operate("create-directory", root: root, path: path)
+    }
+
+    public func rename(root: String, path: String, name: String) async throws {
+        let body = try JSONEncoder().encode(["name": name])
+        try await operate("rename", root: root, path: path, body: body)
+    }
+
+    public func trash(root: String, path: String) async throws {
+        try await operate("trash", root: root, path: path)
+    }
+
+    private func operate(_ endpoint: String, root: String, path: String, body: Data? = nil) async throws {
+        guard !path.isEmpty else { throw WhubClientError.invalidPath }
+        _ = try await client.request("files/\(endpoint)", method: "POST", query: query(root: root, path: path),
+                                     body: body, expectedStatus: 204)
+    }
+
     private func query(root: String, path: String) throws -> [URLQueryItem] {
         guard root.hasPrefix("/"), !path.hasPrefix("/"),
               !root.contains("\0"), !path.contains("\0"),

@@ -4,6 +4,39 @@ import Hummingbird
 struct FilesAPI: Sendable {
     private static let maxResponseBytes = 8 * 1_048_576
 
+    enum Operation: Sendable { case createFile, createDirectory, rename, trash }
+
+    func operate(_ request: Request, operation: Operation) async -> Response {
+        do {
+            let (root, path) = try Self.parameters(from: request.uri.query)
+            let action: FilesService.Operation
+            switch operation {
+            case .createFile: action = .createFile
+            case .createDirectory: action = .createDirectory
+            case .trash: action = .trash
+            case .rename:
+                guard request.headers[.contentType]?.split(separator: ";").first?.lowercased() == "application/json" else {
+                    throw FilesAPIError.invalidRequest
+                }
+                struct Body: Decodable { let name: String }
+                do {
+                    let body = try await request.body.collect(upTo: 4096)
+                    action = .rename(try JSONDecoder().decode(Body.self, from: Data(body.readableBytesView)).name)
+                } catch { throw FilesAPIError.invalidRequest }
+            }
+            try await Task.detached {
+                try FilesService(root: root).perform(action, path: path)
+            }.value
+            return Response(status: .noContent)
+        } catch let error as FilesAPIError {
+            return error.response
+        } catch let error as FilesError {
+            return FilesAPIError(error).response
+        } catch {
+            return FilesAPIError.operationFailed.response
+        }
+    }
+
     func list(query: String?) async -> Response {
         do {
             let (root, path) = try Self.parameters(from: query)

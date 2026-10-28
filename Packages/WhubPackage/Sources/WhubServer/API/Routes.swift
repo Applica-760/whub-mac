@@ -31,6 +31,18 @@ func makeRouter(files: FilesAPI, manager: ManagerAPI, agent: AgentAPI, git: GitA
     router.put("files/write") { request, _ -> Response in
         await files.writeText(request)
     }
+    router.post("files/create-file") { request, _ -> Response in
+        await files.operate(request, operation: .createFile)
+    }
+    router.post("files/create-directory") { request, _ -> Response in
+        await files.operate(request, operation: .createDirectory)
+    }
+    router.post("files/rename") { request, _ -> Response in
+        await files.operate(request, operation: .rename)
+    }
+    router.post("files/trash") { request, _ -> Response in
+        await files.operate(request, operation: .trash)
+    }
 
     // Manager API
     router.post("manager/updates") { request, _ in await manager.handle(request, action: .start(.update)) }

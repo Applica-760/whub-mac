@@ -17,6 +17,8 @@ enum FilesAPIError: String, Error {
     case writeFailed = "write_failed"
     case invalidRequest = "invalid_request"
     case unsupportedMetadata = "unsupported_metadata"
+    case alreadyExists = "already_exists"
+    case operationFailed = "operation_failed"
 
     init(_ error: FilesError) {
         switch error {
@@ -33,6 +35,8 @@ enum FilesAPIError: String, Error {
         case .conflict: self = .conflict
         case .writeFailed: self = .writeFailed
         case .unsupportedMetadata: self = .unsupportedMetadata
+        case .alreadyExists: self = .alreadyExists
+        case .operationFailed: self = .operationFailed
         }
     }
 
@@ -40,6 +44,12 @@ enum FilesAPIError: String, Error {
         let status: HTTPResponse.Status
         let message: String
         switch self {
+        case .alreadyExists:
+            status = .conflict
+            message = "同じ名前の項目が既に存在します。"
+        case .operationFailed:
+            status = .internalServerError
+            message = "ファイル操作に失敗しました。"
         case .invalidPath:
             status = .badRequest
             message = "パスまたはクエリが不正です。"
