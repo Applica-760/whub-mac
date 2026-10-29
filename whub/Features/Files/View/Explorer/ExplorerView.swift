@@ -60,7 +60,7 @@ struct ExplorerView: View {
         .focusedSceneValue(\.toggleExplorerDiff, { setShowsDiff(!store.showsDiff) })
         .onChange(of: store.showsDiff, initial: true) { gitStore.setDiffEnabled(store.showsDiff) }
         .onAppear {
-            focus.onEditorFocus = { [weak store] location in store?.revealInTree(location) }
+            focus.onEditorFocus = { [weak store = store] location in store?.revealInTree(location) }
             store.startWatching()
         }
         .onDisappear { focus.onEditorFocus = nil; store.stopWatching() }
