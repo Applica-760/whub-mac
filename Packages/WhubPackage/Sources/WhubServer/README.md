@@ -13,7 +13,7 @@ WhubServerのAPIを実装・変更するときは、HTTP通信と実際の処理
 
 各機能のAPI層は、API本体とError型の2ファイルを基本とする。APIはHTTPの入力・出力を扱い、実際の処理はServiceなどの実行側に置く。ServiceのエラーはAPI層でHTTPレスポンスに変換する。
 
-Filesは `FilesAPI` から `FilesService` を呼び、`FilesError` を `FilesAPIError` に変換する。Gitは `GitService` と監視処理を使い、Managerは `ServerManager` を使う。Agentは `Services/` を介さず、WhubAgentの `AgentRuntime` を呼ぶ。
+Filesは `FilesAPI` から読み取り・保存・ディレクトリ操作を直接呼び、`FilesError` を `FilesAPIError` に変換する。`FilesService` は共通のパス検証とファイルを開く処理を担う。Gitは `GitService` と監視処理を使い、Managerは `ServerManager` を使う。Agentは `Services/` を介さず、WhubAgentの `AgentRuntime` を呼ぶ。
 
 既存のAgent APIでは、`AgentError` のステータスを `AgentAPIError` で決め、レスポンスの生成は `AgentAPI` で行う。
 

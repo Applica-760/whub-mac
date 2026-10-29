@@ -223,7 +223,8 @@ private final class FilesFixture: Sendable {
 @Test func filesWriteChecksBytesRatherThanUnicodeEquivalenceAndSerializesSaves() async throws {
     let fixture = try await FilesFixture()
     let file = fixture.first.appendingPathComponent("file")
-    let service = try FilesService(root: fixture.first.path)
+    let files = try FilesService(root: fixture.first.path)
+    let service = FilesWriter(files: files)
     try Data("e\u{301}".utf8).write(to: file)
     #expect(throws: FilesError.conflict) { try service.writeText(path: "file", expectedText: "é", text: "replacement") }
     try Data("base".utf8).write(to: file)
@@ -241,7 +242,7 @@ private final class FilesFixture: Sendable {
         return results
     }
     #expect(results.filter { $0 }.count == 1)
-    #expect(["one", "two"].contains(try service.readText(path: "file")))
+    #expect(["one", "two"].contains(try FilesReader(files: files).readText(path: "file")))
 }
 
 @Test func filesWriteRefusesUnsafeUnsupportedAndUnwritableTargetsWithoutChangingFiles() async throws {
@@ -252,7 +253,7 @@ private final class FilesFixture: Sendable {
     try fm.createSymbolicLink(at: fixture.first.appendingPathComponent("link"), withDestinationURL: fixture.second)
     try fm.createSymbolicLink(at: fixture.first.appendingPathComponent("file-link"), withDestinationURL: file)
     try Data("outside".utf8).write(to: fixture.second.appendingPathComponent("file"))
-    let service = try FilesService(root: fixture.first.path)
+    let service = try FilesWriter(files: FilesService(root: fixture.first.path))
     for path in ["", ".", "file/", "../second/file", "/file", "file\0", "link/file", "file-link", "missing"] {
         #expect(throws: (any Error).self) { try service.writeText(path: path, expectedText: "base", text: "changed") }
     }
