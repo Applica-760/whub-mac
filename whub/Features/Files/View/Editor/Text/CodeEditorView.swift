@@ -178,15 +178,18 @@ struct CodeEditorView: NSViewRepresentable {
 }
 
 private final class CodeScrollView: NSScrollView {
-    private var didPositionAtLeft = false
-
     override func tile() {
         super.tile()
-        guard !didPositionAtLeft, contentView.bounds.width > 0,
-              contentView.contentInsets.left > 0 else { return }
-        didPositionAtLeft = true
-        contentView.scroll(to: NSPoint(x: -contentView.contentInsets.left, y: contentView.bounds.minY))
-        reflectScrolledClipView(contentView)
+        guard hasVerticalRuler, rulersVisible, let ruler = verticalRulerView else { return }
+        let left = ceil(convert(ruler.bounds, from: ruler).maxX)
+        var frame = contentView.frame
+        frame.size.width = max(0, frame.maxX - left)
+        frame.origin.x = left
+        contentView.frame = frame
+        // The ruler occupies its own area, so it must not also inset the document.
+        var insets = contentView.contentInsets
+        insets.left = 0
+        contentView.contentInsets = insets
     }
 }
 

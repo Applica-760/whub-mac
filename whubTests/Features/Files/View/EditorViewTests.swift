@@ -1,9 +1,11 @@
 // テスト一覧:
+// - workspaceEditorFollowsFileSelectionAfterProjectSwitch(): Workspaceの分割表示が切替後のEditorを表示する。
 // - tabShortcutsPreserveEditorStateAndCloseSelectedTabs(): [TAB-F-001] [TAB-F-002] [TAB-F-006] [TAB-F-007] [TAB-F-008]
 // - fileEditorRestoresFocusAndPositionAfterFeatureSwitch(): Feature切替後の入力フォーカス・選択・スクロール位置を復元する。
 // - fileEditorFocusFollowsProjectSwitchAndPreservesPosition(): Project切替後の入力フォーカスと位置を復元する。
 // - editorPositionsAreSeparateAndClampAfterShorterContent(): 文書・Editor別の位置保持と短縮時の範囲補正。
 // - findBarPreservesUnsavedText(): 検索バーの開閉で未保存本文を保持する。
+// - editorClipsTextOutsideRulerAfterScrollingAndResizing(): 本文領域と行番号を分離し、幅と桁数の変化に追従する。
 // - alignedDiffPreservesWholeFilesAndOriginalCopyText(): 差分の行揃えと元のコピー文字列を保持する。
 // - diffRendererIsReadOnlyAlignedAndScrollsTogether(): 差分表示の読取専用・行揃え・スクロール同期。
 // - localSaveCommandPreservesEncodingAndWatcherUpdatesDocument(): 保存コマンドの文字コード保持と外部更新の反映。
@@ -15,10 +17,55 @@ import Testing
 import WhubCore
 import WhubGit
 import WhubClient
+@testable import WhubAgent
 @testable import whub
 
 @Suite @MainActor
 struct EditorViewTests {
+    @Test func workspaceEditorFollowsFileSelectionAfterProjectSwitch() async throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = FilesStore()
+        let connections = RemoteConnectionStore()
+        let servers = RemoteServerStore(connections: connections)
+        let database = try explorerTestModelContainer()
+        let book = AgentBookStore(context: database.mainContext,
+                                 runtime: AgentRuntime(makeAdapter: { _ in TestAgentSession() }), notify: { _ in })
+        defer { book.disconnect() }
+        let firstURL = directory.appendingPathComponent("first.txt")
+        let secondURL = directory.appendingPathComponent("second.txt")
+        try Data("first file".utf8).write(to: firstURL)
+        try Data("second file".utf8).write(to: secondURL)
+        files.preview(.local(firstURL), hosts: [], connections: connections, servers: servers)
+        let first = try #require(files.activeEditor.file(for: .local(firstURL)))
+        let host = NSHostingView(rootView: WorkspaceEditorTestRoot(files: files)
+            .environmentObject(book).environmentObject(connections).environmentObject(servers)
+            .modelContainer(database))
+        let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600),
+                                   styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close(); withExtendedLifetime(database) {} }
+        window.contentView = host
+        try? await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return !first.editorViews.views.isEmpty
+        }
+        try #require(!first.editorViews.views.isEmpty, "Initial file editor is displayed")
+        files.explorer.selectedLocation = .local(directory)
+        files.preview(.local(secondURL), hosts: [], connections: connections, servers: servers)
+        #expect(files.activeEditor.selectedTab == .file(.local(secondURL)))
+        let second = try #require(files.activeEditor.file(for: .local(secondURL)))
+        try? await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return second.editorViews.views.values.contains { $0.documentView is CodeTextView }
+        }
+        #expect(!second.editorViews.views.isEmpty, "File editor follows project selection")
+        withExtendedLifetime(host) {}
+    }
+
     @Test func tabShortcutsPreserveEditorStateAndCloseSelectedTabs() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -314,6 +361,46 @@ struct EditorViewTests {
         withExtendedLifetime(host) {}
     }
 
+    @Test func editorClipsTextOutsideRulerAfterScrollingAndResizing() async throws {
+        let line = String(repeating: "content ", count: 30) + "\n"
+        let file = FileStore(source: String(repeating: line, count: 100))
+        let host = NSHostingView(rootView: CodeEditorView(state: file, editorID: "clip", onEdit: {},
+                                                         source: file.textStorage.string, language: nil, hunks: []))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return file.editorViews.views["clip"] != nil
+        }
+        let scroll = try #require(file.editorViews.views["clip"])
+        let ruler = try #require(scroll.verticalRulerView)
+        func checkRegions() {
+            let rulerFrame = scroll.convert(ruler.bounds, from: ruler)
+            #expect(scroll.contentView.frame.minX >= rulerFrame.maxX)
+            #expect(scroll.contentView.clipsToBounds)
+            #expect(scroll.contentView.contentInsets.left == 0)
+        }
+        checkRegions()
+        #expect(scroll.contentView.bounds.minX == 0)
+        scroll.contentView.scroll(to: NSPoint(x: 100, y: 100))
+        scroll.tile()
+        checkRegions()
+        #expect(scroll.contentView.bounds.minX == 100)
+        host.frame.size.width = 800
+        host.layoutSubtreeIfNeeded()
+        checkRegions()
+        #expect(scroll.contentView.bounds.minX == 100)
+        let oldThickness = ruler.ruleThickness
+        file.updateReadOnly(source: String(repeating: line, count: 1000))
+        host.rootView = CodeEditorView(state: file, editorID: "clip", onEdit: {},
+                                      source: file.textStorage.string, language: nil, hunks: [])
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return ruler.ruleThickness > oldThickness
+        }
+        checkRegions()
+        withExtendedLifetime(host) {}
+    }
+
     @Test func alignedDiffPreservesWholeFilesAndOriginalCopyText() {
         for (before, after) in [("", ""), ("", "added\n"), ("deleted\n", ""),
                                 ("top\nold\nbottom\n", "top\nnew\nextra\nbottom\n"),
@@ -371,6 +458,10 @@ struct EditorViewTests {
         #expect(try y(of: left) == y(of: right))
         let leftScroll = try #require(left.enclosingScrollView)
         let rightScroll = try #require(right.enclosingScrollView)
+        for scroll in [leftScroll, rightScroll] {
+            let ruler = try #require(scroll.verticalRulerView)
+            #expect(scroll.contentView.frame.minX >= scroll.convert(ruler.bounds, from: ruler).maxX)
+        }
         leftScroll.contentView.scroll(to: NSPoint(x: 100, y: 100))
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: leftScroll.contentView)
         #expect(leftScroll.contentView.bounds.minX > 0)
@@ -438,4 +529,21 @@ struct EditorViewTests {
 // Keep focus tests independent of the user's foreground application.
 @MainActor private final class EditorFocusTestWindow: NSWindow {
     override var isKeyWindow: Bool { true }
+}
+
+private struct WorkspaceEditorTestRoot: View {
+    @ObservedObject var files: FilesStore
+    private let leftFocus = TabPaneFocus()
+    private let agentFocus = TabPaneFocus()
+    private let inputFocus = AgentBookFocus()
+
+    var body: some View {
+        RetainedPageContainer(selection: true) { _ in
+            WorkspacePanes(section: .editor, leftFocus: leftFocus, agentFocus: agentFocus,
+                           agentInputFocus: inputFocus, openLink: { _, _ in false })
+                .environmentObject(files.activeEditor)
+        }
+        .environmentObject(files)
+        .environmentObject(files.git)
+    }
 }

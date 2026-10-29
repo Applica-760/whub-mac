@@ -152,6 +152,7 @@ struct WorkspacePanes: NSViewRepresentable {
     let agentInputFocus: AgentBookFocus
     let openLink: (URL, AgentStore) -> Bool
     @EnvironmentObject private var agentBook: AgentBookStore
+    @EnvironmentObject private var editor: EditorStore
     @Environment(\.self) private var environment
     @Environment(\.colorScheme) private var colorScheme
 
@@ -171,7 +172,9 @@ struct WorkspacePanes: NSViewRepresentable {
 
     func updateNSView(_ split: NSSplitView, context: Context) {
         context.coordinator.left.rootView = AnyView(
-            RetainedPageContainer(selection: section) { page in page.content }
+            RetainedPageContainer(selection: section) { page in
+                page.content.environmentObject(editor)
+            }
                 .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
                 .environment(\.self, environment).environment(\.colorScheme, colorScheme)
         )
