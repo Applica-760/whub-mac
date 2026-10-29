@@ -7,12 +7,12 @@
 | ショートカット | 操作 |
 | --- | --- |
 | ⌃⌘F | フルスクリーン切り替え |
-| ⇧⌘A | 選択中のAgentBookタブの入力欄へフォーカス |
+| ⇧⌘A | AgentBookを開閉 |
 | ⇧⌘H | 左ペインの前の機能へ移動（末尾へ循環） |
 | ⇧⌘L | 左ペインの次の機能へ移動（先頭へ循環） |
 | ⌘Q | 確認後、「終了」でアプリ終了 |
 
-左ペインの順序は Editor → Browser → Terminal → Overview。右のAgentBookは常に表示する。ToolbarとNavigateメニューも左ペインを切り替える。Motionへの画面導線はない。
+左ペインの順序は Editor → Browser → Terminal → Overview。ToolbarとNavigateメニューも左ペインを切り替える。Motionへの画面導線はない。
 
 終了確認のEnterはキャンセル。アプリメニュー・Dockからの通常終了も同じ確認を使う。
 
@@ -80,13 +80,15 @@ H・J・K・L・Space・Escは修飾キーなし。先頭・末尾で循環し�
 
 保存対象はローカル・リモートの既存テキストファイル。
 
-実装：[CodeEditorView.swift](../../whub/Features/Files/View/Editor/Text/CodeEditorView.swift)、[whubApp.swift](../../whub/whubApp.swift)。
+Editorの表示中は、⌘Dで選択中のファイルと差分を切り替える。Explorerでの名前入力中は無効。
+
+実装：[EditorView.swift](../../whub/Features/Files/View/Editor/EditorView.swift)、[CodeEditorView.swift](../../whub/Features/Files/View/Editor/Text/CodeEditorView.swift)、[whubApp.swift](../../whub/whubApp.swift)。
 
 ## 左ナビゲーション
 
 | ショートカット | 操作 |
 | --- | --- |
-| ⇧⌘D | 通常／Diff Explorerを切り替え（ローカル選択時のみ。名前入力中は無効） |
+| ⇧⌘D | 通常／Diff Explorerを切り替え（選択場所がない場合と名前入力中は無効） |
 | ⇧⌘E | ExplorerとFeatureのフォーカスを往復（名前入力中は無効） |
 | ⇧⌘R | Project / Worktree・ファイル一覧・Git状態を更新 |
 | ⇧⌘K | 前のProject / Worktreeへ移動 |

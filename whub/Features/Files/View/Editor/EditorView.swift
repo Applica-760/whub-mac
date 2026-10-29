@@ -1,5 +1,30 @@
 import Combine
+import SwiftData
 import SwiftUI
+import WhubCore
+
+private struct ToggleFileDiffKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+extension FocusedValues {
+    var toggleFileDiff: (() -> Void)? {
+        get { self[ToggleFileDiffKey.self] }
+        set { self[ToggleFileDiffKey.self] = newValue }
+    }
+}
+
+struct FileDiffMenu: View {
+    @ObservedObject var editor: EditorStore
+    let isEditingName: Bool
+    @FocusedValue(\.toggleFileDiff) private var toggleFileDiff
+
+    var body: some View {
+        Button("Toggle File Diff") { toggleFileDiff?() }
+            .keyboardShortcut("d", modifiers: .command)
+            .disabled(toggleFileDiff == nil || editor.selectedTab == nil || isEditingName)
+    }
+}
 
 struct EditorView: View {
     @State private var tabFocus = TabPaneFocus()
@@ -9,6 +34,9 @@ struct EditorView: View {
     @Environment(\.retainedPageActivity) private var activity
     @EnvironmentObject private var store: EditorStore
     @EnvironmentObject private var files: FilesStore
+    @EnvironmentObject private var connections: RemoteConnectionStore
+    @EnvironmentObject private var servers: RemoteServerStore
+    @Query(sort: \WhubCore.Host.name) private var hosts: [WhubCore.Host]
     @Environment(\.explorerFocusNavigation) private var explorerFocus
     @State private var editorID = UUID().uuidString
 
@@ -59,6 +87,7 @@ struct EditorView: View {
             }
         }
         .background(TabPaneFocusView(focus: tabFocus))
+        .focusedSceneValue(\.toggleFileDiff, fileDiffAction)
         .onReceive(files.$activeEditor) { nextStore in
             guard nextStore !== store, activity?.isActive.value ?? isActive else { return }
             focusRequest = UUID()
@@ -83,6 +112,24 @@ struct EditorView: View {
     private var currentDocumentID: ObjectIdentifier? {
         guard case let .file(location) = store.selectedTab else { return nil }
         return store.file(for: location).map(ObjectIdentifier.init)
+    }
+
+    private var fileDiffAction: (() -> Void)? {
+        guard isActive else { return nil }
+        return toggleFileDiff
+    }
+
+    private func toggleFileDiff() {
+        guard activity?.isActive.value ?? isActive, files.explorer.nameEdit == nil,
+              NSApp.keyWindow?.attachedSheet == nil else { return }
+        switch store.selectedTab {
+        case let .file(location):
+            files.openDiff(location)
+        case let .diff(location):
+            files.open(location, hosts: hosts, connections: connections, servers: servers)
+        case nil:
+            break
+        }
     }
 
     private var currentEditor: CodeTextView? {

@@ -42,7 +42,7 @@ enum WorkspaceSection: CaseIterable, Hashable {
 
 struct WorkspaceActions {
     let selection: Binding<WorkspaceSection>
-    let activateAgentBook: () -> Void
+    let toggleAgentBook: () -> Void
     let newTab: () -> Void
     let targetsAgentBook: () -> Bool
 
@@ -73,15 +73,28 @@ struct WorkspaceView<Container: View>: View {
     @ViewBuilder let container: (WorkspacePanes) -> Container
     @State private var leftFocus = TabPaneFocus()
     @State private var agentFocus = TabPaneFocus()
-    @State private var agentInputFocus = AgentBookFocus()
+    @State private var showsAgentBook = true
 
     var body: some View {
         let selection = Binding(get: { section }, set: selectSection)
 
-        container(WorkspacePanes(section: section, leftFocus: leftFocus, agentFocus: agentFocus, agentInputFocus: agentInputFocus, openLink: openLink))
+        container(WorkspacePanes(section: section, leftFocus: leftFocus))
+        .inspector(isPresented: $showsAgentBook) {
+            AgentBookView(store: agentBook, openLink: openLink)
+                .background(TabPaneFocusView(focus: agentFocus, activatesOnClick: false))
+                .inspectorColumnWidth(min: 500, ideal: 600, max: 1200)
+        }
+        .toolbar {
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+            ToolbarItem(placement: .primaryAction) {
+                Button("Toggle AgentBook", systemImage: "sidebar.right") {
+                    showsAgentBook.toggle()
+                }
+            }
+        }
         .focusedSceneValue(\.workspaceActions, WorkspaceActions(
             selection: selection,
-            activateAgentBook: { agentInputFocus.activateInput() },
+            toggleAgentBook: { showsAgentBook.toggle() },
             newTab: newTab, targetsAgentBook: targetsAgentBook
         ))
     }
@@ -148,59 +161,25 @@ struct WorkspaceView<Container: View>: View {
 struct WorkspacePanes: NSViewRepresentable {
     let section: WorkspaceSection
     let leftFocus: TabPaneFocus
-    let agentFocus: TabPaneFocus
-    let agentInputFocus: AgentBookFocus
-    let openLink: (URL, AgentStore) -> Bool
-    @EnvironmentObject private var agentBook: AgentBookStore
     @EnvironmentObject private var editor: EditorStore
     @Environment(\.self) private var environment
     @Environment(\.colorScheme) private var colorScheme
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> NSSplitView {
-        let split = InvisibleDividerSplitView()
-        split.isVertical = true
-        split.dividerStyle = .thin
-        split.delegate = context.coordinator
-        for view in [context.coordinator.left, context.coordinator.right] {
-            view.sizingOptions = []
-            split.addArrangedSubview(view)
-        }
-        return split
+    func makeNSView(context: Context) -> NSHostingView<AnyView> {
+        let view = NSHostingView(rootView: AnyView(EmptyView()))
+        view.sizingOptions = []
+        return view
     }
 
-    func updateNSView(_ split: NSSplitView, context: Context) {
-        context.coordinator.left.rootView = AnyView(
+    func updateNSView(_ view: NSHostingView<AnyView>, context: Context) {
+        view.rootView = AnyView(
             RetainedPageContainer(selection: section) { page in
                 page.content.environmentObject(editor)
             }
                 .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
                 .environment(\.self, environment).environment(\.colorScheme, colorScheme)
         )
-        context.coordinator.right.rootView = AnyView(
-            AgentBookView(store: agentBook, inputFocus: agentInputFocus, openLink: openLink)
-                .background(TabPaneFocusView(focus: agentFocus, activatesOnClick: false))
-                .environment(\.self, environment).environment(\.colorScheme, colorScheme)
-        )
     }
-
-    final class Coordinator: NSObject, NSSplitViewDelegate {
-        let left = NSHostingView(rootView: AnyView(EmptyView()))
-        let right = NSHostingView(rootView: AnyView(EmptyView()))
-
-        func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-            max(proposedMinimumPosition, 300)
-        }
-
-        func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-            min(proposedMaximumPosition, splitView.bounds.width - splitView.dividerThickness - 500)
-        }
-    }
-}
-
-private final class InvisibleDividerSplitView: NSSplitView {
-    override func drawDivider(in rect: NSRect) {}
 }
 
 struct WorkspaceToolbar: ToolbarContent {
