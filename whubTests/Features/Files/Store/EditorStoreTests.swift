@@ -2,6 +2,8 @@
 // - markdownPreviewReusesDocumentsAndTracksEachOpenFile(): [MD-F-005]
 // - fileEncodingPreservesLineEndingsAndBOM(): 改行形式とBOMを保持する。
 // - fileEncodingAcceptsEmptyUTF8AndRejectsInvalidBytes(): 空UTF-8の受理と不正バイトの拒否。
+// - remoteImageRetainsPreviewAcrossFailureAndReconnect(): 画像取得・再読込・切断時の表示を確認する。
+// - remoteImageRejectsInvalidData(): 不正な画像の取得失敗を確認する。
 // - remoteSaveKeepsNewerEditsAndPreventsDuplicateSaves(): リモート保存中の新しい編集を保持し、重複保存を防ぐ。
 // - remoteConflictAndFailedClosePreserveDraft(): リモート競合と閉鎖失敗時の下書き保持。
 // - remoteLostSaveResponseIsReconciledBeforeRetry(): 応答不明の保存結果を再試行前に照合する。
@@ -32,6 +34,64 @@ import WhubClient
 
 @Suite @MainActor
 struct EditorStoreTests {
+    @Test func remoteImageRetainsPreviewAcrossFailureAndReconnect() async throws {
+        let fixture = try ViewerFixture()
+        let root = fixture.root()
+        let location = root.appending("graph.png")
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1,
+                                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                                   isPlanar: false, colorSpaceName: .deviceRGB,
+                                                   bytesPerRow: 0, bitsPerPixel: 0))
+        let data = try #require(bitmap.representation(using: .png, properties: [:]))
+        let first = NSObject()
+        let second = NSObject()
+        var connection: ObjectIdentifier? = ObjectIdentifier(first)
+        let failure = NSMutableString(string: "")
+        let editor = EditorStore()
+        editor.remote.load(location, root: root, connection: { connection }, write: { _, _, _, _ in
+            Issue.record("画像を保存してはいけません")
+            return ""
+        }, readImage: { rootPath, path in
+            #expect(rootPath == "/project" && path == "graph.png")
+            if failure.length > 0 { throw WhubClientError.api(status: 422, code: "image_too_large", message: "上限超過") }
+            return data
+        }) { _, _, _ in
+            Issue.record("画像をテキストとして取得してはいけません")
+            return ""
+        }
+        editor.open(.file(location))
+        let remote = try #require(editor.remote.fileStores[location])
+        try await waitForEditorTest { remote.image != nil }
+        let original = try #require(remote.image)
+        #expect(editor.selectedTab == .file(location))
+        #expect(remote.document?.isEditable == false && !remote.canSave)
+        failure.setString("上限超過")
+        remote.refresh()
+        try await waitForEditorTest { if case .failed = remote.state { return true }; return false }
+        #expect(remote.image === original)
+        connection = nil
+        editor.remote.synchronizeConnections()
+        if case .disconnected = remote.state {} else { Issue.record("切断状態になっていません") }
+        #expect(remote.image === original)
+        failure.setString("")
+        connection = ObjectIdentifier(second)
+        editor.remote.synchronizeConnections()
+        try await waitForEditorTest { if case .loaded = remote.state { return remote.image !== original }; return false }
+        editor.close(.file(location))
+        #expect(editor.remote.fileStores[location] == nil)
+    }
+
+    @Test func remoteImageRejectsInvalidData() async throws {
+        let fixture = try ViewerFixture()
+        let root = fixture.root()
+        let location = root.appending("invalid.png")
+        let editor = RemoteEditorStore()
+        editor.load(location, root: root, write: { _, _, _, text in text }, readImage: { _, _ in Data([0, 1]) }) { _, _, _ in "" }
+        let remote = try #require(editor.fileStores[location])
+        try await waitForEditorTest { if case .failed = remote.state { return true }; return false }
+        #expect(remote.image == nil && remote.document == nil)
+    }
+
     @Test func remoteDiffPreviewCanBeOpenedAndClosed() throws {
         let fixture = try ViewerFixture()
         let location = fixture.root().appending("file.txt")
