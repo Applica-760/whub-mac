@@ -43,7 +43,7 @@ AgentBook/
 
 ## ページ配置は会話データから作る表示状態
 
-下部の操作領域は本文とは独立したoverlayに置き、上段に最大幅868ptの入力欄、下段にタブ・前後ページ・ホスト／Agent／モデル／Effortの操作を配置する。本文下の余白は104ptで固定し、入力欄が伸びてもBookの表示領域を縮めない。下段は折り畳まず常に表示し、前後ページは「＜10 | 12＞」形式でまとめる。移動先がない側は「-」を表示する。入力欄は折り返しを含む15行まで上方向に伸び、それ以上は内部で縦スクロールする。
+下部の操作領域は本文とは独立したoverlayに置き、上段に最大幅868ptの入力欄、下段にタブ・前後ページ・ホスト／Agent／モデルの操作を配置する。モデルのサブメニューでデフォルトまたはEffortを選ぶ。本文下の余白は104ptで固定し、入力欄が伸びてもBookの表示領域を縮めない。下段は折り畳まず常に表示し、前後ページは「＜10 | 12＞」形式でまとめる。移動先がない側は「-」を表示する。入力欄は折り返しを含む15行まで上方向に伸び、それ以上は内部で縦スクロールする。
 
 `AgentBookExchangeView` が `AgentBookPageLayout` を保持する。Markdownの見た目は共通コンポーネントの [`MarkdownDocument`](../../Components/Markdown/MarkdownDocument.swift)、ページへの配置は `AgentBookPageLayout`、実際のAppKit Viewの配置は `AgentBookTextSurface`（AgentBookTextView.swift内）が担当する。コードブロックの表示とインラインコード背景の描画も `Components/Markdown` に置く。共通側は会話・ページ・読書位置の管理を持たない。ページ内スクロールのために `AgentStore.exchanges` を加工しない。
 

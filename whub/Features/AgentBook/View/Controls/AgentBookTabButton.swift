@@ -12,14 +12,22 @@ struct AgentBookTabButton: View {
     @Namespace private var glassNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    static func visibleRange(count: Int, selectedIndex: Int) -> Range<Int> {
-        let start = min(max(0, selectedIndex - 2), max(0, count - 5))
-        return start..<min(count, start + 5)
+    static func visibleRange(count: Int, selectedIndex: Int, limit: Int = 5) -> Range<Int> {
+        let start = min(max(0, selectedIndex - limit / 2), max(0, count - limit))
+        return start..<min(count, start + limit)
     }
 
     var body: some View {
+        GeometryReader { geometry in
+            let limit = min(5, max(1, Int((geometry.size.width - 38) / 38)))
+            tabsView(limit: limit)
+        }
+        .frame(height: 36)
+    }
+
+    @ViewBuilder private func tabsView(limit: Int) -> some View {
         let selectedIndex = tabs.firstIndex { $0.id == selection } ?? 0
-        let range = Self.visibleRange(count: tabs.count, selectedIndex: selectedIndex)
+        let range = Self.visibleRange(count: tabs.count, selectedIndex: selectedIndex, limit: limit)
         let visible = Array(tabs.enumerated()).filter { range.contains($0.offset) }
         ZStack {
             GlassEffectContainer(spacing: 6) {

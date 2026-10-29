@@ -152,18 +152,40 @@ struct WorkspacePanes: View {
     let agentInputFocus: AgentBookFocus
     let openLink: (URL, AgentStore) -> Bool
     @EnvironmentObject private var agentBook: AgentBookStore
+    @State private var leftWidth: CGFloat?
+    @State private var dragStartWidth: CGFloat?
 
     var body: some View {
-        HSplitView {
-            RetainedPageContainer(selection: section) { page in
-                page.content
+        GeometryReader { geometry in
+            let width = min(max(leftWidth ?? geometry.size.width / 2, 300), geometry.size.width - 500)
+            HStack(spacing: 0) {
+                RetainedPageContainer(selection: section) { page in
+                    page.content
+                }
+                .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
+                .frame(width: width)
+                AgentBookView(store: agentBook, inputFocus: agentInputFocus, openLink: openLink)
+                    .background(TabPaneFocusView(focus: agentFocus, activatesOnClick: false))
+                    .frame(maxWidth: .infinity)
             }
-            .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
-            .frame(minWidth: 300)
-            AgentBookView(store: agentBook, inputFocus: agentInputFocus, openLink: openLink)
-                .background(TabPaneFocusView(focus: agentFocus, activatesOnClick: false))
-                .frame(minWidth: 700)
+            .overlay(alignment: .leading) {
+                Color.clear
+                    .frame(width: 8)
+                    .contentShape(Rectangle())
+                    .offset(x: width - 4)
+                    .onHover { hovering in
+                        if hovering { NSCursor.resizeLeftRight.push() }
+                        else { NSCursor.pop() }
+                    }
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if dragStartWidth == nil { dragStartWidth = width }
+                            leftWidth = min(max((dragStartWidth ?? width) + value.translation.width, 300), geometry.size.width - 500)
+                        }
+                        .onEnded { _ in dragStartWidth = nil })
+            }
         }
+        .padding(.horizontal, 4)
     }
 }
 

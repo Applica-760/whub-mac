@@ -57,12 +57,13 @@ struct AgentBookTabView: View {
                                 featureActivity: featureActivity,
                                 select: select
                             )
-                                .frame(width: 232, height: 36)
+                                .frame(minWidth: 76, idealWidth: 232, maxWidth: 232, minHeight: 36, maxHeight: 36)
                             Spacer(minLength: 0)
                             AgentBookNavigationView(
                                 spread: $spread, pageCount: pageCount, isGenerating: store.isBusy,
                                 focus: bookFocus, featureActivity: featureActivity
                             )
+                            .fixedSize()
                             Spacer(minLength: 0)
                             AgentBookOptionControlView(
                                 store: store, canChangeKind: bookStore.canChangeKind(in: tab.id),
@@ -75,6 +76,7 @@ struct AgentBookTabView: View {
                                 },
                                 isHostConnected: isHostConnected
                             )
+                            .fixedSize()
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)

@@ -26,10 +26,6 @@ struct AgentBookOptionControlView: View {
         }
     }
 
-    private var currentModel: AgentBookModelChoice? {
-        models.first { $0.id == store.selectedModelOption?.modelID }
-    }
-
     var body: some View {
         HStack(spacing: 6) {
             Menu {
@@ -94,12 +90,22 @@ struct AgentBookOptionControlView: View {
                     Text("モデルを読み込み中…")
                 } else if let error = store.modelOptionsError {
                     Text(error)
-                    Button("再読み込み") { reload() }
                 } else {
                     ForEach(models) { model in
-                        Button {
-                            if let option = model.option(preserving: store.selectedModelOption) {
-                                select(option)
+                        Menu {
+                            if let option = model.options.first(where: { $0.isDefaultEffort }) {
+                                Button("デフォルト") { select(option) }
+                                Divider()
+                            }
+                            ForEach(model.options) { option in
+                                Button { select(option) } label: {
+                                    if option.id == store.selectedModelOption?.id {
+                                        Label(option.effort ?? "指定なし", systemImage: "checkmark")
+                                    } else {
+                                        Text(option.effort ?? "指定なし")
+                                    }
+                                }
+                                .help(option.description)
                             }
                         } label: {
                             if model.id == store.selectedModelOption?.modelID {
@@ -107,13 +113,14 @@ struct AgentBookOptionControlView: View {
                             } else {
                                 Text(model.label)
                             }
+                        } primaryAction: {
+                            if let option = model.options.first(where: { $0.isDefaultEffort }) { select(option) }
                         }
-                        .disabled(model.option(preserving: store.selectedModelOption) == nil)
                     }
                     if models.isEmpty { Text("選択できるモデルはありません。") }
-                    Divider()
-                    Button("再読み込み") { reload() }
                 }
+                Divider()
+                Button("再読み込み") { reload() }
             } label: {
                 let name = (store.selectedModelOption?.displayName ?? "…")
                     .replacingOccurrences(of: "GPT-", with: "", options: .caseInsensitive)
@@ -138,46 +145,6 @@ struct AgentBookOptionControlView: View {
             .disabled(!canChange)
             .accessibilityLabel("モデルを選択")
             .help(store.selectedModelOption?.modelID ?? "モデル設定を読み込み中")
-
-            Menu {
-                if let currentModel {
-                    ForEach(currentModel.options) { option in
-                        Button {
-                            select(option)
-                        } label: {
-                            if option.id == store.selectedModelOption?.id {
-                                Label(option.effort ?? "指定なし", systemImage: "checkmark")
-                            } else {
-                                Text(option.effort ?? "指定なし")
-                            }
-                        }
-                        .help(option.description)
-                    }
-                }
-            } label: {
-                let effort = store.selectedModelOption.map { $0.effort ?? "指定なし" } ?? "…"
-                Text(effort)
-                    .lineLimit(1).truncationMode(.middle)
-                    .padding(.trailing, 16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .font(.caption2)
-            .padding(.leading, 4)
-            .padding(.trailing, 8)
-            .frame(width: 85, height: 32)
-            .glassEffect(.regular, in: .capsule)
-            .overlay(alignment: .trailing) {
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
-                    .padding(.trailing, 10)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-            .disabled(!canChange || store.isLoadingModelOptions || store.modelOptionsError != nil || currentModel == nil)
-            .accessibilityLabel("Effortを選択")
-            .help("Effort: \(store.selectedModelOption.map { $0.effort ?? "指定なし" } ?? "読み込み中")")
         }
         .font(.caption)
         .task(id: "\(store.id):\(isActive && store.isConnected && !store.isResuming)") {
@@ -205,10 +172,4 @@ private struct AgentBookModelChoice: Identifiable {
         options[0].displayName.replacingOccurrences(of: "GPT-", with: "", options: .caseInsensitive)
     }
 
-    func option(preserving selected: AgentModelOption?) -> AgentModelOption? {
-        if let selected, let match = options.first(where: { $0.effort == selected.effort }) {
-            return match
-        }
-        return options.first { $0.isDefaultEffort }
-    }
 }

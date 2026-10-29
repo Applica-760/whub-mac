@@ -408,6 +408,7 @@ private struct AgentBookTextInput: NSViewRepresentable {
     @Environment(\.isRetainedPageActive) private var isActive
     @Binding var text: String
     @Binding var selection: NSRange
+    @State private var layoutRevision = 0
     let handleKey: (NSEvent) -> Bool
     let pasteImages: ([NSImage]) -> Void
 
@@ -442,6 +443,7 @@ private struct AgentBookTextInput: NSViewRepresentable {
 
     func updateNSView(_ scroll: AgentBookInputScrollView, context: Context) {
         guard let view = scroll.documentView as? AgentBookInputTextView else { return }
+        _ = layoutRevision
         scroll.needsLayout = true
         focus.inputView = view
         view.setAccessibilityLabel(agentName + "に依頼する")
@@ -458,6 +460,9 @@ private struct AgentBookTextInput: NSViewRepresentable {
         defer { context.coordinator.isUpdating = false }
         view.handleKey = handleKey
         view.pasteImages = pasteImages
+        view.markedTextChanged = {
+            DispatchQueue.main.async { layoutRevision += 1 }
+        }
         if !view.hasMarkedText(), view.string != text {
             let range = NSRange(location: 0, length: (view.string as NSString).length)
             view.insertText(text, replacementRange: range)
@@ -513,6 +518,12 @@ private final class AgentBookInputTextView: NSTextView {
     var isPageActive = false
     var handleKey: ((NSEvent) -> Bool)?
     var pasteImages: (([NSImage]) -> Void)?
+    var markedTextChanged: (() -> Void)?
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        markedTextChanged?()
+    }
 
     func measuredHeight(for width: CGFloat) -> CGFloat {
         guard let font else { return 20 }
