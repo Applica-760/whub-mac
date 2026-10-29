@@ -45,6 +45,32 @@ private final class FilesFixture: Sendable {
     deinit { try? FileManager.default.removeItem(at: directory) }
 }
 
+@Test func filesReadImageReturnsBytesAndErrors() async throws {
+    let fixture = try await FilesFixture()
+    let bytes = Data([0, 255, 1, 128])
+    try bytes.write(to: fixture.first.appendingPathComponent("image + 日本語.png"))
+    try Data(repeating: 0, count: 8 * 1_048_576 + 1).write(to: fixture.first.appendingPathComponent("large"))
+    try FileManager.default.createSymbolicLink(atPath: fixture.first.appendingPathComponent("link").path,
+                                               withDestinationPath: "image + 日本語.png")
+    try await fixture.app.test(.router) { client in
+        let uri = fixture.uri("read-image", root: fixture.first, path: "image + 日本語.png")
+        let response = try await client.execute(uri: uri, method: .get)
+        #expect(response.status == .ok)
+        #expect(response.headers[.contentType] == "application/octet-stream")
+        #expect(Data(response.body.readableBytesView) == bytes)
+
+        for (path, status, code) in [("large", HTTPResponse.Status.unprocessableContent, "image_too_large"),
+                                     ("link", .forbidden, "symlink_forbidden"),
+                                     ("missing", .notFound, "not_found"),
+                                     ("", .badRequest, "invalid_path")] {
+            let result = try await client.execute(uri: fixture.uri("read-image", root: fixture.first, path: path), method: .get)
+            #expect(result.status == status)
+            let error = try JSONDecoder().decode([String: [String: String]].self, from: Data(result.body.readableBytesView))
+            #expect(error["error"]?["code"] == code)
+        }
+    }
+}
+
 @Test func filesRequestsSelectTheirOwnRootAndDecodeNames() async throws {
     let fixture = try await FilesFixture()
     let name = "hello + 日本語.txt"

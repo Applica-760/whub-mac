@@ -28,6 +28,9 @@ func makeRouter(files: FilesAPI, manager: ManagerAPI, agent: AgentAPI, git: GitA
     router.get("files/read") { request, _ -> Response in
         await files.readText(query: request.uri.query)
     }
+    router.get("files/read-image") { request, _ -> Response in
+        await files.readImage(query: request.uri.query)
+    }
     router.put("files/write") { request, _ -> Response in
         await files.writeText(request)
     }

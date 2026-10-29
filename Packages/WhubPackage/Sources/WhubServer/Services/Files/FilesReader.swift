@@ -8,12 +8,12 @@ import Darwin
 struct FilesReader: Sendable {
     let files: FilesService
     static let maxTextBytes = 1_048_576
-    static let maxBinaryBytes = 8 * 1_048_576
+    static let maxImageBytes = 8 * 1_048_576
 
-    func readBinary(path: String) throws -> Data {
+    func readImage(path: String) throws -> Data {
         let fd = try files.openTarget(path: path, directory: false)
         defer { close(fd) }
-        return try readData(fd: fd, limit: Self.maxBinaryBytes, tooLarge: .binaryTooLarge)
+        return try readData(fd: fd, limit: Self.maxImageBytes, tooLarge: .imageTooLarge)
     }
 
     func readText(path: String) throws -> String {

@@ -91,6 +91,24 @@ struct FilesAPI: Sendable {
         }
     }
 
+    func readImage(query: String?) async -> Response {
+        do {
+            let (root, path) = try Self.parameters(from: query)
+            guard !path.isEmpty else { throw FilesAPIError.invalidPath }
+            let data = try await Task.detached {
+                try FilesReader(files: FilesService(root: root)).readImage(path: path)
+            }.value
+            return Response(status: .ok, headers: [.contentType: "application/octet-stream"],
+                            body: .init(byteBuffer: .init(bytes: data)))
+        } catch let error as FilesAPIError {
+            return error.response
+        } catch let error as FilesError {
+            return FilesAPIError(error).response
+        } catch {
+            return FilesAPIError.readFailed.response
+        }
+    }
+
     func writeText(_ request: Request) async -> Response {
         do {
             let (root, path) = try Self.parameters(from: request.uri.query)

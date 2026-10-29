@@ -6,7 +6,7 @@ import Darwin
 
 enum FilesError: Error {
     case invalidPath, symlinkForbidden, permissionDenied, notFound, notDirectory, readFailed
-    case notRegularFile, textTooLarge, binaryTooLarge, binaryFile, invalidUTF8, conflict, writeFailed, unsupportedMetadata
+    case notRegularFile, textTooLarge, imageTooLarge, binaryFile, invalidUTF8, conflict, writeFailed, unsupportedMetadata
     case alreadyExists, operationFailed
 
     static func system(_ number: Int32) -> Self {
