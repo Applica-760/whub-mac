@@ -8,6 +8,13 @@ import Darwin
 struct FilesReader: Sendable {
     let files: FilesService
     static let maxTextBytes = 1_048_576
+    static let maxBinaryBytes = 8 * 1_048_576
+
+    func readBinary(path: String) throws -> Data {
+        let fd = try files.openTarget(path: path, directory: false)
+        defer { close(fd) }
+        return try readData(fd: fd, limit: Self.maxBinaryBytes, tooLarge: .binaryTooLarge)
+    }
 
     func readText(path: String) throws -> String {
         let fd = try files.openTarget(path: path, directory: false)
@@ -16,17 +23,21 @@ struct FilesReader: Sendable {
     }
 
     func readText(fd: Int32) throws -> String {
+        try Self.decodeText(readData(fd: fd, limit: Self.maxTextBytes, tooLarge: .textTooLarge))
+    }
+
+    private func readData(fd: Int32, limit: Int, tooLarge: FilesError) throws -> Data {
         var info = stat()
         guard fstat(fd, &info) == 0 else { throw FilesError.system(errno) }
         guard info.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
             throw FilesError.notRegularFile
         }
-        guard info.st_size <= Self.maxTextBytes else { throw FilesError.textTooLarge }
+        guard info.st_size <= limit else { throw tooLarge }
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 65_536)
-        while data.count <= Self.maxTextBytes {
+        while data.count <= limit {
             let count = buffer.withUnsafeMutableBytes {
-                read(fd, $0.baseAddress, min($0.count, Self.maxTextBytes + 1 - data.count))
+                read(fd, $0.baseAddress, min($0.count, limit + 1 - data.count))
             }
             if count < 0 {
                 if errno == EINTR { continue }
@@ -35,7 +46,8 @@ struct FilesReader: Sendable {
             if count == 0 { break }
             data.append(contentsOf: buffer.prefix(count))
         }
-        return try Self.decodeText(data)
+        guard data.count <= limit else { throw tooLarge }
+        return data
     }
 
     static func decodeText(_ data: Data) throws -> String {
