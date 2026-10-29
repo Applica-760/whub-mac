@@ -33,7 +33,7 @@ struct AppCommands: Commands {
             AgentBookTabMenu(store: agentBookStore, isActive: workspaceActions != nil,
                              isShortcutTarget: { workspaceActions?.targetsAgentBook() == true })
             Divider()
-            Button("Focus AgentBook Input") { workspaceActions?.activateAgentBook() }
+            Button("Toggle AgentBook") { workspaceActions?.toggleAgentBook() }
                 .keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(workspaceActions == nil)
             Button("Previous Page") { workspaceActions?.moveSection(-1) }
