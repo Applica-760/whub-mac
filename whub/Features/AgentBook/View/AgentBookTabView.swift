@@ -82,6 +82,7 @@ struct AgentBookTabView: View {
                         .padding(.vertical, 8)
                     }
                 }
+                .background(Color(nsColor: .textBackgroundColor))
             }
             if !pendingQuestions.isEmpty {
                 AgentBookResponsesView(requests: pendingQuestions, respondingRequestIDs: store.respondingRequestIDs,

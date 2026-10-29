@@ -201,12 +201,12 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface, NSTextViewDel
             (scroll as? AgentBookPageScrollView)?.isPreview = isPreview
             scroll.setAccessibilityHidden(!visible || isPreview)
             do {
-                scroll.drawsBackground = true
+                scroll.drawsBackground = isPreview
                 scroll.backgroundColor = .windowBackgroundColor
                 scroll.wantsLayer = true
                 scroll.layer?.cornerRadius = 14
                 scroll.layer?.masksToBounds = true
-                scroll.layer?.borderWidth = 1
+                scroll.layer?.borderWidth = isPreview ? 1 : 0
                 scroll.layer?.borderColor = NSColor.separatorColor.cgColor
                 scroll.layer?.zPosition = isPreview ? 0 : 1
             }

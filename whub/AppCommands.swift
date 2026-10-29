@@ -16,6 +16,10 @@ struct AppCommands: Commands {
         }
         FilesCommands()
         CommandGroup(replacing: .sidebar) {
+            Button("Toggle Sidebar") {
+                NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: nil)
+            }
+            .keyboardShortcut("b", modifiers: .command)
             Button("Toggle Full Screen") {
                 NSApp.sendAction(#selector(NSWindow.toggleFullScreen(_:)), to: nil, from: nil)
             }

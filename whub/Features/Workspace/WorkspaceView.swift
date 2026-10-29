@@ -145,48 +145,59 @@ struct WorkspaceView<Container: View>: View {
     }
 }
 
-struct WorkspacePanes: View {
+struct WorkspacePanes: NSViewRepresentable {
     let section: WorkspaceSection
     let leftFocus: TabPaneFocus
     let agentFocus: TabPaneFocus
     let agentInputFocus: AgentBookFocus
     let openLink: (URL, AgentStore) -> Bool
     @EnvironmentObject private var agentBook: AgentBookStore
-    @State private var leftWidth: CGFloat?
-    @State private var dragStartWidth: CGFloat?
+    @Environment(\.self) private var environment
+    @Environment(\.colorScheme) private var colorScheme
 
-    var body: some View {
-        GeometryReader { geometry in
-            let width = min(max(leftWidth ?? geometry.size.width / 2, 300), geometry.size.width - 500)
-            HStack(spacing: 0) {
-                RetainedPageContainer(selection: section) { page in
-                    page.content
-                }
-                .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
-                .frame(width: width)
-                AgentBookView(store: agentBook, inputFocus: agentInputFocus, openLink: openLink)
-                    .background(TabPaneFocusView(focus: agentFocus, activatesOnClick: false))
-                    .frame(maxWidth: .infinity)
-            }
-            .overlay(alignment: .leading) {
-                Color.clear
-                    .frame(width: 8)
-                    .contentShape(Rectangle())
-                    .offset(x: width - 4)
-                    .onHover { hovering in
-                        if hovering { NSCursor.resizeLeftRight.push() }
-                        else { NSCursor.pop() }
-                    }
-                    .gesture(DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if dragStartWidth == nil { dragStartWidth = width }
-                            leftWidth = min(max((dragStartWidth ?? width) + value.translation.width, 300), geometry.size.width - 500)
-                        }
-                        .onEnded { _ in dragStartWidth = nil })
-            }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSSplitView {
+        let split = InvisibleDividerSplitView()
+        split.isVertical = true
+        split.dividerStyle = .thin
+        split.delegate = context.coordinator
+        for view in [context.coordinator.left, context.coordinator.right] {
+            view.sizingOptions = []
+            split.addArrangedSubview(view)
         }
-        .padding(.horizontal, 4)
+        return split
     }
+
+    func updateNSView(_ split: NSSplitView, context: Context) {
+        context.coordinator.left.rootView = AnyView(
+            RetainedPageContainer(selection: section) { page in page.content }
+                .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
+                .environment(\.self, environment).environment(\.colorScheme, colorScheme)
+        )
+        context.coordinator.right.rootView = AnyView(
+            AgentBookView(store: agentBook, inputFocus: agentInputFocus, openLink: openLink)
+                .background(TabPaneFocusView(focus: agentFocus, activatesOnClick: false))
+                .environment(\.self, environment).environment(\.colorScheme, colorScheme)
+        )
+    }
+
+    final class Coordinator: NSObject, NSSplitViewDelegate {
+        let left = NSHostingView(rootView: AnyView(EmptyView()))
+        let right = NSHostingView(rootView: AnyView(EmptyView()))
+
+        func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+            max(proposedMinimumPosition, 300)
+        }
+
+        func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+            min(proposedMaximumPosition, splitView.bounds.width - splitView.dividerThickness - 500)
+        }
+    }
+}
+
+private final class InvisibleDividerSplitView: NSSplitView {
+    override func drawDivider(in rect: NSRect) {}
 }
 
 struct WorkspaceToolbar: ToolbarContent {

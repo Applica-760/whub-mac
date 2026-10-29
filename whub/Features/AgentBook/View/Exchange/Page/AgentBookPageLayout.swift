@@ -4,7 +4,7 @@ import SwiftUI
 import WhubAgent
 
 enum AgentBookPageStyle {
-    static let pageInset: CGFloat = 28
+    static let pageInset: CGFloat = 16
     static let horizontalInset: CGFloat = 16
     static let pageGap: CGFloat = 32
     static let subpageThreshold: CGFloat = 1600
@@ -203,8 +203,8 @@ final class AgentBookPageLayout: ObservableObject {
     func prepare(viewport: CGSize, colorScheme: ColorScheme) -> Bool {
         guard viewport.width.isFinite, viewport.height.isFinite,
               viewport.width > 112, viewport.height > 112 else { return false }
-        let width = min(1100, viewport.width >= AgentBookPageStyle.subpageThreshold ? viewport.width * 0.58 : viewport.width - 32)
-        let size = CGSize(width: floor(width), height: floor(viewport.height - 16))
+        let width = viewport.width >= AgentBookPageStyle.subpageThreshold ? min(1100, viewport.width * 0.58) : viewport.width
+        let size = CGSize(width: floor(width), height: floor(viewport.height))
         guard renderedRevision != revision || renderedNavigation != navigationRevision
             || viewportSize != viewport || appearance != colorScheme else { return false }
         let readingID = rendered.indices.contains(selectedPage) ? rendered[selectedPage].input.id : nil
