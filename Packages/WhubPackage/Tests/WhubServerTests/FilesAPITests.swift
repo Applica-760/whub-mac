@@ -71,6 +71,26 @@ private final class FilesFixture: Sendable {
     }
 }
 
+@Test func filesClientReadsImageAndReportsErrors() async throws {
+    let fixture = try await FilesFixture()
+    let bytes = Data([0, 255, 1, 128])
+    let name = "image + 日本語.png"
+    try bytes.write(to: fixture.first.appendingPathComponent(name))
+    try Data(repeating: 0, count: 8 * 1_048_576 + 1).write(to: fixture.first.appendingPathComponent("large"))
+    try await fixture.app.test(.live) { transport in
+        let port = try #require(transport.port)
+        let client = try WhubClient(baseURL: #require(URL(string: "http://localhost:\(port)")))
+        let root = fixture.first.path
+        #expect(try await client.files.readImage(root: root, path: name) == bytes)
+        await #expect(throws: WhubClientError.invalidPath) {
+            try await client.files.readImage(root: root, path: "../image")
+        }
+        await #expect(throws: WhubClientError.api(status: 422, code: "image_too_large", message: "ファイルが8 MiBの上限を超えています。")) {
+            try await client.files.readImage(root: root, path: "large")
+        }
+    }
+}
+
 @Test func filesRequestsSelectTheirOwnRootAndDecodeNames() async throws {
     let fixture = try await FilesFixture()
     let name = "hello + 日本語.txt"
