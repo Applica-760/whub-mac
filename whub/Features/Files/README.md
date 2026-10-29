@@ -70,6 +70,8 @@ EditorはWorkspaceの左ペインに表示する。他のFeatureへ切り替え�
 
 プレビューは共通の [`MarkdownView`](../../Components/Markdown/MarkdownView.swift) を使う。表・コード・数式は既存の描画部品で表示し、コードは横スクロール・コピーできる。Mermaidはコードとして表示する。画像・相対リンクの解決は未対応。
 
+⌘DはEditorの現在のファイルと差分を切り替える。
+
 `ExplorerView.swift` の `ExplorerFocusNavigation` は、ウィンドウ内のExplorer一覧とFeature領域への参照を保持する。⌘⇧Eでフォーカスを往復し、FileEditorでは表示中の本文を優先する。⌘⇧Dは通常／Diff Explorerを切り替える。一覧のJ/Kは自動プレビューを伴う行移動、Enterはファイルの確定オープンまたはディレクトリの開閉で、一覧にフォーカスを残す。名前入力中はこれらの一覧操作を処理しない。
 
 ## 共通部品の参照先

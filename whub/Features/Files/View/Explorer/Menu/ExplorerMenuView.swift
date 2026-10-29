@@ -162,6 +162,7 @@ struct FilesNavigationMenu: View {
     @FocusedValue(\.toggleExplorerDiff) private var toggleExplorerDiff
 
     var body: some View {
+        FileDiffMenu(editor: store.activeEditor, isEditingName: store.explorer.nameEdit != nil)
         Button("Toggle Diff Explorer") { toggleExplorerDiff?() }
             .keyboardShortcut("d", modifiers: [.command, .shift])
             .disabled(toggleExplorerDiff == nil || store.explorer.selectedLocation == nil || store.explorer.nameEdit != nil)
