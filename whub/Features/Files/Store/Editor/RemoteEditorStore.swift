@@ -39,6 +39,13 @@ final class RemoteEditorStore: ObservableObject {
             let saved = try await client.files.writeText(root: rootPath, path: path, expectedText: expected, text: text)
             guard connections.connection(for: host) === connection, servers.configuredURL(for: host) == serverURL else { throw SSHError.disconnected }
             return saved
+        }, readImage: { rootPath, path in
+            guard let host, let connection = connections.connection(for: host) else { throw SSHError.disconnected }
+            let serverURL = servers.configuredURL(for: host)
+            let client = try await servers.client(for: host)
+            let data = try await client.files.readImage(root: rootPath, path: path)
+            guard connections.connection(for: host) === connection, servers.configuredURL(for: host) == serverURL else { throw SSHError.disconnected }
+            return data
         }) { _, rootPath, path in
             guard let host, let connection = connections.connection(for: host) else {
                 throw SSHError.disconnected
@@ -54,9 +61,11 @@ final class RemoteEditorStore: ObservableObject {
     func load(_ location: FileLocation, root: FileLocation?,
               connection: (() -> ObjectIdentifier?)? = nil,
               write: @escaping @MainActor (String, String, String, String) async throws -> String,
+              readImage: (@MainActor (String, String) async throws -> Data)? = nil,
               read: @escaping @MainActor (FileLocation, String, String) async throws -> String) {
         guard case .remote = location, fileStores[location] == nil else { return }
-        fileStores[location] = RemoteFileStore(location: location, root: root, connection: connection, write: write, read: read)
+        fileStores[location] = RemoteFileStore(location: location, root: root, connection: connection,
+                                               write: write, readImage: readImage, read: read)
     }
 
     func refresh() {

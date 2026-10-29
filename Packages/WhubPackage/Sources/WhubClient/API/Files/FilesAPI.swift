@@ -24,6 +24,11 @@ public struct FilesAPI: Sendable {
         return try client.decode(Reply.self, from: data).text
     }
 
+    public func readImage(root: String, path: String) async throws -> Data {
+        guard !path.isEmpty else { throw WhubClientError.invalidPath }
+        return try await client.request("files/read-image", query: query(root: root, path: path))
+    }
+
     public func writeText(root: String, path: String, expectedText: String, text: String) async throws -> String {
         guard !path.isEmpty else { throw WhubClientError.invalidPath }
         struct Reply: Decodable { let text: String }

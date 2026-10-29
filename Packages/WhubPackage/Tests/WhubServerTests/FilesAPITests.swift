@@ -45,6 +45,52 @@ private final class FilesFixture: Sendable {
     deinit { try? FileManager.default.removeItem(at: directory) }
 }
 
+@Test func filesReadImageReturnsBytesAndErrors() async throws {
+    let fixture = try await FilesFixture()
+    let bytes = Data([0, 255, 1, 128])
+    try bytes.write(to: fixture.first.appendingPathComponent("image + 日本語.png"))
+    try Data(repeating: 0, count: 8 * 1_048_576 + 1).write(to: fixture.first.appendingPathComponent("large"))
+    try FileManager.default.createSymbolicLink(atPath: fixture.first.appendingPathComponent("link").path,
+                                               withDestinationPath: "image + 日本語.png")
+    try await fixture.app.test(.router) { client in
+        let uri = fixture.uri("read-image", root: fixture.first, path: "image + 日本語.png")
+        let response = try await client.execute(uri: uri, method: .get)
+        #expect(response.status == .ok)
+        #expect(response.headers[.contentType] == "application/octet-stream")
+        #expect(Data(response.body.readableBytesView) == bytes)
+
+        for (path, status, code) in [("large", HTTPResponse.Status.unprocessableContent, "image_too_large"),
+                                     ("link", .forbidden, "symlink_forbidden"),
+                                     ("missing", .notFound, "not_found"),
+                                     ("", .badRequest, "invalid_path")] {
+            let result = try await client.execute(uri: fixture.uri("read-image", root: fixture.first, path: path), method: .get)
+            #expect(result.status == status)
+            let error = try JSONDecoder().decode([String: [String: String]].self, from: Data(result.body.readableBytesView))
+            #expect(error["error"]?["code"] == code)
+        }
+    }
+}
+
+@Test func filesClientReadsImageAndReportsErrors() async throws {
+    let fixture = try await FilesFixture()
+    let bytes = Data([0, 255, 1, 128])
+    let name = "image + 日本語.png"
+    try bytes.write(to: fixture.first.appendingPathComponent(name))
+    try Data(repeating: 0, count: 8 * 1_048_576 + 1).write(to: fixture.first.appendingPathComponent("large"))
+    try await fixture.app.test(.live) { transport in
+        let port = try #require(transport.port)
+        let client = try WhubClient(baseURL: #require(URL(string: "http://localhost:\(port)")))
+        let root = fixture.first.path
+        #expect(try await client.files.readImage(root: root, path: name) == bytes)
+        await #expect(throws: WhubClientError.invalidPath) {
+            try await client.files.readImage(root: root, path: "../image")
+        }
+        await #expect(throws: WhubClientError.api(status: 422, code: "image_too_large", message: "ファイルが8 MiBの上限を超えています。")) {
+            try await client.files.readImage(root: root, path: "large")
+        }
+    }
+}
+
 @Test func filesRequestsSelectTheirOwnRootAndDecodeNames() async throws {
     let fixture = try await FilesFixture()
     let name = "hello + 日本語.txt"
@@ -223,7 +269,8 @@ private final class FilesFixture: Sendable {
 @Test func filesWriteChecksBytesRatherThanUnicodeEquivalenceAndSerializesSaves() async throws {
     let fixture = try await FilesFixture()
     let file = fixture.first.appendingPathComponent("file")
-    let service = try FilesService(root: fixture.first.path)
+    let files = try FilesService(root: fixture.first.path)
+    let service = FilesWriter(files: files)
     try Data("e\u{301}".utf8).write(to: file)
     #expect(throws: FilesError.conflict) { try service.writeText(path: "file", expectedText: "é", text: "replacement") }
     try Data("base".utf8).write(to: file)
@@ -241,7 +288,7 @@ private final class FilesFixture: Sendable {
         return results
     }
     #expect(results.filter { $0 }.count == 1)
-    #expect(["one", "two"].contains(try service.readText(path: "file")))
+    #expect(["one", "two"].contains(try FilesReader(files: files).readText(path: "file")))
 }
 
 @Test func filesWriteRefusesUnsafeUnsupportedAndUnwritableTargetsWithoutChangingFiles() async throws {
@@ -252,7 +299,7 @@ private final class FilesFixture: Sendable {
     try fm.createSymbolicLink(at: fixture.first.appendingPathComponent("link"), withDestinationURL: fixture.second)
     try fm.createSymbolicLink(at: fixture.first.appendingPathComponent("file-link"), withDestinationURL: file)
     try Data("outside".utf8).write(to: fixture.second.appendingPathComponent("file"))
-    let service = try FilesService(root: fixture.first.path)
+    let service = try FilesWriter(files: FilesService(root: fixture.first.path))
     for path in ["", ".", "file/", "../second/file", "/file", "file\0", "link/file", "file-link", "missing"] {
         #expect(throws: (any Error).self) { try service.writeText(path: path, expectedText: "base", text: "changed") }
     }

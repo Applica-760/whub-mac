@@ -9,11 +9,9 @@ struct FilesAPI: Sendable {
     func operate(_ request: Request, operation: Operation) async -> Response {
         do {
             let (root, path) = try Self.parameters(from: request.uri.query)
-            let action: FilesService.Operation
+            let name: String?
             switch operation {
-            case .createFile: action = .createFile
-            case .createDirectory: action = .createDirectory
-            case .trash: action = .trash
+            case .createFile, .createDirectory, .trash: name = nil
             case .rename:
                 guard request.headers[.contentType]?.split(separator: ";").first?.lowercased() == "application/json" else {
                     throw FilesAPIError.invalidRequest
@@ -21,11 +19,17 @@ struct FilesAPI: Sendable {
                 struct Body: Decodable { let name: String }
                 do {
                     let body = try await request.body.collect(upTo: 4096)
-                    action = .rename(try JSONDecoder().decode(Body.self, from: Data(body.readableBytesView)).name)
+                    name = try JSONDecoder().decode(Body.self, from: Data(body.readableBytesView)).name
                 } catch { throw FilesAPIError.invalidRequest }
             }
             try await Task.detached {
-                try FilesService(root: root).perform(action, path: path)
+                let directory = try FilesDirectory(files: FilesService(root: root))
+                switch operation {
+                case .createFile: try directory.create(path: path, directory: false)
+                case .createDirectory: try directory.create(path: path, directory: true)
+                case .trash: try directory.trash(path: path)
+                case .rename: try directory.rename(path: path, name: name!)
+                }
             }.value
             return Response(status: .noContent)
         } catch let error as FilesAPIError {
@@ -42,10 +46,10 @@ struct FilesAPI: Sendable {
             let (root, path) = try Self.parameters(from: query)
             // Directory I/O must not block the HTTP event loop.
             let data = try await Task.detached {
-                let service = try FilesService(root: root)
+                let directory = try FilesDirectory(files: FilesService(root: root))
                 var data = Data("[".utf8)
                 let encoder = JSONEncoder()
-                try service.list(path: path) { entry in
+                try directory.list(path: path) { entry in
                     let encoded = try encoder.encode(["name": entry.name, "kind": entry.kind])
                     let separatorBytes = data.count == 1 ? 0 : 1
                     guard data.count + separatorBytes + encoded.count + 1 <= Self.maxResponseBytes else {
@@ -73,10 +77,28 @@ struct FilesAPI: Sendable {
             let (root, path) = try Self.parameters(from: query)
             guard !path.isEmpty else { throw FilesAPIError.invalidPath }
             let text = try await Task.detached {
-                try FilesService(root: root).readText(path: path)
+                try FilesReader(files: FilesService(root: root)).readText(path: path)
             }.value
             let data = try JSONEncoder().encode(["text": text])
             return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: .init(bytes: data)))
+        } catch let error as FilesAPIError {
+            return error.response
+        } catch let error as FilesError {
+            return FilesAPIError(error).response
+        } catch {
+            return FilesAPIError.readFailed.response
+        }
+    }
+
+    func readImage(query: String?) async -> Response {
+        do {
+            let (root, path) = try Self.parameters(from: query)
+            guard !path.isEmpty else { throw FilesAPIError.invalidPath }
+            let data = try await Task.detached {
+                try FilesReader(files: FilesService(root: root)).readImage(path: path)
+            }.value
+            return Response(status: .ok, headers: [.contentType: "application/octet-stream"],
                             body: .init(byteBuffer: .init(bytes: data)))
         } catch let error as FilesAPIError {
             return error.response
@@ -102,7 +124,7 @@ struct FilesAPI: Sendable {
                 body = try JSONDecoder().decode(Body.self, from: Data(buffer.readableBytesView))
             } catch { throw FilesAPIError.invalidRequest }
             let text = try await Task.detached {
-                try FilesService(root: root).writeText(path: path, expectedText: body.expectedText, text: body.text)
+                try FilesWriter(files: FilesService(root: root)).writeText(path: path, expectedText: body.expectedText, text: body.text)
             }.value
             let data = try JSONEncoder().encode(["text": text])
             return Response(status: .ok, headers: [.contentType: "application/json", .cacheControl: "no-store"],

@@ -8,6 +8,7 @@
 | --- | --- | --- | --- |
 | GET | `/files/list` | 一覧取得。query：絶対パスの`root`、配下の相対`path`（省略時は空） | 200：`name`・`kind`の配列。最大8 MiB。rootは要求側が指定 |
 | GET | `/files/read` | 本文取得。query：`root`・空でない`path` | 200：`text`。UTF-8・最大1 MiB。シンボリックリンクは辿らない |
+| GET | `/files/read-image` | 画像取得。query：`root`・空でない`path` | 200：`application/octet-stream`のバイト列。画像形式の判定は行わない。最大8 MiB。超過時は422・`image_too_large`。シンボリックリンクは辿らない |
 | PUT | `/files/write` | 既存ファイル保存。query：`root`・`path`。body：`expectedText`・`text` | 200：保存後の`text`。本文はUTF-8・最大1 MiB。現状とexpectedTextのバイト不一致は409。通信断で保存結果が不明な場合は再読込で確認 |
 | POST | `/files/create-file` | 空ファイル作成。query：`root`・`path` | 204：成功。既存の名前は409 |
 | POST | `/files/create-directory` | ディレクトリ作成。query：`root`・`path` | 204：成功。既存の名前は409 |

@@ -31,7 +31,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "WhubGit"),
-        .target(name: "WhubClient", dependencies: ["WhubAgent"]),
+        .target(name: "WhubClient", dependencies: ["WhubAgent"], exclude: ["README.md"]),
         .target(name: "WhubAgent"),
         .executableTarget(
             name: "WhubServer",

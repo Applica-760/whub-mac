@@ -10,6 +10,7 @@ enum FilesAPIError: String, Error {
     case listingTooLarge = "listing_too_large"
     case notRegularFile = "not_regular_file"
     case textTooLarge = "text_too_large"
+    case imageTooLarge = "image_too_large"
     case binaryFile = "binary_file"
     case invalidUTF8 = "invalid_utf8"
     case readFailed = "read_failed"
@@ -29,6 +30,7 @@ enum FilesAPIError: String, Error {
         case .notDirectory: self = .notDirectory
         case .notRegularFile: self = .notRegularFile
         case .textTooLarge: self = .textTooLarge
+        case .imageTooLarge: self = .imageTooLarge
         case .binaryFile: self = .binaryFile
         case .invalidUTF8: self = .invalidUTF8
         case .readFailed: self = .readFailed
@@ -89,6 +91,9 @@ enum FilesAPIError: String, Error {
         case .textTooLarge:
             status = .unprocessableContent
             message = "本文が1 MiBの上限を超えています。"
+        case .imageTooLarge:
+            status = .unprocessableContent
+            message = "ファイルが8 MiBの上限を超えています。"
         case .binaryFile:
             status = .unprocessableContent
             message = "バイナリファイルは表示できません。"

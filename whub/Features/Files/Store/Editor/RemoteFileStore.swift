@@ -1,5 +1,7 @@
+import AppKit
 import Combine
 import Foundation
+import UniformTypeIdentifiers
 import WhubClient
 
 @MainActor
@@ -14,13 +16,16 @@ final class RemoteFileStore: ObservableObject {
     @Published private(set) var state: State = .loading
     @Published private(set) var isSaving = false
     @Published private(set) var message: String?
+    @Published private(set) var image: NSImage?
     private(set) var document: FileStore?
+    let isImage: Bool
     private let name: String
     private struct Request {
         let connection: (() -> ObjectIdentifier?)?
-        let read: () async throws -> String
+        let read: () async throws -> Content
         let write: (String, String) async throws -> String
     }
+    private enum Content { case text(String), image(Data) }
     private var request: Request?
     private var sessionID: ObjectIdentifier?
     private var job: Task<Void, Never>?
@@ -32,8 +37,10 @@ final class RemoteFileStore: ObservableObject {
     init(location: FileLocation, root: FileLocation?,
          connection: (() -> ObjectIdentifier?)?,
          write: @escaping @MainActor (String, String, String, String) async throws -> String,
+         readImage: (@MainActor (String, String) async throws -> Data)? = nil,
          read: @escaping @MainActor (FileLocation, String, String) async throws -> String) {
         name = location.name
+        isImage = UTType(filenameExtension: (location.name as NSString).pathExtension)?.conforms(to: .image) == true
         guard case let .remote(hostID, path) = location,
               let root, case let .remote(rootHostID, rootPath) = root, rootHostID == hostID else {
             state = .failed("閲覧ルートが不正です。")
@@ -50,7 +57,14 @@ final class RemoteFileStore: ObservableObject {
             state = .failed("閲覧ルートと相対パスが不正です。")
             return
         }
-        request = Request(connection: connection, read: { try await read(location, rootPath, relative) },
+        let isImage = self.isImage
+        request = Request(connection: connection, read: {
+            if isImage {
+                guard let readImage else { throw ImageError.unavailable }
+                return .image(try await readImage(rootPath, relative))
+            }
+            return .text(try await read(location, rootPath, relative))
+        },
                           write: { expected, text in try await write(rootPath, relative, expected, text) })
         refresh()
     }
@@ -72,7 +86,7 @@ final class RemoteFileStore: ObservableObject {
 
     var canSave: Bool {
         guard let request, document != nil,
-              !isFileOperationLocked, !isSaving, job == nil, pendingSave == nil else { return false }
+              !isImage, !isFileOperationLocked, !isSaving, job == nil, pendingSave == nil else { return false }
         return request.connection == nil || request.connection?() != nil
     }
 
@@ -95,7 +109,7 @@ final class RemoteFileStore: ObservableObject {
         }
         state = .loading
         job = Task { [weak self] in
-            let result: Result<String, Error>
+            let result: Result<Content, Error>
             do { result = .success(try await request.read()) }
             catch { result = .failure(error) }
             guard !Task.isCancelled, let self, self.generation == generation else { return }
@@ -104,7 +118,16 @@ final class RemoteFileStore: ObservableObject {
                 return
             }
             switch result {
-            case let .success(text):
+            case let .success(.image(data)):
+                guard let image = NSImage(data: data) else {
+                    self.state = .failed("画像を表示できません。")
+                    self.job = nil
+                    return
+                }
+                self.image = image
+                if self.document == nil { self.document = FileStore(content: .binary, isEditable: false) }
+                self.state = .loaded(self.document!)
+            case let .success(.text(text)):
                 if let document = self.document {
                     if let pending = pendingSave, text.utf8.elementsEqual(pending.text.utf8) {
                         savedText = text
@@ -188,6 +211,11 @@ final class RemoteFileStore: ObservableObject {
     private enum SaveError: LocalizedError {
         case unconfirmed
         var errorDescription: String? { "保存結果を確認できません。" }
+    }
+
+    private enum ImageError: LocalizedError {
+        case unavailable
+        var errorDescription: String? { "画像を取得できません。" }
     }
 
     func close() {
