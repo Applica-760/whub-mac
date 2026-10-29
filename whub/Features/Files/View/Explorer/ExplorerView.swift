@@ -57,12 +57,6 @@ struct ExplorerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(TabPaneFocusView(focus: focus.sidebar))
-        .overlay(alignment: .topTrailing) {
-            ExplorerMenuView(canRefresh: store.canRefresh, canShowDiff: store.selectedLocation != nil,
-                             showsDiff: Binding(get: { store.showsDiff }, set: setShowsDiff)) {
-                files.refresh()
-            }
-        }
         .focusedSceneValue(\.toggleExplorerDiff, { setShowsDiff(!store.showsDiff) })
         .onChange(of: store.showsDiff, initial: true) { gitStore.setDiffEnabled(store.showsDiff) }
         .onAppear {

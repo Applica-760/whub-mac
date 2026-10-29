@@ -11,8 +11,6 @@ struct ExplorerPulldownView: View {
                 picker
                 ExplorerLoadingView(store: store.remoteWorkspace, sources: store.remoteSources,
                                     treeLoading: store.remoteTree.states.values.contains(.loading))
-                // Reserve the menu trigger position; the expanded menu overlays the explorer.
-                Color.clear.frame(width: 36, height: 36)
             }
             .padding(.horizontal)
             .padding(.top)

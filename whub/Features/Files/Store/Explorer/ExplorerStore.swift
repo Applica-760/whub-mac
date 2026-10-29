@@ -81,7 +81,6 @@ final class ExplorerStore: ObservableObject {
     var locations: [FileLocation] {
         availableLocations(projects: projects, remote: remoteWorkspace.entries(for: remoteSources), basePath: localBasePath)
     }
-    var canRefresh: Bool { selectedLocation != nil || !remoteSources.isEmpty }
     var treeBasePath: String? { basePath(projects: projects) }
 
     struct UpdateID: Equatable {
