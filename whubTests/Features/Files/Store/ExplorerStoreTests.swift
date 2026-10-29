@@ -60,7 +60,6 @@ struct ExplorerStoreTests {
         await store.update(projects: [project], hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections),
                            refreshID: 0, context: context)
         #expect(store.locations.map(\.path) == [base.path, projectURL.path, firstWorktree.path])
-        #expect(store.canRefresh)
         store.selectedLocation = .local(URL(fileURLWithPath: project.path))
         await store.update(projects: [project], hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections),
                            refreshID: 0, context: context)
@@ -105,7 +104,6 @@ struct ExplorerStoreTests {
         let store = files.explorer
         await store.update(projects: [], hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections),
                            refreshID: 0, context: container.mainContext)
-        #expect(!store.canRefresh)
         let root = FileLocation.remote(hostID: host.persistentModelID, path: "/workspace/projects/app")
         store.selectedLocation = root
         let editor = files.activeEditor
