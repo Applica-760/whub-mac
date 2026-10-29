@@ -3,6 +3,9 @@ import UniformTypeIdentifiers
 import WhubGit
 
 final class ExplorerItemView: NSTableCellView {
+    private static let iconSize: CGFloat = 16
+    private static let nameSpacing: CGFloat = 4
+
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
         self.identifier = identifier
@@ -24,12 +27,16 @@ final class ExplorerItemView: NSTableCellView {
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 16),
-            icon.heightAnchor.constraint(equalToConstant: 16),
-            name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 4),
+            icon.widthAnchor.constraint(equalToConstant: Self.iconSize),
+            icon.heightAnchor.constraint(equalToConstant: Self.iconSize),
+            name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: Self.nameSpacing),
             name.trailingAnchor.constraint(equalTo: trailingAnchor),
             name.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+    }
+
+    var requiredWidth: CGFloat {
+        Self.iconSize + Self.nameSpacing + (textField?.intrinsicContentSize.width ?? 0)
     }
 
     required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

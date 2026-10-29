@@ -8,6 +8,48 @@ import WhubCore
 
 @Suite @MainActor
 struct ExplorerViewTests {
+    @Test func explorerColumnScrollsWholeRowsAndShrinksWithContent() throws {
+        final class Rows: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+            func numberOfRows(in tableView: NSTableView) -> Int { 2 }
+            func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+                let cell = ExplorerItemView(identifier: .init("file"))
+                cell.textField?.stringValue = String(repeating: "long-file-name", count: 20)
+                return cell
+            }
+        }
+        let rows = Rows()
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
+        let table = NSTableView()
+        table.dataSource = rows
+        table.delegate = rows
+        table.autoresizingMask = [.width]
+        table.headerView = nil
+        table.addTableColumn(NSTableColumn(identifier: .init("name")))
+        table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        scroll.hasHorizontalScroller = true
+        scroll.documentView = table
+        table.reloadData()
+        let cell = ExplorerItemView(identifier: .init("file"))
+        cell.textField?.stringValue = String(repeating: "long-file-name", count: 20)
+        table.fitExplorerColumn(to: cell.requiredWidth)
+        scroll.layoutSubtreeIfNeeded()
+        #expect(table.tableColumns[0].width >= cell.requiredWidth)
+        #expect(table.bounds.width > scroll.contentSize.width)
+        let rendered = try #require(table.view(atColumn: 0, row: 0, makeIfNecessary: true) as? ExplorerItemView)
+        rendered.layoutSubtreeIfNeeded()
+        let name = try #require(rendered.textField)
+        #expect(name.frame.width >= name.intrinsicContentSize.width)
+        scroll.contentView.scroll(to: NSPoint(x: 100, y: 0))
+        #expect(scroll.contentView.bounds.origin.x == 100)
+        table.fitExplorerColumn(to: 80)
+        scroll.layoutSubtreeIfNeeded()
+        #expect(table.frame.width >= scroll.contentSize.width)
+        #expect(table.tableColumns[0].width < cell.requiredWidth)
+        scroll.setFrameSize(NSSize(width: 480, height: 200))
+        scroll.layoutSubtreeIfNeeded()
+        #expect(table.frame.width >= scroll.contentSize.width)
+    }
+
     @Test func markdownPreviewMenuTargetsOnlyAvailableLocalMarkdownFiles() throws {
         let url = URL(fileURLWithPath: "/repo/notes.MD")
         var received: (ExplorerContextMenu.Action, FileLocation)?

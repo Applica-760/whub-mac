@@ -85,6 +85,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let outlineView = FileOutlineControl()
         outlineView.backgroundColor = .clear
+        outlineView.autoresizingMask = [.width]
         outlineView.store = store
         outlineView.onShowDiff = onShowDiff
         outlineView.onAction = onAction
@@ -101,7 +102,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
         outlineView.headerView = nil
-        outlineView.autoresizesOutlineColumn = true
+        outlineView.autoresizesOutlineColumn = false
         outlineView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         outlineView.intercellSpacing = .zero
         outlineView.dataSource = context.coordinator
@@ -116,6 +117,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         return scrollView
     }
@@ -184,11 +186,13 @@ struct ExplorerOutlineView: NSViewRepresentable {
             }
             outlineView.reloadData()
             if let parent = nameEdit?.parent { outlineView.expandItem(parent) }
+            updateColumnWidth()
         }
 
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
             store.updateName(field.stringValue)
+            updateColumnWidth()
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -243,6 +247,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
                     store.expandedLocations[root] = Set(store.cachedItems.filter { outlineView.isItemExpanded($0) }.map(\.location))
                 }
             }
+            updateColumnWidth()
             if !rootChanged {
                 var selection = IndexSet()
                 var scrollOrigin = origin
@@ -258,6 +263,21 @@ struct ExplorerOutlineView: NSViewRepresentable {
                     outlineView.enclosingScrollView?.reflectScrolledClipView(clipView)
                 }
             }
+        }
+
+        private func updateColumnWidth() {
+            guard let outlineView else { return }
+            let cell = ExplorerItemView(identifier: .init("measurement"))
+            var width: CGFloat = 0
+            for row in 0..<outlineView.numberOfRows {
+                guard let item = outlineView.item(atRow: row) as? ExplorerItem else { continue }
+                let edit = nameEdit?.item === item ? nameEdit : nil
+                cell.textField?.stringValue = edit?.name ?? item.location.name
+                cell.textField?.isBezeled = edit != nil
+                let indentation = CGFloat(outlineView.level(forItem: item) + 1) * outlineView.indentationPerLevel
+                width = max(width, indentation + cell.requiredWidth)
+            }
+            outlineView.fitExplorerColumn(to: width)
         }
 
         private func restoreExpansion(in items: [ExplorerItem], locations: Set<FileLocation>, outlineView: NSOutlineView) {
@@ -306,10 +326,16 @@ struct ExplorerOutlineView: NSViewRepresentable {
             store.expand(item)
         }
 
+        func outlineViewItemDidExpand(_ notification: Notification) {
+            guard !isRestoring else { return }
+            updateColumnWidth()
+        }
+
         func outlineViewItemDidCollapse(_ notification: Notification) {
             guard !isRestoring, let root = store.treeLocation,
                   let item = notification.userInfo?["NSObject"] as? ExplorerItem else { return }
             store.expandedLocations[root]?.remove(item.location)
+            updateColumnWidth()
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -414,6 +440,17 @@ private final class FileOutlineControl: NSOutlineView {
 }
 
 extension NSTableView {
+    func fitExplorerColumn(to contentWidth: CGFloat) {
+        guard let column = tableColumns.first else { return }
+        column.maxWidth = .greatestFiniteMagnitude
+        let requiredWidth = ceil(contentWidth)
+        // Set width before restoring its minimum so AppKit also updates the row cells.
+        column.minWidth = 0
+        column.width = max(requiredWidth, enclosingScrollView?.contentSize.width ?? 0)
+        column.minWidth = requiredWidth
+        setFrameSize(NSSize(width: column.width, height: frame.height))
+    }
+
     func handleExplorerNavigation(_ event: NSEvent, canSelect: (Int) -> Bool = { _ in true },
                                   open: () -> Void) -> Bool {
         guard window?.firstResponder === self,

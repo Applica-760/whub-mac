@@ -98,6 +98,7 @@ private struct DiffFileList: NSViewRepresentable {
             coordinator.parent.onOpen(coordinator.locations[table.selectedRow])
         }
         table.backgroundColor = .clear
+        table.autoresizingMask = [.width]
         let column = NSTableColumn(identifier: .init("path"))
         table.addTableColumn(column)
         table.headerView = nil
@@ -120,6 +121,7 @@ private struct DiffFileList: NSViewRepresentable {
         scroll.contentView.drawsBackground = false
         scroll.documentView = table
         scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
         context.coordinator.update(self, table: table)
         return scroll
@@ -146,6 +148,10 @@ private struct DiffFileList: NSViewRepresentable {
             if changed {
                 locations = parent.changes.keys.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
                 table.reloadData()
+                let width = locations.indices.map { row in
+                    makeLabel(row: row).intrinsicContentSize.width
+                }.max() ?? 0
+                table.fitExplorerColumn(to: width + 8)
             }
             if case let .diff(location) = parent.selectedTab, let row = locations.firstIndex(of: location) {
                 if table.selectedRow != row { table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
@@ -155,6 +161,10 @@ private struct DiffFileList: NSViewRepresentable {
         func numberOfRows(in tableView: NSTableView) -> Int { locations.count }
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            makeLabel(row: row)
+        }
+
+        private func makeLabel(row: Int) -> NSTextField {
             let label = NSTextField(labelWithString: "")
             let location = locations[row]
             let prefix = parent.root.path == "/" ? "/" : parent.root.path + "/"
