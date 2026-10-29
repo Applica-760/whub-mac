@@ -154,10 +154,11 @@ final class DiffScrollSync: NSObject {
     @objc private func scrolled(_ notification: Notification) {
         guard !syncing, let source = notification.object as? NSClipView,
               let target = source === before?.contentView ? after : before else { return }
-        let y = source.bounds.origin.y
-        guard target.contentView.bounds.origin.y != y else { return }
+        let bounds = NSRect(origin: source.bounds.origin, size: target.contentView.bounds.size)
+        let origin = target.contentView.constrainBoundsRect(bounds).origin
+        guard target.contentView.bounds.origin != origin else { return }
         syncing = true
-        target.contentView.scroll(to: NSPoint(x: target.contentView.bounds.origin.x, y: y))
+        target.contentView.scroll(to: origin)
         target.reflectScrolledClipView(target.contentView)
         syncing = false
     }

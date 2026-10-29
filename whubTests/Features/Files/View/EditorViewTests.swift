@@ -342,7 +342,7 @@ struct EditorViewTests {
     }
 
     @Test func diffRendererIsReadOnlyAlignedAndScrollsTogether() async throws {
-        let before = (0..<100).map { "line\($0)\n" }.joined()
+        let before = (0..<100).map { "line\($0) " + String(repeating: "content ", count: 30) + "\n" }.joined()
         let after = "inserted\n" + before
         let host = NSHostingView(rootView: DiffView(before: before, after: after,
                                                   fileURL: URL(fileURLWithPath: "/file.swift")))
@@ -371,13 +371,36 @@ struct EditorViewTests {
         #expect(try y(of: left) == y(of: right))
         let leftScroll = try #require(left.enclosingScrollView)
         let rightScroll = try #require(right.enclosingScrollView)
-        leftScroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
+        leftScroll.contentView.scroll(to: NSPoint(x: 100, y: 100))
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: leftScroll.contentView)
-        #expect(rightScroll.contentView.bounds.minY == leftScroll.contentView.bounds.minY)
-        rightScroll.contentView.scroll(to: NSPoint(x: 0, y: 200))
+        #expect(leftScroll.contentView.bounds.minX > 0)
+        #expect(rightScroll.contentView.bounds.origin == leftScroll.contentView.bounds.origin)
+        rightScroll.contentView.scroll(to: NSPoint(x: 200, y: 200))
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: rightScroll.contentView)
-        #expect(rightScroll.contentView.bounds.minY == leftScroll.contentView.bounds.minY)
+        #expect(rightScroll.contentView.bounds.origin == leftScroll.contentView.bounds.origin)
         withExtendedLifetime(host) {}
+    }
+
+    @Test func diffScrollSyncClampsToEachDocumentWithoutMovingSource() {
+        let left = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let right = NSScrollView(frame: left.frame)
+        left.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 1200, height: 1000))
+        right.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 1000))
+        let sync = DiffScrollSync()
+        sync.attach(left, before: true)
+        sync.attach(right, before: false)
+        left.contentView.scroll(to: NSPoint(x: 900, y: 100))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: left.contentView)
+        #expect(left.contentView.bounds.minX == 900)
+        #expect(right.contentView.bounds.maxX == 500)
+        #expect(right.contentView.bounds.minY == 100)
+        right.contentView.scroll(to: NSPoint(x: 40, y: 200))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: right.contentView)
+        #expect(left.contentView.bounds.origin == NSPoint(x: 40, y: 200))
+        sync.disconnect()
+        left.contentView.scroll(to: NSPoint(x: 200, y: 300))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: left.contentView)
+        #expect(right.contentView.bounds.origin == NSPoint(x: 40, y: 200))
     }
 
     @Test func localSaveCommandPreservesEncodingAndWatcherUpdatesDocument() async throws {
