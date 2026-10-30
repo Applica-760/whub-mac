@@ -167,6 +167,15 @@ struct ExplorerStoreTests {
         try files.create(in: folder, name: "file.txt", isDirectory: false)
         let file = folder.appendingPathComponent("file.txt")
         try Data("saved".utf8).write(to: file)
+        try files.rename(file, to: "File.txt")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).contains("File.txt"))
+        try files.rename(folder.appendingPathComponent("File.txt"), to: "file.txt")
+        try files.create(in: folder, name: "other.txt", isDirectory: false)
+        let other = folder.appendingPathComponent("other.txt")
+        try Data("other".utf8).write(to: other)
+        #expect(throws: (any Error).self) { try files.rename(file, to: "other.txt") }
+        #expect(try String(contentsOf: file, encoding: .utf8) == "saved")
+        #expect(try String(contentsOf: other, encoding: .utf8) == "other")
         for name in ["", " ", ".", "..", "../outside", "a/b", "a:b", "a\n"] {
             #expect(throws: FilesStore.OperationError.self) {
                 try files.create(in: folder, name: name, isDirectory: false)

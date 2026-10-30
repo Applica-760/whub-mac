@@ -260,7 +260,8 @@ final class FilesStore: ObservableObject {
     func rename(_ url: URL, to name: String) throws {
         let affected = try editableTabs(under: .local(url))
         if name == url.lastPathComponent { return }
-        let target = try destination(in: url.deletingLastPathComponent(), name: name)
+        try validateName(name)
+        let target = url.deletingLastPathComponent().appendingPathComponent(name)
         try FileManager.default.moveItem(at: url, to: target)
         for (editor, tab) in affected { editor.close(tab) }
         checkForExternalChanges()

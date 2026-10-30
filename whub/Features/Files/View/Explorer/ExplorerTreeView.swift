@@ -147,6 +147,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
 
         func beginEditing(_ operation: ExplorerStore.NameEdit.Operation, item: ExplorerItem) {
             guard let outlineView else { return }
+            if nameEdit != nil { focusName(); return }
             store.beginNameEditing(operation, item: item, parent: outlineView.parent(forItem: item) as? ExplorerItem)
             guard let edit = nameEdit else { return }
             updateNameEditingDisplay()
@@ -404,6 +405,7 @@ private final class FileOutlineControl: NSOutlineView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        guard store?.nameEdit == nil else { return nil }
         let row = self.row(at: convert(event.locationInWindow, from: nil))
         guard row >= 0, let item = item(atRow: row) as? ExplorerItem else { return nil }
 

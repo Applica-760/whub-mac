@@ -272,6 +272,11 @@ struct ExplorerViewTests {
             #expect(outline.parent(forItem: edit.item) as? ExplorerItem === parent)
             #expect(edit.item.isDirectory == (action == .newFolder))
             #expect(!FileManager.default.fileExists(atPath: edit.item.location.path))
+            store.updateName("partial")
+            coordinator.beginEditing(.rename, item: edit.item)
+            #expect(store.nameEdit?.item === edit.item)
+            #expect(store.nameEdit?.operation == action)
+            #expect(store.nameEdit?.name == "partial")
             coordinator.onCommitName = { throw FilesStore.OperationError.invalidName }
             #expect(throws: FilesStore.OperationError.self) { try coordinator.commitName("../bad") }
             #expect(store.nameEdit?.name == "../bad")

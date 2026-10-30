@@ -534,13 +534,10 @@ struct EditorViewTests {
 private struct WorkspaceEditorTestRoot: View {
     @ObservedObject var files: FilesStore
     private let leftFocus = TabPaneFocus()
-    private let agentFocus = TabPaneFocus()
-    private let inputFocus = AgentBookFocus()
 
     var body: some View {
         RetainedPageContainer(selection: true) { _ in
-            WorkspacePanes(section: .editor, leftFocus: leftFocus, agentFocus: agentFocus,
-                           agentInputFocus: inputFocus, openLink: { _, _ in false })
+            WorkspacePanes(section: .editor, leftFocus: leftFocus)
                 .environmentObject(files.activeEditor)
         }
         .environmentObject(files)
