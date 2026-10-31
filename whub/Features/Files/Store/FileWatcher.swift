@@ -3,8 +3,17 @@ import Foundation
 
 final class FileWatcher {
     enum Event {
-        case changed([String])
+        case changed([Change])
         case rescan
+    }
+
+    struct Change {
+        let path: String
+        let flags: FSEventStreamEventFlags
+
+        var isContentOnly: Bool {
+            flags == FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified | kFSEventStreamEventFlagItemIsFile)
+        }
     }
 
     enum StartError: LocalizedError {
@@ -64,7 +73,9 @@ final class FileWatcher {
             )
             let rescan = (0..<count).contains { flags[$0] & rescanFlags != 0 }
             MainActor.assumeIsolated {
-                watcher.onChange(rescan ? .rescan : .changed(paths))
+                watcher.onChange(rescan ? .rescan : .changed((0..<count).map {
+                    Change(path: paths[$0], flags: flags[$0])
+                }))
             }
         }, &context, Array(paths) as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.15, flags)
         else { throw StartError.failed }

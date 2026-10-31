@@ -39,12 +39,12 @@ final class FilesStore: ObservableObject {
             guard let self else { return }
             explorer.localTree.managementDirectories = git.managementDirectories
         }
-        explorer.localTree.onChanges = { [weak self] event, treeChanged in
+        explorer.localTree.onChanges = { [weak self] event, worktreeChanged in
             guard let self, let root = explorer.rootURL else { return }
-            guard case let .changed(paths) = event else { git.refresh(); return }
+            guard case let .changed(changes) = event else { git.refresh(); return }
             let roots = [root.standardizedFileURL.path, root.resolvingSymlinksInPath().path]
-            if treeChanged || Git.needsStatusRefresh(
-                changedPaths: paths, worktreeRoots: roots, managementDirectories: git.managementDirectories
+            if worktreeChanged || Git.needsStatusRefresh(
+                changedPaths: changes.map(\.path), worktreeRoots: roots, managementDirectories: git.managementDirectories
             ) { git.refresh() }
         }
     }

@@ -38,19 +38,21 @@ final class LocalTreeStore: ObservableObject {
 
     private func handleChanges(_ event: FileWatcher.Event) {
         guard let rootURL else { return }
-        var treeChanged = false
-        defer { onChanges?(event, treeChanged) }
-        guard case let .changed(paths) = event else { refresh(); return }
+        var worktreeChanged = false
+        defer { onChanges?(event, worktreeChanged) }
+        guard case let .changed(changes) = event else { refresh(); return }
         let roots = [rootURL.standardizedFileURL.path, rootURL.resolvingSymlinksInPath().path]
-        treeChanged = paths.contains(where: { path in
-            roots.contains { root in
+        let relevantChanges = changes.filter { change in
+            let path = change.path
+            return roots.contains { root in
                 if path == root || root.hasPrefix(path + "/") { return true }
                 guard path.hasPrefix(root + "/") else { return false }
                 let relative = path.dropFirst(root.count + 1)
                 return !relative.split(separator: "/").contains { $0 == ".git" || $0 == ".DS_Store" }
             }
-        })
-        if treeChanged { refresh() }
+        }
+        worktreeChanged = !relevantChanges.isEmpty
+        if relevantChanges.contains(where: { !$0.isContentOnly }) { refresh() }
     }
 
     private func updateWatching() {

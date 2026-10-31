@@ -16,7 +16,8 @@ final class LocalDiffStore: ObservableObject {
     private var stopped = false
     private lazy var watcher = FileWatcher { [weak self] event in
         guard let self else { return }
-        if case let .changed(paths) = event {
+        if case let .changed(changes) = event {
+            let paths = changes.map(\.path)
             let targets = [fileURL.standardizedFileURL.path, fileURL.resolvingSymlinksInPath().path]
             let roots = [directory.path, directory.resolvingSymlinksInPath().path]
             guard paths.contains(where: { path in targets.contains { $0 == path || $0.hasPrefix(path + "/") } })

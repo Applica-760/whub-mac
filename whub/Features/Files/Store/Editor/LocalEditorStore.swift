@@ -34,8 +34,8 @@ final class LocalEditorStore: ObservableObject {
     private lazy var watcher = FileWatcher { [weak self] event in
         guard let self else { return }
         switch event {
-        case let .changed(paths):
-            checkForExternalChanges(paths: paths)
+        case let .changed(changes):
+            checkForExternalChanges(paths: changes.map(\.path))
         case .rescan:
             checkForExternalChanges()
         }
