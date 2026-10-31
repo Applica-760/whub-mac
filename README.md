@@ -1,15 +1,15 @@
 # whub-mac
 
-ファイル編集、ターミナル、ブラウザ、Codexとの対話をまとめたmacOS用のワークスペースアプリです。SwiftUIとAppKitで実装し、キーボードでの操作を重視しています。
+ファイル編集、ターミナル、Codexとの対話をまとめたmacOS用のワークスペースアプリです。SwiftUIとAppKitで実装し、キーボードでの操作を重視しています。
 
 個人用に開発中です。保存モデルや操作方法は変更されることがあります。
 
 ## できること
 
-- **Workspace**：右にAgentBookを固定し、左をEditor／Browser／Terminal／Overviewから選択。⌘⇧H／Lで左側を切り替え。
+- **Workspace**：右にAgentBookを固定し、左をEditor／Terminal／Overviewから選択。⌘⇧H／Lで左側を切り替え。
 - **File**：ローカルのファイル編集・Git差分表示、リモートの既存ファイルの閲覧・編集・保存。
-- **Terminal / Browser**：複数タブのターミナルとブラウザ、ブックマーク管理。
-- **AgentBook**：Local／RemoteでCodexを実行。会話を中央ページと前後のプレビューで表示し、再開・モデル選択・実行承認に対応。
+- **Terminal**：複数タブのターミナル。
+- **AgentBook**：Local／RemoteでCodexを実行。会話を中央ページと前後のプレビューで表示し、再開・モデル選択・実行承認に対応。Webリンクは既定ブラウザで開きます。
 - **Overview**：Todo・活動時間の記録、リモートServerの管理。
 - **Motion**：実験機能のコードのみ保持。画面からはアクセスできません。
 

@@ -2,7 +2,6 @@ import AppKit
 import Foundation
 import SwiftData
 import Testing
-import WebKit
 import WhubCore
 import WhubGit
 @testable import whub

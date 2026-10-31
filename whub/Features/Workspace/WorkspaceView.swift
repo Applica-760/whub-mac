@@ -4,12 +4,11 @@ import SwiftUI
 import WhubCore
 
 enum WorkspaceSection: CaseIterable, Hashable {
-    case editor, browser, terminal, overview
+    case editor, terminal, overview
 
     var label: String {
         switch self {
         case .editor: "Editor"
-        case .browser: "Browser"
         case .terminal: "Terminal"
         case .overview: "Overview"
         }
@@ -18,7 +17,6 @@ enum WorkspaceSection: CaseIterable, Hashable {
     var systemImage: String {
         switch self {
         case .editor: "doc.text"
-        case .browser: "globe"
         case .terminal: "terminal"
         case .overview: "rectangle.3.group"
         }
@@ -33,7 +31,6 @@ enum WorkspaceSection: CaseIterable, Hashable {
     @ViewBuilder var content: some View {
         switch self {
         case .editor: EditorView()
-        case .browser: BrowserView()
         case .terminal: TerminalView()
         case .overview: OverviewView()
         }
@@ -65,7 +62,6 @@ extension FocusedValues {
 struct WorkspaceView<Container: View>: View {
     @Binding var section: WorkspaceSection
     @EnvironmentObject private var agentBook: AgentBookStore
-    @EnvironmentObject private var browser: BrowserStore
     @EnvironmentObject private var terminal: TerminalStore
     @EnvironmentObject private var files: FilesStore
     @EnvironmentObject private var connections: RemoteConnectionStore
@@ -106,9 +102,7 @@ struct WorkspaceView<Container: View>: View {
 
     private func openLink(_ url: URL, store: AgentStore) -> Bool {
         if ["http", "https"].contains(url.scheme?.lowercased()) {
-            browser.open(url)
-            selectSection(.browser)
-            return true
+            return NSWorkspace.shared.open(url)
         }
         guard let path = Self.filePath(for: url, directory: store.directory) else { return false }
         let location: FileLocation
@@ -150,7 +144,6 @@ struct WorkspaceView<Container: View>: View {
             agentBook.add()
         } else if leftFocus.contains(window) {
             switch section {
-            case .browser: browser.add()
             case .terminal: terminal.add()
             case .editor, .overview: break
             }

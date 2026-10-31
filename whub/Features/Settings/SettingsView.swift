@@ -14,10 +14,6 @@ struct SettingsView: View {
                 .padding()
                 .tabItem { Label("Hosts", systemImage: "desktopcomputer") }
 
-            BookmarkSettingsView()
-                .padding()
-                .tabItem { Label("Bookmarks", systemImage: "bookmark") }
-
             ActivityCategorySettingsView()
                 .padding()
                 .tabItem { Label("Categories", systemImage: "tag") }

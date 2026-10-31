@@ -6,12 +6,11 @@ import WhubGit
 
 struct ExplorerSidebar: View {
     let onFileSelect: () -> Void
-    let onOpenInBrowser: (URL) -> Void
     let focus: ExplorerFocusNavigation
     @EnvironmentObject private var files: FilesStore
 
     var body: some View {
-        ExplorerView(onFileSelect: onFileSelect, onOpenInBrowser: onOpenInBrowser, store: files.explorer,
+        ExplorerView(onFileSelect: onFileSelect, store: files.explorer,
                      focus: focus)
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 640)
     }
@@ -19,7 +18,6 @@ struct ExplorerSidebar: View {
 
 struct ExplorerView: View {
     let onFileSelect: () -> Void
-    let onOpenInBrowser: (URL) -> Void
     @Query(sort: \Project.name) private var projects: [Project]
     @Query(sort: \WhubCore.Host.name) private var hosts: [WhubCore.Host]
     @Environment(\.modelContext) private var context
@@ -107,8 +105,6 @@ struct ExplorerView: View {
     private func performAction(_ action: ExplorerContextMenu.Action, location: FileLocation) {
         do {
             switch action {
-            case .openInBrowser:
-                if let url = location.localURL { onOpenInBrowser(url) }
             case .showPreview:
                 showMarkdownPreview(location)
             case .trash:

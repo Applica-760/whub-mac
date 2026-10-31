@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct AppView: View {
-    @EnvironmentObject private var browser: BrowserStore
     @EnvironmentObject private var files: FilesStore
     @FocusedValue(\.workspaceActions) private var workspaceActions
     @Binding var section: WorkspaceSection
@@ -11,8 +10,7 @@ struct AppView: View {
         NavigationSplitView {
             ExplorerSidebar(onFileSelect: {
                 section = .editor
-            }, onOpenInBrowser: openInBrowser,
-                            focus: explorerFocus)
+            }, focus: explorerFocus)
         } detail: {
             WorkspaceView(section: $section) { panes in
                 RetainedPageContainer(selection: true, focus: explorerFocus.content) { _ in
@@ -32,10 +30,5 @@ struct AppView: View {
             RemoteConnectionToolbar()
             SettingsToolbar()
         }
-    }
-
-    private func openInBrowser(_ url: URL) {
-        browser.open(url)
-        section = .browser
     }
 }

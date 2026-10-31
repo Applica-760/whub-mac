@@ -2,7 +2,6 @@ import AppKit
 import Foundation
 import SwiftData
 import Testing
-import WebKit
 import WhubCore
 @testable import whub
 
@@ -343,20 +342,16 @@ struct ExplorerViewTests {
         var edited: ExplorerStore.NameEdit.Operation?
         let menu = ExplorerContextMenu(location: .local(url), isDirectory: false, basePath: "/repo",
             onEdit: { edited = $0 }, onAction: { received = ($0, $1) }, onShowDiff: { _ in })
-        #expect(menu.items.map { $0.isSeparatorItem ? "---" : $0.title } == ["New File", "New Folder", "---", "Copy path", "Copy relative path", "---", "View Diffs", "Rename", "Move to Trash", "Open in Browser"])
-        for (action, title) in [(ExplorerContextMenu.Action.trash, "Move to Trash"), (.openInBrowser, "Open in Browser")] {
-            let index = try #require(menu.items.firstIndex { $0.title == title })
-            menu.performActionForItem(at: index)
-            #expect(received?.0 == action)
-            #expect(received?.1 == .local(url))
-        }
+        #expect(menu.items.map { $0.isSeparatorItem ? "---" : $0.title } == ["New File", "New Folder", "---", "Copy path", "Copy relative path", "---", "View Diffs", "Rename", "Move to Trash"])
+        let trashIndex = try #require(menu.items.firstIndex { $0.title == "Move to Trash" })
+        menu.performActionForItem(at: trashIndex)
+        #expect(received?.0 == .trash)
+        #expect(received?.1 == .local(url))
         for (operation, title) in [(ExplorerStore.NameEdit.Operation.newFile, "New File"), (.newFolder, "New Folder"), (.rename, "Rename")] {
             let index = try #require(menu.items.firstIndex { $0.title == title })
             menu.performActionForItem(at: index)
             #expect(edited == operation)
         }
-        let folder = ExplorerContextMenu(location: .local(url), isDirectory: true, basePath: nil, onShowDiff: { _ in })
-        #expect(!folder.items.contains { $0.title == "Open in Browser" })
         let blocked = ExplorerContextMenu(location: .local(url), isDirectory: true, basePath: nil,
                                           allowsActions: false, onShowDiff: { _ in })
         #expect(blocked.items.count == 4)

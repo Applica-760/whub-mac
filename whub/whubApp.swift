@@ -8,7 +8,6 @@ struct whubApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var files = FilesStore()
     @StateObject private var terminalStore: TerminalStore
-    @StateObject private var browserStore = BrowserStore()
     @StateObject private var agentBookStore: AgentBookStore
     @StateObject private var remoteConnections: RemoteConnectionStore
     @StateObject private var remoteServers: RemoteServerStore
@@ -31,36 +30,36 @@ struct whubApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
-            AppView(section: $section)
-                .containerBackground(Color(nsColor: .windowBackgroundColor), for: .window)
-                .environmentObject(files)
-                .environmentObject(files.activeEditor)
-                .environmentObject(files.git)
-                .environmentObject(terminalStore)
-                .environmentObject(browserStore)
-                .environmentObject(agentBookStore)
-                .environmentObject(remoteConnections)
-                .environmentObject(remoteServers)
-                .onAppear {
-                    appDelegate.remoteConnections = remoteConnections
-                    appDelegate.remoteServers = remoteServers
-                }
-                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-                    agentBookStore.disconnect()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                    files.checkForExternalChanges()
-                }
-        }
-        .windowResizability(.contentMinSize)
-        .modelContainer(workspaceContainer)
-        .commands {
-            AppCommands(files: files, agentBookStore: agentBookStore)
-        }
+        Group {
+            WindowGroup {
+                AppView(section: $section)
+                    .containerBackground(Color(nsColor: .windowBackgroundColor), for: .window)
+                    .environmentObject(files)
+                    .environmentObject(files.activeEditor)
+                    .environmentObject(files.git)
+                    .environmentObject(terminalStore)
+                    .environmentObject(agentBookStore)
+                    .environmentObject(remoteConnections)
+                    .environmentObject(remoteServers)
+                    .onAppear {
+                        appDelegate.remoteConnections = remoteConnections
+                        appDelegate.remoteServers = remoteServers
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                        agentBookStore.disconnect()
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                        files.checkForExternalChanges()
+                    }
+            }
+            .windowResizability(.contentMinSize)
+            .commands {
+                AppCommands(files: files, agentBookStore: agentBookStore)
+            }
 
-        Settings {
-            SettingsView()
+            Settings {
+                SettingsView()
+            }
         }
         .modelContainer(workspaceContainer)
     }

@@ -3,7 +3,6 @@ import AppKit
 final class ExplorerContextMenu: NSMenu {
     enum Action {
         case trash
-        case openInBrowser
         case showPreview
     }
 
@@ -15,7 +14,6 @@ final class ExplorerContextMenu: NSMenu {
         case showDiff
         case rename
         case trash
-        case openInBrowser
         case showPreview
 
         var label: String {
@@ -27,7 +25,6 @@ final class ExplorerContextMenu: NSMenu {
             case .showDiff: "View Diffs"
             case .rename: "Rename"
             case .trash: "Move to Trash"
-            case .openInBrowser: "Open in Browser"
             case .showPreview: "Show Preview"
             }
         }
@@ -41,7 +38,6 @@ final class ExplorerContextMenu: NSMenu {
             case .showDiff: #selector(ExplorerContextMenu.showDiff)
             case .rename: #selector(ExplorerContextMenu.rename)
             case .trash: #selector(ExplorerContextMenu.trash)
-            case .openInBrowser: #selector(ExplorerContextMenu.openInBrowser)
             case .showPreview: #selector(ExplorerContextMenu.showPreview)
             }
         }
@@ -87,9 +83,7 @@ final class ExplorerContextMenu: NSMenu {
             add(.trash)
         }
         if allowsActions {
-            if !tabMenu, location.localURL != nil, !isDirectory, ["html", "htm"].contains((location.path as NSString).pathExtension.lowercased()) {
-                add(.openInBrowser)
-            } else if !isDirectory, EditorStore.supportsMarkdownPreview(location) {
+            if !isDirectory, EditorStore.supportsMarkdownPreview(location) {
                 add(.showPreview)
                 if tabMenu && previewVisible { item(withTitle: "Show Preview")?.title = "Hide Preview" }
             }
@@ -118,8 +112,6 @@ final class ExplorerContextMenu: NSMenu {
     @objc private func rename() { onEdit(.rename) }
 
     @objc private func trash() { onAction(.trash, location) }
-
-    @objc private func openInBrowser() { onAction(.openInBrowser, location) }
 
     @objc private func showPreview() { onAction(.showPreview, location) }
 
