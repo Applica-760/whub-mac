@@ -115,6 +115,10 @@ private struct DiffFileList: NSViewRepresentable {
                                            if case .showPreview = action { coordinator?.parent.onShowMarkdownPreview(location) }
                                        }, onShowDiff: coordinator.parent.onOpen)
         }
+        table.onSelectContextRow = { [weak coordinator = context.coordinator, weak table] row in
+            guard let coordinator, let table else { return }
+            coordinator.selectContextRow(row, in: table)
+        }
         table.setAccessibilityLabel("未コミットの変更ファイル")
         let scroll = NSScrollView()
         scroll.drawsBackground = false
@@ -139,6 +143,13 @@ private struct DiffFileList: NSViewRepresentable {
         private var updating = false
 
         init(_ parent: DiffFileList) { self.parent = parent }
+
+        func selectContextRow(_ row: Int, in table: NSTableView) {
+            updating = true
+            defer { updating = false }
+            table.window?.makeFirstResponder(table)
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
 
         func update(_ parent: DiffFileList, table: NSTableView) {
             updating = true
@@ -196,6 +207,7 @@ private struct DiffFileList: NSViewRepresentable {
 
 private final class DiffTableControl: NSTableView {
     var menuForRow: ((Int) -> NSMenu?)?
+    var onSelectContextRow: (Int) -> Void = { _ in }
     var onOpenSelection: () -> Void = {}
 
     override func keyDown(with event: NSEvent) {
@@ -203,6 +215,9 @@ private final class DiffTableControl: NSTableView {
         super.keyDown(with: event)
     }
     override func menu(for event: NSEvent) -> NSMenu? {
-        menuForRow?(row(at: convert(event.locationInWindow, from: nil)))
+        let row = row(at: convert(event.locationInWindow, from: nil))
+        guard let menu = menuForRow?(row) else { return nil }
+        onSelectContextRow(row)
+        return menu
     }
 }

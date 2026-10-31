@@ -94,6 +94,10 @@ struct ExplorerOutlineView: NSViewRepresentable {
         outlineView.onOpenSelection = { [weak coordinator = context.coordinator] in
             coordinator?.openSelection()
         }
+        outlineView.onSelectContextRow = { [weak coordinator = context.coordinator, weak outlineView] row in
+            guard let coordinator, let outlineView else { return }
+            coordinator.selectContextRow(row, in: outlineView)
+        }
         focus.attachList(outlineView)
         outlineView.onEdit = { [weak coordinator = context.coordinator] action, item in
             coordinator?.beginEditing(action, item: item)
@@ -146,6 +150,13 @@ struct ExplorerOutlineView: NSViewRepresentable {
         private var isRestoring = false
         var onCommitName: () throws -> Void = {}
         private var nameEdit: ExplorerStore.NameEdit? { store.nameEdit }
+
+        func selectContextRow(_ row: Int, in outlineView: NSOutlineView) {
+            isRestoring = true
+            defer { isRestoring = false }
+            outlineView.window?.makeFirstResponder(outlineView)
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
 
         func beginEditing(_ operation: ExplorerStore.NameEdit.Operation, item: ExplorerItem) {
             guard let outlineView else { return }
@@ -396,6 +407,7 @@ private final class FileOutlineControl: NSOutlineView {
 
     var onEdit: (ExplorerStore.NameEdit.Operation, ExplorerItem) -> Void = { _, _ in }
     var onOpenSelection: () -> Void = {}
+    var onSelectContextRow: (Int) -> Void = { _ in }
 
     override func keyDown(with event: NSEvent) {
         if store?.nameEdit == nil,
@@ -416,6 +428,7 @@ private final class FileOutlineControl: NSOutlineView {
                                        onShowDiff: onShowDiff)
         }
         guard row >= 0, let item = item(atRow: row) as? ExplorerItem else { return nil }
+        onSelectContextRow(row)
 
         return ExplorerContextMenu(location: item.location, isDirectory: item.isDirectory,
                                    basePath: basePath, allowsActions: store?.isUnavailable(item) != true,

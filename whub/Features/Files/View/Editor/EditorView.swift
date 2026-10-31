@@ -64,7 +64,10 @@ struct EditorView: View {
             }
         } header: {
             HStack(spacing: 8) {
-                EditorTabBarView(tabFocus: tabFocus, editorID: editorID)
+                EditorTabBarView(tabFocus: tabFocus, editorID: editorID) { location in
+                    files.open(location, hosts: hosts, connections: connections, servers: servers)
+                    store.setMarkdownPreviewVisible(true, for: location)
+                }
                 if let location = store.markdownPreviewLocation {
                     let visible = store.markdownPreviews.contains(location)
                     Button(visible ? "Hide Preview" : "Show Preview", systemImage: "rectangle.split.2x1") {

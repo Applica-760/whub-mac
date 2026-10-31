@@ -8,6 +8,53 @@ import WhubCore
 
 @Suite @MainActor
 struct ExplorerViewTests {
+    @Test func tabMenuShowsOnlyFileActions() {
+        let markdown = FileLocation.local(URL(fileURLWithPath: "/repo/readme.md"))
+        var preview: FileLocation?
+        var diff: FileLocation?
+        let menu = ExplorerContextMenu(location: markdown, isDirectory: false, basePath: "/repo", tabMenu: true,
+                                       onAction: { action, location in if case .showPreview = action { preview = location } },
+                                       onShowDiff: { diff = $0 })
+        #expect(menu.items.map { $0.isSeparatorItem ? "---" : $0.title } == ["Copy path", "Copy relative path", "---", "View Diffs", "Show Preview"])
+        menu.performActionForItem(at: 0)
+        #expect(NSPasteboard.general.string(forType: .string) == markdown.path)
+        menu.performActionForItem(at: 3)
+        menu.performActionForItem(at: 4)
+        #expect(diff == markdown)
+        #expect(preview == markdown)
+        menu.performActionForItem(at: 1)
+        #expect(NSPasteboard.general.string(forType: .string) == "readme.md")
+        let html = ExplorerContextMenu(location: .local(URL(fileURLWithPath: "/repo/index.html")),
+                                       isDirectory: false, basePath: nil, tabMenu: true, onShowDiff: { _ in })
+        #expect(html.items.map { $0.isSeparatorItem ? "---" : $0.title } == ["Copy path", "Copy relative path", "---", "View Diffs"])
+        #expect(!html.items[1].isEnabled)
+    }
+    @Test func contextSelectionDoesNotPreviewClickedFile() throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/ExplorerStoreTests/" + UUID().uuidString)
+        let folder = directory.appendingPathComponent("folder")
+        let file = folder.appendingPathComponent("file.txt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data().write(to: file)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ExplorerStore()
+        store.selectedLocation = .local(directory)
+        store.localTree.setRoot(directory)
+        var previews = 0
+        let coordinator = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in previews += 1 }, onFileOpen: { _ in })
+        let outline = NSOutlineView()
+        let column = NSTableColumn(identifier: .init("name"))
+        outline.addTableColumn(column)
+        outline.outlineTableColumn = column
+        outline.dataSource = coordinator
+        outline.delegate = coordinator
+        coordinator.outlineView = outline
+        coordinator.update(basePath: nil, gitChanges: [:])
+        let parent = try #require(store.rootItems.first)
+        coordinator.selectContextRow(outline.row(forItem: parent), in: outline)
+        #expect(outline.selectedRow == outline.row(forItem: parent))
+        #expect(previews == 0)
+    }
     @Test func explorerColumnScrollsWholeRowsAndShrinksWithContent() throws {
         final class Rows: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             func numberOfRows(in tableView: NSTableView) -> Int { 2 }
