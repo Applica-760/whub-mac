@@ -60,19 +60,19 @@ struct RetainedPageContainerTests {
     }
 
     @Test func workspaceSectionsCycleAndRetainEachPage() throws {
-        let sections: [WorkspaceSection] = [.editor, .terminal, .overview]
-        #expect(WorkspaceSection.allCases == sections)
-        #expect(WorkspaceSection.editor.moved(by: -1) == .overview)
-        #expect(WorkspaceSection.overview.moved(by: 1) == .editor)
+        let sections: [FeaturePage] = [.editor, .terminal, .overview]
+        #expect(FeaturePage.allCases == sections)
+        #expect(FeaturePage.editor.moved(by: -1) == .overview)
+        #expect(FeaturePage.overview.moved(by: 1) == .editor)
         for (index, section) in sections.enumerated() {
             #expect(section.moved(by: 1) == sections[(index + 1) % sections.count])
             #expect(section.moved(by: 1).moved(by: -1) == section)
         }
 
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
-        let coordinator = RetainedPageContainer<WorkspaceSection, RetainedInputProbe>.Coordinator()
-        var inputs: [WorkspaceSection: NSTextView] = [:]
-        let root: (WorkspaceSection, RetainedPageActivity) -> AnyView = { section, _ in
+        let coordinator = RetainedPageContainer<FeaturePage, RetainedInputProbe>.Coordinator()
+        var inputs: [FeaturePage: NSTextView] = [:]
+        let root: (FeaturePage, RetainedPageActivity) -> AnyView = { section, _ in
             AnyView(RetainedInputProbe { inputs[section] = $0 })
         }
         for section in sections {

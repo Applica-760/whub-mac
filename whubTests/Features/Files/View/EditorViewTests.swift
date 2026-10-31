@@ -1,5 +1,5 @@
 // テスト一覧:
-// - workspaceEditorFollowsFileSelectionAfterProjectSwitch(): Workspaceの分割表示が切替後のEditorを表示する。
+// - workspaceEditorFollowsFileSelectionAfterProjectSwitch(): Workspaceの切替後のEditor表示とフォーカス範囲を検証する。
 // - tabShortcutsPreserveEditorStateAndCloseSelectedTabs(): [TAB-F-001] [TAB-F-002] [TAB-F-006] [TAB-F-007] [TAB-F-008]
 // - fileEditorRestoresFocusAndPositionAfterFeatureSwitch(): Feature切替後の入力フォーカス・選択・スクロール位置を復元する。
 // - fileEditorFocusFollowsProjectSwitchAndPreservesPosition(): Project切替後の入力フォーカスと位置を復元する。
@@ -66,7 +66,9 @@ struct EditorViewTests {
         try Data("second file".utf8).write(to: secondURL)
         files.preview(.local(firstURL), hosts: [], connections: connections, servers: servers)
         let first = try #require(files.activeEditor.file(for: .local(firstURL)))
-        let host = NSHostingView(rootView: WorkspaceEditorTestRoot(files: files)
+        let leftFocus = TabPaneFocus()
+        let contentFocus = TabPaneFocus()
+        let host = NSHostingView(rootView: WorkspaceEditorTestRoot(files: files, leftFocus: leftFocus, contentFocus: contentFocus)
             .environmentObject(book).environmentObject(connections).environmentObject(servers)
             .modelContainer(database))
         let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600),
@@ -88,6 +90,14 @@ struct EditorViewTests {
             return second.editorViews.views.values.contains { $0.documentView is CodeTextView }
         }
         #expect(!second.editorViews.views.isEmpty, "File editor follows project selection")
+        let text = try #require(second.editorViews.views.values.first?.documentView as? CodeTextView)
+        let content = try #require(contentFocus.view)
+        #expect(text.isDescendant(of: content))
+        leftFocus.activate()
+        #expect(window.firstResponder === leftFocus.view)
+        #expect(window.makeFirstResponder(text))
+        #expect(leftFocus.contains(window))
+        #expect(contentFocus.contains(window))
         withExtendedLifetime(host) {}
     }
 
@@ -596,13 +606,14 @@ struct EditorViewTests {
 
 private struct WorkspaceEditorTestRoot: View {
     @ObservedObject var files: FilesStore
-    private let leftFocus = TabPaneFocus()
+    let leftFocus: TabPaneFocus
+    let contentFocus: TabPaneFocus
 
     var body: some View {
-        RetainedPageContainer(selection: true) { _ in
-            WorkspacePanes(section: .editor, leftFocus: leftFocus)
-                .environmentObject(files.activeEditor)
+        RetainedPageContainer(selection: FeaturePage.editor, focus: contentFocus) { page in
+            page.content.environmentObject(files.activeEditor)
         }
+        .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
         .environmentObject(files)
         .environmentObject(files.git)
     }

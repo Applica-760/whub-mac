@@ -9,7 +9,7 @@ struct AppView: View {
     @EnvironmentObject private var files: FilesStore
     @EnvironmentObject private var agentBook: AgentBookStore
     @EnvironmentObject private var terminal: TerminalStore
-    @Binding var section: WorkspaceSection
+    @Binding var section: FeaturePage
     @State private var explorerFocus = ExplorerFocusNavigation()
     @State private var leftFocus = TabPaneFocus()
     @State private var agentFocus = TabPaneFocus()
@@ -23,21 +23,20 @@ struct AppView: View {
                 section = .editor
             }, focus: explorerFocus)
         } detail: {
-            RetainedPageContainer(selection: true, focus: explorerFocus.content) { _ in
-                WorkspacePanes(section: section, leftFocus: leftFocus)
-                    .environmentObject(files.activeEditor)
+            RetainedPageContainer(selection: section, focus: explorerFocus.content) { page in
+                page.content.environmentObject(files.activeEditor)
             }
+            .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
             .inspector(isPresented: $showsAgentBook) {
                 AgentBookView(store: agentBook)
                     .environment(\.openWorkspaceEditor, { selectSection(.editor) })
                     .background(TabPaneFocusView(focus: agentFocus, activatesOnClick: false))
                     .inspectorColumnWidth(min: 500, ideal: 600, max: 1200)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Picker("ページ", selection: selection) {
-                        ForEach(WorkspaceSection.allCases, id: \.self) { section in
+                        ForEach(FeaturePage.allCases, id: \.self) { section in
                             Label(section.label, systemImage: section.systemImage).tag(section)
                         }
                     }
@@ -54,7 +53,7 @@ struct AppView: View {
                 }
             }
         }
-        .focusedSceneValue(\.workspaceActions, WorkspaceActions(
+        .focusedSceneValue(\.featureActions, FeatureActions(
             selection: selection,
             toggleAgentBook: { showsAgentBook.toggle() },
             newTab: newTab,
@@ -70,7 +69,7 @@ struct AppView: View {
         .frame(minWidth: 1000, minHeight: 550)
     }
 
-    private func selectSection(_ next: WorkspaceSection) {
+    private func selectSection(_ next: FeaturePage) {
         leftFocus.activate()
         section = next
     }
@@ -85,5 +84,39 @@ struct AppView: View {
             case .editor, .overview: break
             }
         }
+    }
+}
+
+enum FeaturePage: CaseIterable, Hashable {
+    case editor, terminal, overview
+
+    @ViewBuilder var content: some View {
+        switch self {
+        case .editor: EditorView()
+        case .terminal: TerminalView()
+        case .overview: OverviewView()
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .editor: "Editor"
+        case .terminal: "Terminal"
+        case .overview: "Overview"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .editor: "doc.text"
+        case .terminal: "terminal"
+        case .overview: "rectangle.3.group"
+        }
+    }
+
+    func moved(by offset: Int) -> Self {
+        let sections = Self.allCases
+        let index = sections.firstIndex(of: self)!
+        return sections[((index + offset) % sections.count + sections.count) % sections.count]
     }
 }
