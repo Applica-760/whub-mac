@@ -30,15 +30,13 @@ struct EditorViewTests {
         func attributes(_ text: String) -> [NSAttributedString.Key: Any] {
             storage.attributes(at: (source as NSString).range(of: text).location, effectiveRange: nil)
         }
-        let bold = try #require(attributes("太字")[.font] as? NSFont)
-        let both = try #require(attributes("両方")[.font] as? NSFont)
-        #expect(NSFontManager.shared.traits(of: bold).contains(.boldFontMask))
-        #expect(NSFontManager.shared.traits(of: both).contains(.boldFontMask))
-        #expect(attributes("斜体")[.obliqueness] as? Double == 0.2)
-        #expect(attributes("両方")[.obliqueness] as? Double == 0.2)
+        for text in ["太字", "斜体", "削除", "両方"] {
+            #expect(attributes(text)[.font] == nil)
+            #expect(attributes(text)[.obliqueness] == nil)
+            #expect(attributes(text)[.strikethroughStyle] == nil)
+        }
         #expect(attributes("太字")[.foregroundColor] as? NSColor == .systemOrange)
         #expect(attributes("斜体")[.foregroundColor] as? NSColor == .systemPurple)
-        #expect(attributes("削除")[.strikethroughStyle] as? Int == NSUnderlineStyle.single.rawValue)
         #expect(attributes("削除")[.foregroundColor] as? NSColor == .secondaryLabelColor)
         for (expression, color) in [("**太字**", NSColor.systemOrange), ("*斜体*", .systemPurple),
                                     ("~~削除~~", .secondaryLabelColor), ("***両方***", .systemOrange)] {

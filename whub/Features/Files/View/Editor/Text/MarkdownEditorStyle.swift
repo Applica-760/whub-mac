@@ -1,13 +1,23 @@
 import AppKit
 
-enum MarkdownEditorStyle {
-    static func apply(to storage: NSTextStorage, source: String) {
+nonisolated enum MarkdownEditorStyle {
+    static func apply(to storage: NSMutableAttributedString, source: String) {
         guard let markdown = try? AttributedString(markdown: source, options: .init(
             interpretedSyntax: .full, appliesSourcePositionAttributes: true
         )) else { return }
-        let bytes = Array(source.utf8)
+        // Markdown positions use UTF-8 columns; NSTextStorage ranges use UTF-16.
+        var utf16Offsets = [Int](repeating: -1, count: source.utf8.count + 1)
+        var byteOffset = 0
+        var utf16Offset = 0
         var lineStarts = [0]
-        for index in bytes.indices where bytes[index] == 10 { lineStarts.append(index + 1) }
+        utf16Offsets[0] = 0
+        for scalar in source.unicodeScalars {
+            byteOffset += scalar.utf8.count
+            utf16Offset += scalar.value > 0xFFFF ? 2 : 1
+            utf16Offsets[byteOffset] = utf16Offset
+            if scalar.value == 10 { lineStarts.append(byteOffset) }
+        }
+        let text = source as NSString
         for run in markdown.runs {
             guard let intent = run.inlinePresentationIntent, !intent.contains(.code),
                   let position = run.markdownSourcePosition,
@@ -19,19 +29,11 @@ enum MarkdownEditorStyle {
             guard bold || italic || strike else { continue }
             let start = lineStarts[position.startLine - 1] + position.startColumn - 1
             let end = lineStarts[position.endLine - 1] + position.endColumn
-            guard start >= 0, end >= start, end <= bytes.count,
-                  let first = String.Index(source.utf8.index(source.utf8.startIndex, offsetBy: start), within: source),
-                  let last = String.Index(source.utf8.index(source.utf8.startIndex, offsetBy: end), within: source) else { continue }
-            let range = NSRange(first..<last, in: source)
-            let font = NSFont.monospacedSystemFont(ofSize: 13, weight: bold ? .bold : .regular)
+            guard start >= 0, end >= start, end < utf16Offsets.count,
+                  utf16Offsets[start] >= 0, utf16Offsets[end] >= 0 else { continue }
+            let range = NSRange(location: utf16Offsets[start], length: utf16Offsets[end] - utf16Offsets[start])
             let color: NSColor = strike ? .secondaryLabelColor : bold ? .systemOrange : .systemPurple
-            storage.addAttributes([
-                .font: font,
-                .foregroundColor: color,
-                .obliqueness: italic ? 0.2 : 0,
-                .strikethroughStyle: strike ? NSUnderlineStyle.single.rawValue : 0,
-            ], range: range)
-            let text = source as NSString
+            storage.addAttribute(.foregroundColor, value: color, range: range)
             for direction in [-1, 1] {
                 var edge = direction < 0 ? range.location : NSMaxRange(range)
                 var remaining = (bold: bold, italic: italic, strike: strike)

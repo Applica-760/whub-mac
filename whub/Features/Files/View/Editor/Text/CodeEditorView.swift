@@ -1,9 +1,6 @@
 import AppKit
-import Highlighter
 import SwiftUI
 import WhubGit
-
-@MainActor private let codeHighlighter = Highlighter()
 
 struct CodeEditorView: NSViewRepresentable {
     @Environment(\.isRetainedPageActive) private var isActive
@@ -22,17 +19,12 @@ struct CodeEditorView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    struct HighlightKey: Equatable {
-        let source: String
-        let language: String?
-        let dark: Bool
-        let diffLines: [DiffLine]?
-    }
-
     final class Coordinator {
-        var highlighted: HighlightKey?
+        var highlighted: CodeHighlighter.Request?
         var lineNumbersNeedUpdate = true
         var didRestorePosition = false
+        private var pending: CodeHighlighter.Request?
+        private var highlightTask: Task<Void, Never>?
         private weak var storage: NSTextStorage?
         private var observation: NSObjectProtocol?
 
@@ -40,6 +32,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard self.storage !== storage else { return }
             if let observation { NotificationCenter.default.removeObserver(observation) }
             self.storage = storage
+            cancelHighlight()
             highlighted = nil
             lineNumbersNeedUpdate = true
             observation = NotificationCenter.default.addObserver(
@@ -47,12 +40,50 @@ struct CodeEditorView: NSViewRepresentable {
             ) { [weak self] notification in
                 if let storage = notification.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) {
                     self?.highlighted = nil
+                    self?.cancelHighlight()
                     self?.lineNumbersNeedUpdate = true
                 }
             }
         }
 
+        func cancelHighlight() {
+            highlightTask?.cancel()
+            highlightTask = nil
+            pending = nil
+        }
+
+        func highlight(_ request: CodeHighlighter.Request, state: FileStore, textView: CodeTextView) {
+            if highlighted == request {
+                cancelHighlight()
+                return
+            }
+            guard pending != request else { return }
+            cancelHighlight()
+            pending = request
+            highlightTask = Task { [weak self, weak state, weak textView] in
+                let result = await CodeHighlighter.shared.highlight(request)
+                guard !Task.isCancelled, let self, self.pending == request else { return }
+                self.pending = nil
+                self.highlightTask = nil
+                guard let result, let state, let textView,
+                      !textView.isHiddenOrHasHiddenAncestor,
+                      !state.editorViews.hasMarkedText,
+                      state.textStorage.string == request.source else { return }
+                state.textStorage.beginEditing()
+                result.text.enumerateAttributes(in: NSRange(location: 0, length: result.text.length)) { attributes, range, _ in
+                    state.textStorage.setAttributes(attributes, range: range)
+                }
+                state.textStorage.endEditing()
+                textView.typingAttributes = [
+                    .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                    .foregroundColor: NSColor.labelColor,
+                ]
+                self.highlighted = request
+            }
+        }
+
         deinit {
+            highlightTask?.cancel()
             if let observation { NotificationCenter.default.removeObserver(observation) }
         }
     }
@@ -115,7 +146,10 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onEdit = onEdit
         textView.diffLines = diffLines
         textView.onExpandDiff = onExpandDiff
-        guard isActive else { return }
+        guard isActive else {
+            context.coordinator.cancelHighlight()
+            return
+        }
         if !context.coordinator.didRestorePosition {
             textView.restorePosition()
             context.coordinator.didRestorePosition = true
@@ -126,71 +160,23 @@ struct CodeEditorView: NSViewRepresentable {
             hunks: hunks, diffLines: diffLines
         )
         context.coordinator.lineNumbersNeedUpdate = false
-        guard state.textStorage.string == source,
-              !state.editorViews.hasMarkedText else { return }
-        let dark = colorScheme == .dark
-        let key = HighlightKey(source: source, language: language, dark: dark, diffLines: diffLines)
-        guard context.coordinator.highlighted != key else { return }
-        let themeName = dark ? "night-owl" : "xcode"
-        if codeHighlighter?.theme.name != themeName {
-            codeHighlighter?.setTheme(
-                themeName,
-                withFont: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).fontName,
-                ofSize: 13
-            )
+        guard state.textStorage.string == source, !state.editorViews.hasMarkedText else {
+            context.coordinator.cancelHighlight()
+            return
         }
-        let highlighted = language.flatMap { codeHighlighter?.highlight(source, as: $0) }
-            ?? NSAttributedString(
-                string: source,
-                attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-                    .foregroundColor: NSColor.labelColor,
-                ]
-            )
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
             .foregroundColor: NSColor.labelColor,
         ]
-        state.textStorage.beginEditing()
-        state.textStorage.setAttributes(attributes, range: NSRange(location: 0, length: state.textStorage.length))
-        if highlighted.string == source {
-            highlighted.enumerateAttributes(in: NSRange(location: 0, length: highlighted.length)) { attributes, range, _ in
-                state.textStorage.addAttributes(attributes, range: range)
-            }
-        }
-        if language == "markdown" { MarkdownEditorStyle.apply(to: state.textStorage, source: source) }
-        if let diffLines {
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.minimumLineHeight = 20
-            paragraph.maximumLineHeight = 20
-            state.textStorage.addAttribute(.paragraphStyle, value: paragraph,
-                                           range: NSRange(location: 0, length: state.textStorage.length))
-            var offset = 0
-            for line in diffLines {
-                let length = line.displayText.utf16.count
-                let color: NSColor? = switch line.change {
-                case .added: .systemGreen
-                case .deleted: .systemRed
-                case .modified: .systemOrange
-                case nil: nil
-                }
-                if let color {
-                    state.textStorage.addAttribute(.backgroundColor, value: color.withAlphaComponent(0.18),
-                                                   range: NSRange(location: offset, length: length))
-                }
-                if line.foldedRange != nil {
-                    state.textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor,
-                                                   range: NSRange(location: offset, length: length))
-                }
-                offset += length
-            }
-        }
-        state.textStorage.endEditing()
         textView.typingAttributes = attributes
-        context.coordinator.highlighted = key
+        context.coordinator.highlight(
+            CodeHighlighter.Request(source: source, language: language, dark: colorScheme == .dark, diffLines: diffLines),
+            state: state, textView: textView
+        )
     }
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        coordinator.cancelHighlight()
         (scrollView.documentView as? CodeTextView)?.savePosition()
     }
 }
