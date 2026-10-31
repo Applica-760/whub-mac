@@ -22,6 +22,33 @@ import WhubClient
 
 @Suite @MainActor
 struct EditorViewTests {
+    @Test func markdownEditorStylesPreserveSourceAndExcludeCode() throws {
+        let source = "日本 **太字** *斜体* ~~削除~~ ***両方*** `**code**`\n```\n~~code~~\n```"
+        let storage = NSTextStorage(string: source)
+        MarkdownEditorStyle.apply(to: storage, source: source)
+        #expect(storage.string == source)
+        func attributes(_ text: String) -> [NSAttributedString.Key: Any] {
+            storage.attributes(at: (source as NSString).range(of: text).location, effectiveRange: nil)
+        }
+        let bold = try #require(attributes("太字")[.font] as? NSFont)
+        let both = try #require(attributes("両方")[.font] as? NSFont)
+        #expect(NSFontManager.shared.traits(of: bold).contains(.boldFontMask))
+        #expect(NSFontManager.shared.traits(of: both).contains(.boldFontMask))
+        #expect(attributes("斜体")[.obliqueness] as? Double == 0.2)
+        #expect(attributes("両方")[.obliqueness] as? Double == 0.2)
+        #expect(attributes("太字")[.foregroundColor] as? NSColor == .systemOrange)
+        #expect(attributes("斜体")[.foregroundColor] as? NSColor == .systemPurple)
+        #expect(attributes("削除")[.strikethroughStyle] as? Int == NSUnderlineStyle.single.rawValue)
+        #expect(attributes("削除")[.foregroundColor] as? NSColor == .secondaryLabelColor)
+        for (expression, color) in [("**太字**", NSColor.systemOrange), ("*斜体*", .systemPurple),
+                                    ("~~削除~~", .secondaryLabelColor), ("***両方***", .systemOrange)] {
+            let range = (source as NSString).range(of: expression)
+            #expect(storage.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor == color)
+            #expect(storage.attribute(.foregroundColor, at: NSMaxRange(range) - 1, effectiveRange: nil) as? NSColor == color)
+        }
+        #expect(attributes("**code**")[.obliqueness] == nil)
+        #expect(attributes("~~code~~")[.strikethroughStyle] == nil)
+    }
     @Test func workspaceEditorFollowsFileSelectionAfterProjectSwitch() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -428,9 +455,33 @@ struct EditorViewTests {
         #expect(changed.after[0].change == .modified)
     }
 
+    @Test func diffFoldsUnchangedLinesAndExpandsThem() throws {
+        let lines = (1...30).map { "line\($0)\n" }
+        var changed = lines
+        changed[9] = "changed10\n"
+        changed[24] = "changed25\n"
+        let original = DiffLayout(before: lines.joined(), after: changed.joined())
+        let folded = original.folded(expanded: [])
+        #expect(folded.before.count == folded.after.count)
+        #expect(folded.before.compactMap(\.number) == [7, 8, 9, 10, 11, 12, 13, 22, 23, 24, 25, 26, 27, 28])
+        let markers = folded.before.compactMap(\.foldedRange)
+        #expect(markers == [0..<6, 13..<21, 28..<30])
+        #expect(folded.after.compactMap(\.foldedRange) == markers)
+        let expanded = original.folded(expanded: [13])
+        #expect(expanded.before.compactMap(\.foldedRange) == [0..<6, 28..<30])
+        #expect(expanded.before.count == expanded.after.count)
+        let text = folded.before.map(\.displayText).joined()
+        let copied = DiffLayout.copiedText(lines: folded.before, range: NSRange(location: 0, length: text.utf16.count))
+        #expect(!copied.contains("行を表示"))
+        #expect(copied == folded.before.filter { $0.number != nil }.map(\.source).joined())
+        let unchanged = DiffLayout(before: lines.joined(), after: lines.joined()).folded(expanded: [])
+        #expect(unchanged.before.compactMap(\.foldedRange) == [0..<30])
+        #expect(DiffLayout(before: lines.joined(), after: lines.joined()).folded(expanded: [0]).before.map(\.source).joined() == lines.joined())
+    }
+
     @Test func diffRendererIsReadOnlyAlignedAndScrollsTogether() async throws {
         let before = (0..<100).map { "line\($0) " + String(repeating: "content ", count: 30) + "\n" }.joined()
-        let after = "inserted\n" + before
+        let after = (0..<30).map { "inserted\($0)\n" }.joined() + before
         let host = NSHostingView(rootView: DiffView(before: before, after: after,
                                                   fileURL: URL(fileURLWithPath: "/file.swift")))
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 400)
@@ -451,7 +502,7 @@ struct EditorViewTests {
             let manager = try #require(text.layoutManager)
             let container = try #require(text.textContainer)
             manager.ensureLayout(for: container)
-            let index = (text.string as NSString).range(of: "line20").location
+            let index = (text.string as NSString).range(of: "line2 ").location
             let glyph = manager.glyphIndexForCharacter(at: index)
             return manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minY
         }
@@ -469,6 +520,20 @@ struct EditorViewTests {
         rightScroll.contentView.scroll(to: NSPoint(x: 200, y: 200))
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: rightScroll.contentView)
         #expect(rightScroll.contentView.bounds.origin == leftScroll.contentView.bounds.origin)
+        let markerOffset = (left.string as NSString).range(of: "⋯").location
+        #expect(markerOffset != NSNotFound)
+        let manager = try #require(left.layoutManager)
+        let container = try #require(left.textContainer)
+        manager.ensureLayout(for: container)
+        let glyph = manager.glyphIndexForCharacter(at: markerOffset)
+        let rect = manager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+        let point = left.convert(NSPoint(x: rect.midX + left.textContainerOrigin.x,
+                                         y: rect.midY + left.textContainerOrigin.y), to: nil)
+        let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                                   windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        left.mouseDown(with: click)
+        try await waitForEditorTest { left.diffLines?.contains(where: { $0.foldedRange != nil }) == false }
+        #expect(right.diffLines?.contains(where: { $0.foldedRange != nil }) == false)
         withExtendedLifetime(host) {}
     }
 
@@ -534,13 +599,10 @@ struct EditorViewTests {
 private struct WorkspaceEditorTestRoot: View {
     @ObservedObject var files: FilesStore
     private let leftFocus = TabPaneFocus()
-    private let agentFocus = TabPaneFocus()
-    private let inputFocus = AgentBookFocus()
 
     var body: some View {
         RetainedPageContainer(selection: true) { _ in
-            WorkspacePanes(section: .editor, leftFocus: leftFocus, agentFocus: agentFocus,
-                           agentInputFocus: inputFocus, openLink: { _, _ in false })
+            WorkspacePanes(section: .editor, leftFocus: leftFocus)
                 .environmentObject(files.activeEditor)
         }
         .environmentObject(files)

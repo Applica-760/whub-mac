@@ -73,7 +73,7 @@ struct ExplorerView: View {
 
     private func explorerTree(remoteChanges: [FileLocation: GitChange]) -> some View {
         ExplorerTreeView(
-            store: store, gitStore: gitStore, remoteChanges: remoteChanges, focus: focus,
+            store: store, gitStore: gitStore, editor: files.activeEditor, remoteChanges: remoteChanges, focus: focus,
             onFilePreview: { location in
                 files.preview(location, hosts: hosts, connections: connections, servers: servers)
                 onFileSelect()
@@ -82,8 +82,26 @@ struct ExplorerView: View {
                 files.open(location, hosts: hosts, connections: connections, servers: servers)
                 onFileSelect()
             },
-            onShowDiff: { openDiff($0, preview: false) }, onAction: performAction, onCommitName: commitName
+            onShowDiff: { openDiff($0, preview: false) }, onAction: performAction, onCommitName: commitName,
+            onMove: move
         )
+    }
+
+    private func move(_ locations: [FileLocation], to destination: FileLocation) {
+        let sources = locations.filter { location in
+            !locations.contains { other in other != location && location.path.hasPrefix(other.path + "/") }
+        }
+        Task {
+            do {
+                for location in sources {
+                    if let url = location.localURL, let directory = destination.localURL {
+                        try files.move(url, to: directory)
+                    } else {
+                        try await files.moveRemote(location, to: destination, hosts: hosts, connections: connections, servers: servers)
+                    }
+                }
+            } catch { EditorDialogs.show(error: error) }
+        }
     }
 
     private func performAction(_ action: ExplorerContextMenu.Action, location: FileLocation) {

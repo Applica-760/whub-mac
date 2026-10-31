@@ -170,6 +170,15 @@ private final class FilesFixture: Sendable {
         await #expect(throws: WhubClientError.api(status: 409, code: "already_exists", message: "同じ名前の項目が既に存在します。")) {
             try await client.files.createFile(root: root, path: "folder/renamed.txt")
         }
+        try await client.files.move(root: root, path: "folder/renamed.txt", directory: "")
+        #expect(FileManager.default.fileExists(atPath: fixture.first.appendingPathComponent("renamed.txt").path))
+        try await client.files.createFile(root: root, path: "folder/renamed.txt")
+        await #expect(throws: WhubClientError.api(status: 409, code: "already_exists", message: "同じ名前の項目が既に存在します。")) {
+            try await client.files.move(root: root, path: "folder/renamed.txt", directory: "")
+        }
+        await #expect(throws: (any Error).self) {
+            try await client.files.move(root: root, path: "folder/renamed.txt", directory: "../outside")
+        }
         await #expect(throws: WhubClientError.invalidPath) {
             try await client.files.trash(root: root, path: "../outside")
         }

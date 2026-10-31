@@ -6,6 +6,7 @@ nonisolated struct DiffLine: Sendable, Equatable {
     let number: Int?
     let source: String
     let change: GitChange?
+    var foldedRange: Range<Int>? = nil
 
     var displayText: String {
         let ending = source.hasSuffix("\r\n") ? 2 : (source.hasSuffix("\n") ? 1 : 0)
@@ -16,6 +17,11 @@ nonisolated struct DiffLine: Sendable, Equatable {
 nonisolated struct DiffLayout: Sendable {
     let before: [DiffLine]
     let after: [DiffLine]
+
+    private init(before: [DiffLine], after: [DiffLine]) {
+        self.before = before
+        self.after = after
+    }
 
     init(before: String, after: String) {
         func lines(_ text: String) -> [String] {
@@ -60,6 +66,40 @@ nonisolated struct DiffLayout: Sendable {
         self.after = right
     }
 
+    func folded(expanded: Set<Int>, context: Int = 3) -> DiffLayout {
+        var left: [DiffLine] = []
+        var right: [DiffLine] = []
+        var index = 0
+        func append(_ range: Range<Int>) {
+            left.append(contentsOf: before[range])
+            right.append(contentsOf: after[range])
+        }
+        while index < before.count {
+            guard before[index].number != nil, after[index].number != nil,
+                  before[index].change == nil, after[index].change == nil else {
+                append(index..<(index + 1))
+                index += 1
+                continue
+            }
+            let start = index
+            while index < before.count, before[index].number != nil, after[index].number != nil,
+                  before[index].change == nil, after[index].change == nil { index += 1 }
+            let leading = start == 0 ? 0 : min(context, index - start)
+            let trailing = index == before.count ? 0 : min(context, index - start - leading)
+            let hidden = (start + leading)..<(index - trailing)
+            if hidden.count <= 1 || expanded.contains(hidden.lowerBound) {
+                append(start..<index)
+            } else {
+                append(start..<hidden.lowerBound)
+                let marker = DiffLine(number: nil, source: "⋯ \(hidden.count) 行を表示", change: nil, foldedRange: hidden)
+                left.append(marker)
+                right.append(marker)
+                append(hidden.upperBound..<index)
+            }
+        }
+        return DiffLayout(before: left, after: right)
+    }
+
     static func copiedText(lines: [DiffLine], range: NSRange) -> String {
         var offset = 0
         var result = ""
@@ -85,6 +125,8 @@ struct DiffView: View {
     let after: String
     let fileURL: URL
     @State private var layout: DiffLayout?
+    @State private var fullLayout: DiffLayout?
+    @State private var expanded: Set<Int> = []
     @State private var beforeFile = FileStore(source: "")
     @State private var afterFile = FileStore(source: "")
     @State private var scrolling = DiffScrollSync()
@@ -103,9 +145,9 @@ struct DiffView: View {
             let after = after
             let loaded = await Task.detached(priority: .utility) { DiffLayout(before: before, after: after) }.value
             guard !Task.isCancelled else { return }
-            beforeFile.updateReadOnly(source: loaded.before.map(\.displayText).joined())
-            afterFile.updateReadOnly(source: loaded.after.map(\.displayText).joined())
-            layout = loaded
+            fullLayout = loaded
+            expanded = []
+            updateLayout(loaded.folded(expanded: []))
         }
         .onDisappear { scrolling.disconnect() }
     }
@@ -116,11 +158,23 @@ struct DiffView: View {
             if let lines {
                 CodeEditorView(state: file, editorID: "diff", onEdit: {}, source: file.textStorage.string,
                                language: codeLanguages[fileURL.pathExtension.lowercased()], hunks: [], diffLines: lines,
-                               onScrollView: { scrolling.attach($0, before: before) })
+                               onScrollView: { scrolling.attach($0, before: before) }, onExpandDiff: expand)
                     .accessibilityLabel(title)
             } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func expand(_ range: Range<Int>) {
+        guard let fullLayout else { return }
+        expanded.insert(range.lowerBound)
+        updateLayout(fullLayout.folded(expanded: expanded))
+    }
+
+    private func updateLayout(_ value: DiffLayout) {
+        beforeFile.updateReadOnly(source: value.before.map(\.displayText).joined())
+        afterFile.updateReadOnly(source: value.after.map(\.displayText).joined())
+        layout = value
     }
 }
 

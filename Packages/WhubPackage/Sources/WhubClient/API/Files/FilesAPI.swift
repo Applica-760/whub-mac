@@ -50,6 +50,11 @@ public struct FilesAPI: Sendable {
         try await operate("rename", root: root, path: path, body: body)
     }
 
+    public func move(root: String, path: String, directory: String) async throws {
+        let body = try JSONEncoder().encode(["directory": directory])
+        try await operate("move", root: root, path: path, body: body)
+    }
+
     public func trash(root: String, path: String) async throws {
         try await operate("trash", root: root, path: path)
     }

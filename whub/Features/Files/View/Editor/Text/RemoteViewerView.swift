@@ -16,9 +16,7 @@ struct RemoteViewerView: View {
         VStack(spacing: 0) {
             switch store.states[location] {
             case .loading:
-                ProgressView(isImage ? (hasImage ? "画像を再取得中…" : "画像を取得中…")
-                             : (store.file(for: location) == nil ? "本文を取得中…" : "本文を再取得中…（表示は前回取得分）"))
-                    .padding(8)
+                EmptyView()
             case let .failed(message):
                 Text("\(message)\n\(isImage ? (hasImage ? "前回の画像を表示しています。" : "リロードで再取得できます。") : (store.file(for: location) == nil ? "リロードで再取得できます。" : "本文・編集内容は保持されています。最新状態を確認できません。"))")
                     .foregroundStyle(.orange).padding(8)
@@ -29,7 +27,6 @@ struct RemoteViewerView: View {
                 EmptyView()
             }
             if let remote = store.fileStores[location] {
-                if remote.isSaving { ProgressView("保存中…").padding(8) }
                 if let message = remote.message { Text(message).foregroundStyle(.orange).padding(8) }
             }
             if let image = store.fileStores[location]?.image {

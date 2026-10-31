@@ -63,23 +63,18 @@ struct EditorView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } header: {
-            HStack(spacing: 8) {
-                EditorTabBarView(tabFocus: tabFocus, editorID: editorID)
-                if let location = store.markdownPreviewLocation {
-                    let visible = store.markdownPreviews.contains(location)
-                    Button(visible ? "Hide Preview" : "Show Preview", systemImage: "rectangle.split.2x1") {
-                        let editor = currentEditor
-                        editor?.savePosition()
-                        store.setMarkdownPreviewVisible(!visible, for: location)
-                        DispatchQueue.main.async {
-                            guard let editor, let window = editor.window, !editor.isHiddenOrHasHiddenAncestor else { return }
-                            window.makeFirstResponder(editor)
-                        }
+            EditorTabBarView(tabFocus: tabFocus, editorID: editorID) { location in
+                if store.selectedTab == .file(location), store.markdownPreviews.contains(location) {
+                    let editor = currentEditor
+                    editor?.savePosition()
+                    store.setMarkdownPreviewVisible(false, for: location)
+                    DispatchQueue.main.async {
+                        guard let editor, let window = editor.window, !editor.isHiddenOrHasHiddenAncestor else { return }
+                        window.makeFirstResponder(editor)
                     }
-                    .accessibilityIdentifier("markdown.preview.toggle")
-                    .buttonStyle(.glass)
-                    .controlSize(.small)
-                    .disabled(!isActive)
+                } else {
+                    files.open(location, hosts: hosts, connections: connections, servers: servers)
+                    store.setMarkdownPreviewVisible(true, for: location)
                 }
             }
             if let message = store.local.watchError {

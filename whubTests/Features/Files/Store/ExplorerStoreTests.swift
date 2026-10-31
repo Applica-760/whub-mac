@@ -167,6 +167,20 @@ struct ExplorerStoreTests {
         try files.create(in: folder, name: "file.txt", isDirectory: false)
         let file = folder.appendingPathComponent("file.txt")
         try Data("saved".utf8).write(to: file)
+        try files.rename(file, to: "File.txt")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).contains("File.txt"))
+        try files.rename(folder.appendingPathComponent("File.txt"), to: "file.txt")
+        try files.create(in: folder, name: "other.txt", isDirectory: false)
+        let other = folder.appendingPathComponent("other.txt")
+        try Data("other".utf8).write(to: other)
+        try files.create(in: directory, name: "destination", isDirectory: true)
+        let destination = directory.appendingPathComponent("destination")
+        try files.create(in: destination, name: "file.txt", isDirectory: false)
+        #expect(throws: (any Error).self) { try files.move(file, to: destination) }
+        #expect(try String(contentsOf: file, encoding: .utf8) == "saved")
+        #expect(throws: (any Error).self) { try files.rename(file, to: "other.txt") }
+        #expect(try String(contentsOf: file, encoding: .utf8) == "saved")
+        #expect(try String(contentsOf: other, encoding: .utf8) == "other")
         for name in ["", " ", ".", "..", "../outside", "a/b", "a:b", "a\n"] {
             #expect(throws: FilesStore.OperationError.self) {
                 try files.create(in: folder, name: name, isDirectory: false)
@@ -182,11 +196,15 @@ struct ExplorerStoreTests {
         local.document.content = .text("unsaved")
         files.explorer.selectedLocation = .local(directory.appendingPathComponent("another-workspace"))
         #expect(throws: FilesStore.OperationError.self) { try files.rename(folder, to: "renamed") }
+        #expect(throws: FilesStore.OperationError.self) { try files.move(folder, to: destination) }
         #expect(throws: FilesStore.OperationError.self) { try files.trash(folder) }
         #expect(editor.tabs == [.file(location)])
         #expect(local.document.hasUnsavedChanges)
         #expect(FileManager.default.fileExists(atPath: file.path))
         try local.save()
+        try files.move(other, to: destination)
+        #expect(try String(contentsOf: destination.appendingPathComponent("other.txt"), encoding: .utf8) == "other")
+        #expect(!FileManager.default.fileExists(atPath: other.path))
         try files.create(in: directory, name: "taken", isDirectory: true)
         #expect(throws: (any Error).self) { try files.rename(folder, to: "taken") }
         #expect(editor.tabs == [.file(location)])

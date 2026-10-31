@@ -27,6 +27,7 @@ struct RemoteTreeGitView<Content: View>: View {
 struct ExplorerTreeView: View {
     @ObservedObject var store: ExplorerStore
     @ObservedObject var gitStore: GitStore
+    @ObservedObject var editor: EditorStore
     var remoteChanges: [FileLocation: GitChange] = [:]
     let focus: ExplorerFocusNavigation
     let onFilePreview: (FileLocation) -> Void
@@ -34,6 +35,7 @@ struct ExplorerTreeView: View {
     let onShowDiff: (FileLocation) -> Void
     var onAction: (ExplorerContextMenu.Action, FileLocation) -> Void = { _, _ in }
     var onCommitName: () throws -> Void = {}
+    var onMove: ([FileLocation], FileLocation) -> Void = { _, _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -56,8 +58,9 @@ struct ExplorerTreeView: View {
                     RemoteFileTreeStatusView(states: store.remoteTree.states)
                 }
                 ExplorerOutlineView(
-                    store: store, basePath: store.treeBasePath, gitChanges: gitStore.changes, remoteChanges: remoteChanges, focus: focus,
-                    onFilePreview: onFilePreview, onFileOpen: onFileOpen, onShowDiff: onShowDiff, onAction: onAction, onCommitName: onCommitName
+                    store: store, basePath: store.treeBasePath, gitChanges: gitStore.changes, remoteChanges: remoteChanges,
+                    activeTab: editor.selectedTab, focus: focus,
+                    onFilePreview: onFilePreview, onFileOpen: onFileOpen, onShowDiff: onShowDiff, onAction: onAction, onCommitName: onCommitName, onMove: onMove
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -71,12 +74,14 @@ struct ExplorerOutlineView: NSViewRepresentable {
     let basePath: String?
     let gitChanges: [URL: GitChange]
     let remoteChanges: [FileLocation: GitChange]
+    let activeTab: EditorTab?
     let focus: ExplorerFocusNavigation
     let onFilePreview: (FileLocation) -> Void
     let onFileOpen: (FileLocation) -> Void
     let onShowDiff: (FileLocation) -> Void
     var onAction: (ExplorerContextMenu.Action, FileLocation) -> Void = { _, _ in }
     var onCommitName: () throws -> Void = {}
+    var onMove: ([FileLocation], FileLocation) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(store: store, onFilePreview: onFilePreview, onFileOpen: onFileOpen)
@@ -84,19 +89,29 @@ struct ExplorerOutlineView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let outlineView = FileOutlineControl()
+        outlineView.style = .sourceList
         outlineView.backgroundColor = .clear
         outlineView.autoresizingMask = [.width]
+        outlineView.allowsEmptySelection = true
+        outlineView.allowsMultipleSelection = true
+        outlineView.registerForDraggedTypes([Coordinator.dragType])
+        outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         outlineView.store = store
         outlineView.onShowDiff = onShowDiff
         outlineView.onAction = onAction
         outlineView.onOpenSelection = { [weak coordinator = context.coordinator] in
             coordinator?.openSelection()
         }
+        outlineView.onSelectContextRow = { [weak coordinator = context.coordinator, weak outlineView] row in
+            guard let coordinator, let outlineView else { return }
+            coordinator.selectContextRow(row, in: outlineView)
+        }
         focus.attachList(outlineView)
         outlineView.onEdit = { [weak coordinator = context.coordinator] action, item in
             coordinator?.beginEditing(action, item: item)
         }
         context.coordinator.onCommitName = onCommitName
+        context.coordinator.onMove = onMove
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         column.resizingMask = .autoresizingMask
         outlineView.addTableColumn(column)
@@ -110,7 +125,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
         outlineView.target = context.coordinator
         outlineView.doubleAction = #selector(Coordinator.openSelectedFile(_:))
         context.coordinator.outlineView = outlineView
-        context.coordinator.update(basePath: basePath, gitChanges: gitChanges, remoteChanges: remoteChanges)
+        context.coordinator.update(basePath: basePath, gitChanges: gitChanges, remoteChanges: remoteChanges, activeTab: activeTab)
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -127,12 +142,14 @@ struct ExplorerOutlineView: NSViewRepresentable {
         (scrollView.documentView as? FileOutlineControl)?.onShowDiff = onShowDiff
         (scrollView.documentView as? FileOutlineControl)?.onAction = onAction
         context.coordinator.onCommitName = onCommitName
+        context.coordinator.onMove = onMove
         context.coordinator.onFilePreview = onFilePreview
         context.coordinator.onFileOpen = onFileOpen
-        context.coordinator.update(basePath: basePath, gitChanges: gitChanges, remoteChanges: remoteChanges)
+        context.coordinator.update(basePath: basePath, gitChanges: gitChanges, remoteChanges: remoteChanges, activeTab: activeTab)
     }
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
+        static let dragType = NSPasteboard.PasteboardType("com.whub.explorer-item")
         weak var outlineView: NSOutlineView?
         var onFilePreview: (FileLocation) -> Void
         var onFileOpen: (FileLocation) -> Void
@@ -142,11 +159,65 @@ struct ExplorerOutlineView: NSViewRepresentable {
         private var renderedRootLocation: FileLocation?
         private var renderedExpansionRevision = -1
         private var isRestoring = false
+        private var activeLocation: FileLocation?
+        private var needsActiveSelection = false
         var onCommitName: () throws -> Void = {}
+        var onMove: ([FileLocation], FileLocation) -> Void = { _, _ in }
+
+        func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
+            guard nameEdit == nil, let item = item as? ExplorerItem, !store.isUnavailable(item) else { return nil }
+            (outlineView as? FileOutlineControl)?.dragStarted = true
+            let pasteboard = NSPasteboardItem()
+            pasteboard.setString(item.location.path, forType: Self.dragType)
+            return pasteboard
+        }
+
+        private func dropLocations(_ info: NSDraggingInfo, outlineView: NSOutlineView, item: Any?) -> ([FileLocation], FileLocation)? {
+            guard (info.draggingSource as? NSOutlineView) === outlineView, nameEdit == nil,
+                  let root = store.treeLocation else { return nil }
+            let destination: FileLocation
+            if let item {
+                guard let folder = item as? ExplorerItem, folder.isDirectory, !store.isUnavailable(folder) else { return nil }
+                destination = folder.location
+            } else { destination = root }
+            let locations = (info.draggingPasteboard.pasteboardItems ?? []).compactMap { pasteboard -> FileLocation? in
+                guard let path = pasteboard.string(forType: Self.dragType) else { return nil }
+                switch root {
+                case .local: return .local(URL(fileURLWithPath: path))
+                case let .remote(hostID, _): return .remote(hostID: hostID, path: path)
+                }
+            }
+            guard !locations.isEmpty, locations.allSatisfy({ location in
+                location.parent != destination && location != destination && !destination.path.hasPrefix(location.path + "/")
+            }) else { return nil }
+            return (locations, destination)
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo,
+                         proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
+            guard dropLocations(info, outlineView: outlineView, item: item) != nil else { return [] }
+            outlineView.setDropItem(item, dropChildIndex: NSOutlineViewDropOnItemIndex)
+            return .move
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo,
+                         item: Any?, childIndex index: Int) -> Bool {
+            guard let (locations, destination) = dropLocations(info, outlineView: outlineView, item: item) else { return false }
+            onMove(locations, destination)
+            return true
+        }
         private var nameEdit: ExplorerStore.NameEdit? { store.nameEdit }
+
+        func selectContextRow(_ row: Int, in outlineView: NSOutlineView) {
+            isRestoring = true
+            defer { isRestoring = false }
+            outlineView.window?.makeFirstResponder(outlineView)
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
 
         func beginEditing(_ operation: ExplorerStore.NameEdit.Operation, item: ExplorerItem) {
             guard let outlineView else { return }
+            if nameEdit != nil { focusName(); return }
             store.beginNameEditing(operation, item: item, parent: outlineView.parent(forItem: item) as? ExplorerItem)
             guard let edit = nameEdit else { return }
             updateNameEditingDisplay()
@@ -158,7 +229,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
         private func focusName() {
             guard let outlineView, let edit = nameEdit else { return }
             let row = outlineView.row(forItem: edit.item)
-            guard row >= 0, let field = (outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? NSTableCellView)?.textField else { return }
+            guard row >= 0, let field = (outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? ExplorerItemView)?.nameField else { return }
             field.selectText(nil)
         }
 
@@ -216,8 +287,18 @@ struct ExplorerOutlineView: NSViewRepresentable {
             self.onFileOpen = onFileOpen
         }
 
-        func update(basePath: String?, gitChanges: [URL: GitChange], remoteChanges: [FileLocation: GitChange] = [:]) {
+        func update(basePath: String?, gitChanges: [URL: GitChange], remoteChanges: [FileLocation: GitChange] = [:],
+                    activeTab: EditorTab? = nil) {
             guard let outlineView else { return }
+            let location: FileLocation?
+            switch activeTab {
+            case let .file(value), let .diff(value): location = value
+            case nil: location = nil
+            }
+            if activeLocation != location {
+                activeLocation = location
+                needsActiveSelection = location != nil
+            }
             (outlineView as? FileOutlineControl)?.basePath = basePath
             let rootChanged = renderedRootLocation != store.treeLocation
             updateNameEditingDisplay()
@@ -232,7 +313,10 @@ struct ExplorerOutlineView: NSViewRepresentable {
             let topOffset = topRow >= 0 ? origin.y - outlineView.rect(ofRow: topRow).minY : 0
 
             _ = store.updateTree(gitChanges: gitChanges, remoteChanges: remoteChanges)
-            guard renderedRevision != store.contentRevision || renderedExpansionRevision != store.expansionRevision else { return }
+            guard renderedRevision != store.contentRevision || renderedExpansionRevision != store.expansionRevision else {
+                selectActiveFile(in: outlineView)
+                return
+            }
             renderedRevision = store.contentRevision
             renderedExpansionRevision = store.expansionRevision
             renderedRootLocation = store.treeLocation
@@ -263,6 +347,21 @@ struct ExplorerOutlineView: NSViewRepresentable {
                     outlineView.enclosingScrollView?.reflectScrolledClipView(clipView)
                 }
             }
+            selectActiveFile(in: outlineView)
+        }
+
+        private func selectActiveFile(in outlineView: NSOutlineView) {
+            guard needsActiveSelection, let activeLocation else { return }
+            for row in 0..<outlineView.numberOfRows {
+                guard let item = outlineView.item(atRow: row) as? ExplorerItem,
+                      item.location == activeLocation else { continue }
+                let wasRestoring = isRestoring
+                isRestoring = true
+                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                isRestoring = wasRestoring
+                needsActiveSelection = false
+                break
+            }
         }
 
         private func updateColumnWidth() {
@@ -272,8 +371,8 @@ struct ExplorerOutlineView: NSViewRepresentable {
             for row in 0..<outlineView.numberOfRows {
                 guard let item = outlineView.item(atRow: row) as? ExplorerItem else { continue }
                 let edit = nameEdit?.item === item ? nameEdit : nil
-                cell.textField?.stringValue = edit?.name ?? item.location.name
-                cell.textField?.isBezeled = edit != nil
+                cell.nameField?.stringValue = edit?.name ?? item.location.name
+                cell.nameField?.isBezeled = edit != nil
                 let indentation = CGFloat(outlineView.level(forItem: item) + 1) * outlineView.indentationPerLevel
                 width = max(width, indentation + cell.requiredWidth)
             }
@@ -329,6 +428,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
         func outlineViewItemDidExpand(_ notification: Notification) {
             guard !isRestoring else { return }
             updateColumnWidth()
+            if let outlineView { selectActiveFile(in: outlineView) }
         }
 
         func outlineViewItemDidCollapse(_ notification: Notification) {
@@ -378,7 +478,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
             let location = item.location.localURL.map { FileLocation.local($0.standardizedFileURL) } ?? item.location
             cell.update(item: item, change: store.decorations[location],
                         unavailable: store.isUnavailable(item), editingName: edit?.name, editingOperation: edit?.operation)
-            cell.textField?.delegate = edit == nil ? nil : self
+            cell.nameField?.delegate = edit == nil ? nil : self
             return cell
         }
 
@@ -386,6 +486,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
 }
 
 private final class FileOutlineControl: NSOutlineView {
+    var dragStarted = false
     var basePath: String?
     weak var store: ExplorerStore?
     var onShowDiff: (FileLocation) -> Void = { _ in }
@@ -393,6 +494,7 @@ private final class FileOutlineControl: NSOutlineView {
 
     var onEdit: (ExplorerStore.NameEdit.Operation, ExplorerItem) -> Void = { _, _ in }
     var onOpenSelection: () -> Void = {}
+    var onSelectContextRow: (Int) -> Void = { _ in }
 
     override func keyDown(with event: NSEvent) {
         if store?.nameEdit == nil,
@@ -404,8 +506,16 @@ private final class FileOutlineControl: NSOutlineView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        guard store?.nameEdit == nil else { return nil }
         let row = self.row(at: convert(event.locationInWindow, from: nil))
+        if row < 0, let root = store?.treeLocation {
+            let item = ExplorerItem(location: root, isDirectory: true)
+            return ExplorerContextMenu(location: root, isDirectory: true, basePath: basePath, createsOnly: true,
+                                       onEdit: { [weak self] operation in self?.onEdit(operation, item) },
+                                       onShowDiff: onShowDiff)
+        }
         guard row >= 0, let item = item(atRow: row) as? ExplorerItem else { return nil }
+        onSelectContextRow(row)
 
         return ExplorerContextMenu(location: item.location, isDirectory: item.isDirectory,
                                    basePath: basePath, allowsActions: store?.isUnavailable(item) != true,
@@ -415,6 +525,14 @@ private final class FileOutlineControl: NSOutlineView {
 
     override func mouseDown(with event: NSEvent) {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
+        if row < 0, store?.nameEdit == nil {
+            deselectAll(nil)
+            return
+        }
+        if !event.modifierFlags.intersection([.shift, .command]).isEmpty {
+            super.mouseDown(with: event)
+            return
+        }
         guard
             row >= 0,
             let item = item(atRow: row) as? ExplorerItem,
@@ -424,13 +542,14 @@ private final class FileOutlineControl: NSOutlineView {
             return
         }
 
-        if (view(atColumn: 0, row: row, makeIfNecessary: false) as? NSTableCellView)?.textField?.isEditable == true {
+        if (view(atColumn: 0, row: row, makeIfNecessary: false) as? ExplorerItemView)?.nameField?.isEditable == true {
             super.mouseDown(with: event)
             return
         }
         guard store?.isUnavailable(item) != true else { return }
-        window?.makeFirstResponder(self)
-        selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        dragStarted = false
+        super.mouseDown(with: event)
+        guard !dragStarted else { return }
         if isItemExpanded(item) {
             collapseItem(item)
         } else {

@@ -54,7 +54,7 @@ final class ExplorerContextMenu: NSMenu {
     private let relativePath: String?
 
     init(location: FileLocation, isDirectory: Bool, basePath: String?, allowsActions: Bool = true,
-         allowsFileOperations: Bool = true,
+         allowsFileOperations: Bool = true, createsOnly: Bool = false, tabMenu: Bool = false, previewVisible: Bool = false,
          onEdit: @escaping (ExplorerStore.NameEdit.Operation) -> Void = { _ in },
          onAction: @escaping (Action, FileLocation) -> Void = { _, _ in },
          onShowDiff: @escaping (FileLocation) -> Void) {
@@ -71,10 +71,11 @@ final class ExplorerContextMenu: NSMenu {
         }
         super.init(title: "")
         autoenablesItems = false
-        let localActions = allowsActions && allowsFileOperations
+        let localActions = allowsActions && allowsFileOperations && !tabMenu
         if localActions {
             add(.newFile)
             add(.newFolder)
+            if createsOnly { return }
             addItem(.separator())
         }
         add(.copyPath)
@@ -86,10 +87,11 @@ final class ExplorerContextMenu: NSMenu {
             add(.trash)
         }
         if allowsActions {
-            if location.localURL != nil, !isDirectory, ["html", "htm"].contains((location.path as NSString).pathExtension.lowercased()) {
+            if !tabMenu, location.localURL != nil, !isDirectory, ["html", "htm"].contains((location.path as NSString).pathExtension.lowercased()) {
                 add(.openInBrowser)
             } else if !isDirectory, EditorStore.supportsMarkdownPreview(location) {
                 add(.showPreview)
+                if tabMenu && previewVisible { item(withTitle: "Show Preview")?.title = "Hide Preview" }
             }
         }
     }

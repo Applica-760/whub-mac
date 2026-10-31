@@ -8,12 +8,137 @@ import WhubCore
 
 @Suite @MainActor
 struct ExplorerViewTests {
+    @Test func explorerSelectionKeepsRenderedFont() throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/ExplorerStoreTests/" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data().write(to: directory.appendingPathComponent("README.md"))
+        let store = ExplorerStore()
+        store.selectedLocation = .local(directory)
+        store.localTree.setRoot(directory)
+        let coordinator = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in }, onFileOpen: { _ in })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .darkAqua)
+        defer { window.close() }
+        let outline = NSOutlineView(frame: window.contentView!.bounds)
+        outline.style = .sourceList
+        outline.backgroundColor = .black
+        let column = NSTableColumn(identifier: .init("name"))
+        outline.addTableColumn(column)
+        outline.outlineTableColumn = column
+        outline.dataSource = coordinator
+        outline.delegate = coordinator
+        window.contentView?.addSubview(outline)
+        coordinator.outlineView = outline
+        coordinator.update(basePath: nil, gitChanges: [:])
+        let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? ExplorerItemView)
+        let field = try #require(cell.nameField)
+        window.layoutIfNeeded()
+        #expect(field.bounds.width > 0 && field.bounds.height > 0)
+        field.textColor = .white
+        func renderedText() throws -> Data {
+            let bitmap = try #require(field.bitmapImageRepForCachingDisplay(in: field.bounds))
+            field.cacheDisplay(in: field.bounds, to: bitmap)
+            var pixels: Set<String> = []
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    if let color = bitmap.colorAt(x: x, y: y) { pixels.insert(color.description) }
+                }
+            }
+            #expect(pixels.count > 1)
+            return try #require(bitmap.representation(using: .png, properties: [:]))
+        }
+        let before = try #require(field.attributedStringValue.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        let beforeImage = try renderedText()
+        outline.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        window.layoutIfNeeded()
+        field.textColor = .white
+        let selected = try #require(field.attributedStringValue.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        let selectedImage = try renderedText()
+        #expect(selected == before)
+        #expect(!NSFontManager.shared.traits(of: selected).contains(.boldFontMask))
+        #expect(selectedImage == beforeImage)
+    }
+    @Test func tabMenuShowsOnlyFileActions() {
+        let markdown = FileLocation.local(URL(fileURLWithPath: "/repo/readme.md"))
+        var preview: FileLocation?
+        var diff: FileLocation?
+        let menu = ExplorerContextMenu(location: markdown, isDirectory: false, basePath: "/repo", tabMenu: true,
+                                       onAction: { action, location in if case .showPreview = action { preview = location } },
+                                       onShowDiff: { diff = $0 })
+        #expect(menu.items.map { $0.isSeparatorItem ? "---" : $0.title } == ["Copy path", "Copy relative path", "---", "View Diffs", "Show Preview"])
+        menu.performActionForItem(at: 0)
+        #expect(NSPasteboard.general.string(forType: .string) == markdown.path)
+        menu.performActionForItem(at: 3)
+        menu.performActionForItem(at: 4)
+        #expect(diff == markdown)
+        #expect(preview == markdown)
+        let visible = ExplorerContextMenu(location: markdown, isDirectory: false, basePath: "/repo", tabMenu: true,
+                                          previewVisible: true,
+                                          onAction: { action, location in if case .showPreview = action { preview = location } },
+                                          onShowDiff: { _ in })
+        #expect(visible.items.last?.title == "Hide Preview")
+        preview = nil
+        visible.performActionForItem(at: 4)
+        #expect(preview == markdown)
+        menu.performActionForItem(at: 1)
+        #expect(NSPasteboard.general.string(forType: .string) == "readme.md")
+        let html = ExplorerContextMenu(location: .local(URL(fileURLWithPath: "/repo/index.html")),
+                                       isDirectory: false, basePath: nil, tabMenu: true, onShowDiff: { _ in })
+        #expect(html.items.map { $0.isSeparatorItem ? "---" : $0.title } == ["Copy path", "Copy relative path", "---", "View Diffs"])
+        #expect(!html.items[1].isEnabled)
+    }
+    @Test func contextSelectionDoesNotPreviewClickedFile() throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/ExplorerStoreTests/" + UUID().uuidString)
+        let folder = directory.appendingPathComponent("folder")
+        let file = folder.appendingPathComponent("file.txt")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data().write(to: file)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ExplorerStore()
+        store.selectedLocation = .local(directory)
+        store.localTree.setRoot(directory)
+        var previews = 0
+        let coordinator = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in previews += 1 }, onFileOpen: { _ in })
+        let outline = NSOutlineView()
+        let column = NSTableColumn(identifier: .init("name"))
+        outline.addTableColumn(column)
+        outline.outlineTableColumn = column
+        outline.dataSource = coordinator
+        outline.delegate = coordinator
+        coordinator.outlineView = outline
+        coordinator.update(basePath: nil, gitChanges: [:])
+        let parent = try #require(store.rootItems.first)
+        let cell = try #require(outline.view(atColumn: 0, row: outline.row(forItem: parent), makeIfNecessary: true) as? ExplorerItemView)
+        let beforeFont = try #require(cell.nameField?.font)
+        coordinator.selectContextRow(outline.row(forItem: parent), in: outline)
+        #expect(outline.selectedRow == outline.row(forItem: parent))
+        let selectedFont = try #require(cell.nameField?.font)
+        #expect(selectedFont == beforeFont)
+        #expect(!NSFontManager.shared.traits(of: selectedFont).contains(.boldFontMask))
+        #expect(previews == 0)
+        outline.expandItem(parent)
+        let child = try #require(store.children(for: parent).first)
+        let row = outline.row(forItem: child)
+        coordinator.update(basePath: nil, gitChanges: [:], activeTab: .file(.local(file)))
+        #expect(outline.selectedRow == row)
+        #expect(previews == 0)
+        coordinator.selectContextRow(outline.row(forItem: parent), in: outline)
+        coordinator.update(basePath: nil, gitChanges: [:], activeTab: .file(.local(file)))
+        #expect(outline.selectedRow == outline.row(forItem: parent))
+        coordinator.update(basePath: nil, gitChanges: [:], activeTab: nil)
+        #expect(previews == 0)
+    }
     @Test func explorerColumnScrollsWholeRowsAndShrinksWithContent() throws {
         final class Rows: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             func numberOfRows(in tableView: NSTableView) -> Int { 2 }
             func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
                 let cell = ExplorerItemView(identifier: .init("file"))
-                cell.textField?.stringValue = String(repeating: "long-file-name", count: 20)
+                cell.nameField?.stringValue = String(repeating: "long-file-name", count: 20)
                 return cell
             }
         }
@@ -30,14 +155,14 @@ struct ExplorerViewTests {
         scroll.documentView = table
         table.reloadData()
         let cell = ExplorerItemView(identifier: .init("file"))
-        cell.textField?.stringValue = String(repeating: "long-file-name", count: 20)
+        cell.nameField?.stringValue = String(repeating: "long-file-name", count: 20)
         table.fitExplorerColumn(to: cell.requiredWidth)
         scroll.layoutSubtreeIfNeeded()
         #expect(table.tableColumns[0].width >= cell.requiredWidth)
         #expect(table.bounds.width > scroll.contentSize.width)
         let rendered = try #require(table.view(atColumn: 0, row: 0, makeIfNecessary: true) as? ExplorerItemView)
         rendered.layoutSubtreeIfNeeded()
-        let name = try #require(rendered.textField)
+        let name = try #require(rendered.nameField)
         #expect(name.frame.width >= name.intrinsicContentSize.width)
         scroll.contentView.scroll(to: NSPoint(x: 100, y: 0))
         #expect(scroll.contentView.bounds.origin.x == 100)
@@ -263,6 +388,17 @@ struct ExplorerViewTests {
         coordinator.outlineView = outline
         coordinator.update(basePath: nil, gitChanges: [:])
         let parent = try #require(store.rootItems.first)
+        let root = ExplorerItem(location: .local(directory), isDirectory: true)
+        let rootMenu = ExplorerContextMenu(location: root.location, isDirectory: true, basePath: nil,
+                                           createsOnly: true, onEdit: { coordinator.beginEditing($0, item: root) },
+                                           onShowDiff: { _ in })
+        #expect(rootMenu.items.map(\.title) == ["New File", "New Folder"])
+        rootMenu.performActionForItem(at: 0)
+        let rootEdit = try #require(store.nameEdit)
+        #expect(rootEdit.target == root.location)
+        #expect(rootEdit.parent == nil)
+        #expect(outline.row(forItem: rootEdit.item) >= 0)
+        coordinator.cancelEditing()
         for action in [ExplorerStore.NameEdit.Operation.newFile, .newFolder] {
             coordinator.beginEditing(action, item: parent)
             let edit = try #require(store.nameEdit)
@@ -272,6 +408,11 @@ struct ExplorerViewTests {
             #expect(outline.parent(forItem: edit.item) as? ExplorerItem === parent)
             #expect(edit.item.isDirectory == (action == .newFolder))
             #expect(!FileManager.default.fileExists(atPath: edit.item.location.path))
+            store.updateName("partial")
+            coordinator.beginEditing(.rename, item: edit.item)
+            #expect(store.nameEdit?.item === edit.item)
+            #expect(store.nameEdit?.operation == action)
+            #expect(store.nameEdit?.name == "partial")
             coordinator.onCommitName = { throw FilesStore.OperationError.invalidName }
             #expect(throws: FilesStore.OperationError.self) { try coordinator.commitName("../bad") }
             #expect(store.nameEdit?.name == "../bad")

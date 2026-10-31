@@ -5,8 +5,10 @@ import WhubGit
 struct EditorTabBarView: View {
     @EnvironmentObject private var store: EditorStore
     @EnvironmentObject private var gitStore: GitStore
+    @EnvironmentObject private var files: FilesStore
     let tabFocus: TabPaneFocus
     let editorID: String
+    let onShowPreview: (FileLocation) -> Void
 
     var body: some View {
         TabBarContainer(
@@ -19,7 +21,17 @@ struct EditorTabBarView: View {
             },
             canClose: { _ in true },
             move: store.move,
-            isShortcutTarget: tabFocus.contains
+            isShortcutTarget: tabFocus.contains,
+            contextMenu: { tab in
+                switch tab {
+                case let .file(location), let .diff(location):
+                    ExplorerContextMenu(location: location, isDirectory: false, basePath: files.explorer.treeBasePath,
+                                        tabMenu: true, previewVisible: store.selectedTab == .file(location) && store.markdownPreviews.contains(location),
+                                        onAction: { action, location in
+                                            if case .showPreview = action { onShowPreview(location) }
+                                        }, onShowDiff: { files.openDiff($0) })
+                }
+            }
         ) { tab, isSelected, actions in
             switch tab {
             case let .diff(location):

@@ -260,10 +260,34 @@ final class FilesStore: ObservableObject {
     func rename(_ url: URL, to name: String) throws {
         let affected = try editableTabs(under: .local(url))
         if name == url.lastPathComponent { return }
-        let target = try destination(in: url.deletingLastPathComponent(), name: name)
+        try validateName(name)
+        let target = url.deletingLastPathComponent().appendingPathComponent(name)
         try FileManager.default.moveItem(at: url, to: target)
         for (editor, tab) in affected { editor.close(tab) }
         checkForExternalChanges()
+    }
+
+    func move(_ url: URL, to directory: URL) throws {
+        let affected = try editableTabs(under: .local(url))
+        let target = directory.appendingPathComponent(url.lastPathComponent)
+        try FileManager.default.moveItem(at: url, to: target)
+        for (editor, tab) in affected { editor.close(tab) }
+        checkForExternalChanges()
+    }
+
+    func moveRemote(_ location: FileLocation, to directory: FileLocation, hosts: [WhubCore.Host],
+                    connections: RemoteConnectionStore, servers: RemoteServerStore) async throws {
+        let affected = try editableTabs(under: location)
+        let locked = try beginRemoteFileOperation(location, affected: affected)
+        defer { endRemoteFileOperation(locked) }
+        let (client, root, path) = try await remoteOperation(location, hosts: hosts, connections: connections, servers: servers)
+        let (_, destinationRoot, destination) = try await remoteOperation(directory, hosts: hosts, connections: connections, servers: servers)
+        guard root == destinationRoot else { throw WhubClientError.invalidPath }
+        do { try await client.files.move(root: root, path: path, directory: destination) }
+        catch { throw operationError(error) }
+        for (editor, tab) in affected { editor.closeAfterFileOperation(tab) }
+        refreshID += 1
+        if let root = explorer.selectedLocation { remoteGitStores[root]?.refresh() }
     }
 
     @discardableResult

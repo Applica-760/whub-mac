@@ -14,6 +14,7 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
     let canClose: (ID) -> Bool
     let move: (ID, ID?) -> Void
     let isShortcutTarget: (NSWindow) -> Bool
+    var contextMenu: ((ID) -> NSMenu?)? = nil
     @ViewBuilder let tab: (ID, Bool, TabBarActions) -> Tab
 
     @Namespace private var namespace
@@ -104,6 +105,14 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
         }
         .animation(animation, value: selection)
         .background(TabBarEventMonitor { event, point in
+            if event.type == .rightMouseDown {
+                guard dragging == nil, !settling, let contextMenu,
+                      CGRect(origin: .zero, size: viewport).contains(point),
+                      let id = ids.first(where: { frames[$0]?.contains(point) == true }),
+                      let menu = contextMenu(id), let view = event.window?.contentView else { return false }
+                NSMenu.popUpContextMenu(menu, with: event, for: view)
+                return true
+            }
             if event.type == .otherMouseDown {
                 guard event.buttonNumber == 2, dragging == nil, !settling,
                       CGRect(origin: .zero, size: viewport).contains(point) else { return false }
@@ -258,13 +267,13 @@ private struct TabBarEventMonitor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = EventView()
-        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .otherMouseDown]) {
+        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .otherMouseDown, .rightMouseDown]) {
             [weak view, weak coordinator = context.coordinator] event in
             guard let view, let coordinator,
                   let window = view.window, window.isKeyWindow, window.attachedSheet == nil,
                   event.window === window, !view.isHiddenOrHasHiddenAncestor else { return event }
             let point = view.convert(event.locationInWindow, from: nil)
-            if event.type == .otherMouseDown,
+            if event.type == .otherMouseDown || event.type == .rightMouseDown,
                !view.bounds.intersection(view.visibleRect).contains(point) { return event }
             return coordinator.handle?(event, point) == true ? nil : event
         }
