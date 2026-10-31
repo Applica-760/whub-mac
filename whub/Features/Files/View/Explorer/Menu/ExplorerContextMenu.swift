@@ -54,7 +54,7 @@ final class ExplorerContextMenu: NSMenu {
     private let relativePath: String?
 
     init(location: FileLocation, isDirectory: Bool, basePath: String?, allowsActions: Bool = true,
-         allowsFileOperations: Bool = true,
+         allowsFileOperations: Bool = true, createsOnly: Bool = false,
          onEdit: @escaping (ExplorerStore.NameEdit.Operation) -> Void = { _ in },
          onAction: @escaping (Action, FileLocation) -> Void = { _, _ in },
          onShowDiff: @escaping (FileLocation) -> Void) {
@@ -75,6 +75,7 @@ final class ExplorerContextMenu: NSMenu {
         if localActions {
             add(.newFile)
             add(.newFolder)
+            if createsOnly { return }
             addItem(.separator())
         }
         add(.copyPath)

@@ -263,6 +263,17 @@ struct ExplorerViewTests {
         coordinator.outlineView = outline
         coordinator.update(basePath: nil, gitChanges: [:])
         let parent = try #require(store.rootItems.first)
+        let root = ExplorerItem(location: .local(directory), isDirectory: true)
+        let rootMenu = ExplorerContextMenu(location: root.location, isDirectory: true, basePath: nil,
+                                           createsOnly: true, onEdit: { coordinator.beginEditing($0, item: root) },
+                                           onShowDiff: { _ in })
+        #expect(rootMenu.items.map(\.title) == ["New File", "New Folder"])
+        rootMenu.performActionForItem(at: 0)
+        let rootEdit = try #require(store.nameEdit)
+        #expect(rootEdit.target == root.location)
+        #expect(rootEdit.parent == nil)
+        #expect(outline.row(forItem: rootEdit.item) >= 0)
+        coordinator.cancelEditing()
         for action in [ExplorerStore.NameEdit.Operation.newFile, .newFolder] {
             coordinator.beginEditing(action, item: parent)
             let edit = try #require(store.nameEdit)

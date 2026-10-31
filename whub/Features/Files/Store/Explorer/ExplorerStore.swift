@@ -29,7 +29,7 @@ final class ExplorerStore: ObservableObject {
     func beginNameEditing(_ operation: NameEdit.Operation, item: ExplorerItem, parent: ExplorerItem?) {
         guard !isUnavailable(item) else { return }
         let creating = operation != .rename
-        let directory = creating && item.isDirectory ? item : parent
+        let directory = creating && item.isDirectory ? (item.location == treeLocation ? nil : item) : parent
         let target = creating && !item.isDirectory
             ? item.location.parent : item.location
         let editingItem = creating

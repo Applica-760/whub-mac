@@ -86,6 +86,8 @@ struct ExplorerOutlineView: NSViewRepresentable {
         let outlineView = FileOutlineControl()
         outlineView.backgroundColor = .clear
         outlineView.autoresizingMask = [.width]
+        outlineView.allowsEmptySelection = true
+        outlineView.allowsMultipleSelection = true
         outlineView.store = store
         outlineView.onShowDiff = onShowDiff
         outlineView.onAction = onAction
@@ -407,6 +409,12 @@ private final class FileOutlineControl: NSOutlineView {
     override func menu(for event: NSEvent) -> NSMenu? {
         guard store?.nameEdit == nil else { return nil }
         let row = self.row(at: convert(event.locationInWindow, from: nil))
+        if row < 0, let root = store?.treeLocation {
+            let item = ExplorerItem(location: root, isDirectory: true)
+            return ExplorerContextMenu(location: root, isDirectory: true, basePath: basePath, createsOnly: true,
+                                       onEdit: { [weak self] operation in self?.onEdit(operation, item) },
+                                       onShowDiff: onShowDiff)
+        }
         guard row >= 0, let item = item(atRow: row) as? ExplorerItem else { return nil }
 
         return ExplorerContextMenu(location: item.location, isDirectory: item.isDirectory,
@@ -417,6 +425,14 @@ private final class FileOutlineControl: NSOutlineView {
 
     override func mouseDown(with event: NSEvent) {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
+        if row < 0, store?.nameEdit == nil {
+            deselectAll(nil)
+            return
+        }
+        if !event.modifierFlags.intersection([.shift, .command]).isEmpty {
+            super.mouseDown(with: event)
+            return
+        }
         guard
             row >= 0,
             let item = item(atRow: row) as? ExplorerItem,

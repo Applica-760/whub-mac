@@ -57,7 +57,7 @@ final class ExplorerItemView: NSTableCellView {
         imageView?.alphaValue = unavailable ? 0.4 : 1
         imageView?.contentTintColor = nil
         if editingOperation == .newFolder {
-            imageView?.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Folder")
+            imageView?.image = NSWorkspace.shared.icon(for: .folder)
         } else if !item.isDirectory {
             imageView?.image = NSWorkspace.shared.icon(for: .data)
         } else if let url = item.location.localURL {
