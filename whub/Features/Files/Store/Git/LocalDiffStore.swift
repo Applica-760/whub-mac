@@ -9,11 +9,13 @@ final class LocalDiffStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var watchError: String?
     @Published private(set) var isLoading = false
+    @Published private(set) var needsRefresh = true
     private var directory: URL
     private var managementDirectories: Set<URL> = []
     private var revision = 0
     private var task: Task<Void, Never>?
     private var stopped = false
+    private var isActive = false
     private lazy var watcher = FileWatcher { [weak self] event in
         guard let self else { return }
         if case let .changed(changes) = event {
@@ -36,9 +38,23 @@ final class LocalDiffStore: ObservableObject {
     func refresh() {
         guard !stopped else { return }
         revision += 1
+        needsRefresh = true
+        guard isActive else { return }
         isLoading = true
         guard task == nil else { return }
         task = Task { [weak self] in await self?.load() }
+    }
+
+    func setActive(_ active: Bool) {
+        guard !stopped, isActive != active else { return }
+        isActive = active
+        if active {
+            if needsRefresh || watchError != nil { refresh() }
+        } else {
+            revision += 1
+            if task != nil { needsRefresh = true }
+            isLoading = false
+        }
     }
 
     func stop() {
@@ -51,15 +67,15 @@ final class LocalDiffStore: ObservableObject {
 
     private func load() async {
         defer { task = nil }
-        while !stopped {
+        while !stopped, isActive, needsRefresh {
             let revision = revision
             do {
                 let directories = try await Git.managementDirectories(at: directory)
-                guard !stopped, self.revision == revision else { continue }
+                guard !stopped, isActive, self.revision == revision else { continue }
                 managementDirectories = directories
                 updateWatching()
                 let loaded = try await Git.fileDiff(at: fileURL, in: directory)
-                guard !stopped, self.revision == revision else { continue }
+                guard !stopped, isActive, self.revision == revision else { continue }
                 // Keep a repository root that survives removal of the selected file's parent.
                 directory = loaded.fileURL
                 for _ in loaded.relativePath.split(separator: "/") { directory.deleteLastPathComponent() }
@@ -67,11 +83,12 @@ final class LocalDiffStore: ObservableObject {
                 diff = loaded
                 errorMessage = nil
             } catch {
-                guard !stopped, self.revision == revision else { continue }
+                guard !stopped, isActive, self.revision == revision else { continue }
                 diff = nil
                 errorMessage = error.localizedDescription
             }
             isLoading = false
+            needsRefresh = false
             break
         }
     }

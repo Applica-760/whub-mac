@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 struct LocalCodeEditorView: View {
@@ -10,6 +11,8 @@ struct LocalCodeEditorView: View {
     let onEdit: () -> Void
     @EnvironmentObject private var gitStore: GitStore
     @StateObject private var diffStore = GitLineStore()
+    @Environment(\.isRetainedPageActive) private var isActive
+    @Environment(\.retainedPageActivity) private var activity
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,10 +30,18 @@ struct LocalCodeEditorView: View {
             )
         }
         .background(Color(nsColor: .textBackgroundColor))
-        .task(id: CodeLoadID(fileURL: fileURL, refreshID: refreshID, diskRevision: state.diskRevision)) {
+        .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) {
+            diffStore.setActive($0)
+        }
+        .onDisappear { diffStore.setActive(false) }
+        .task(id: CodeLoadID(fileURL: fileURL, refreshID: refreshID, diskRevision: state.diskRevision,
+                            isActive: diffStore.isActive)) {
+            guard activity?.isActive.value ?? isActive else { return }
             await diffStore.load(fileURL: fileURL, gitStore: gitStore)
         }
-        .task(id: CodeDiffID(baseline: diffStore.baseline, source: source)) {
+        .task(id: CodeDiffID(baseline: diffStore.baseline, source: source, isActive: diffStore.isActive,
+                            isLoadingBaseline: diffStore.isLoadingBaseline)) {
+            guard activity?.isActive.value ?? isActive else { return }
             await diffStore.update(source: source)
         }
     }
@@ -39,10 +50,13 @@ struct LocalCodeEditorView: View {
 private struct CodeDiffID: Equatable {
     let baseline: GitLineStore.Baseline?
     let source: String
+    let isActive: Bool
+    let isLoadingBaseline: Bool
 }
 
 private struct CodeLoadID: Equatable {
     let fileURL: URL
     let refreshID: Int
     let diskRevision: Int
+    let isActive: Bool
 }

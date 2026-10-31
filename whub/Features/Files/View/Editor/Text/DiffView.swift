@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import WhubGit
 
@@ -124,12 +125,17 @@ struct DiffView: View {
     let before: String
     let after: String
     let fileURL: URL
+    var isCurrent = true
     @State private var layout: DiffLayout?
     @State private var fullLayout: DiffLayout?
     @State private var expanded: Set<Int> = []
     @State private var beforeFile = FileStore(source: "")
     @State private var afterFile = FileStore(source: "")
     @State private var scrolling = DiffScrollSync()
+    @State private var loadedSource: Source?
+    @State private var isActive = false
+    @Environment(\.isRetainedPageActive) private var isPageActive
+    @Environment(\.retainedPageActivity) private var activity
 
     private struct Source: Equatable { let before: String; let after: String }
 
@@ -140,11 +146,18 @@ struct DiffView: View {
             pane(title: "作業ツリー · 保存済み", file: afterFile, lines: layout?.after, before: false)
         }
         .background(Color(nsColor: .textBackgroundColor))
-        .task(id: Source(before: before, after: after)) {
+        .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isPageActive).eraseToAnyPublisher()) {
+            isActive = $0
+        }
+        .task(id: isActive && isCurrent ? Source(before: before, after: after) : nil) {
+            guard isActive, isCurrent, activity?.isActive.value ?? isPageActive else { return }
+            let source = Source(before: before, after: after)
+            guard loadedSource != source else { return }
             let before = before
             let after = after
             let loaded = await Task.detached(priority: .utility) { DiffLayout(before: before, after: after) }.value
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, activity?.isActive.value ?? isPageActive else { return }
+            loadedSource = source
             fullLayout = loaded
             expanded = []
             updateLayout(loaded.folded(expanded: []))

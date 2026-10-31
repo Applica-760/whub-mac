@@ -23,6 +23,7 @@ struct RemoteGitStoreTests {
         defer { fixture.store.stop() }
         let location = fixture.store.root.appending("file.txt")
         let lines = GitLineStore()
+        lines.setActive(true)
         await fixture.connections.connect(fixture.host)
         let editor = UUID()
         let diff = UUID()

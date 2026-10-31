@@ -33,6 +33,7 @@ public extension Git {
     }
 
     static func diff(from original: String, to source: String) -> [LineDiffHunk] {
+        guard original != source else { return [] }
         func lines(_ text: String) -> [String] {
             guard !text.isEmpty else { return [] }
             var lines = text.components(separatedBy: "\n")

@@ -22,12 +22,14 @@ struct GitStoreTests {
         files.explorer.localTree.setRoot(fixture.directory)
         files.openDiff(.local(file))
         let diff = try #require(files.activeEditor.local.diffStores[file])
+        diff.setActive(true)
         try await waitForGitTest { !diff.isLoading }
         #expect(diff.diff?.content == .text(before: "before\n", after: "after\n"))
         files.activeEditor.close(.diff(.local(file)))
         try FileManager.default.removeItem(at: parent)
         files.openDiff(.local(file))
         let deleted = try #require(files.activeEditor.local.diffStores[file])
+        deleted.setActive(true)
         try await waitForGitTest { !deleted.isLoading }
         #expect(deleted.diff?.content == .text(before: "before\n", after: ""))
         files.activeEditor.close(.diff(.local(file)))
@@ -45,6 +47,7 @@ struct GitStoreTests {
         document.content = .text("unsaved")
         files.openDiff(location, preview: true)
         let diff = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
+        diff.setActive(true)
         try await waitForGitTest { !diff.isLoading }
         #expect(diff.diff?.content == .text(before: "", after: "original\n"))
         #expect(files.activeEditor.tabs == [.file(location), .diff(.local(fixture.firstFile))])
@@ -78,12 +81,16 @@ struct GitStoreTests {
         let location = FileLocation.local(fixture.firstFile)
         files.openDiff(location)
         let diff = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
+        diff.setActive(true)
         try await waitForGitTest { diff.diff != nil && !files.git.isLoadingDiff }
         #expect(diff.diff?.change == nil)
         files.open(location, hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
+        diff.setActive(false)
         let local = try #require(files.activeEditor.local.fileStores[location])
         local.document.content = .text("saved\n")
         try local.save()
+        files.openDiff(location)
+        diff.setActive(true)
         try await waitForGitTest {
             diff.diff?.content == .text(before: "original\n", after: "saved\n")
                 && files.git.diffChanges[fixture.firstFile] == .modified
@@ -141,14 +148,17 @@ struct GitStoreTests {
         let files = FilesStore()
         files.openDiff(.local(fixture.firstFile), preview: true)
         let first = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
+        first.setActive(true)
         files.openDiff(.local(fixture.secondFile), preview: true)
         #expect(files.activeEditor.local.diffStores[fixture.firstFile] == nil)
         let second = try #require(files.activeEditor.local.diffStores[fixture.secondFile])
+        second.setActive(true)
         try await waitForGitTest { !second.isLoading }
         #expect(first.diff == nil)
         #expect(second.diff?.fileURL == fixture.secondFile)
         files.activeEditor.close(.diff(.local(fixture.secondFile)))
         let failed = LocalDiffStore(fileURL: fixture.secondFile, directory: fixture.first)
+        failed.setActive(true)
         try await waitForGitTest { !failed.isLoading }
         #expect(failed.errorMessage != nil)
         #expect(failed.diff == nil)
@@ -186,6 +196,7 @@ struct GitStoreTests {
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let git = GitStore()
         let lines = GitLineStore()
+        lines.setActive(true)
         await lines.load(fileURL: fixture.firstFile, gitStore: git)
         #expect(git.changes[fixture.firstFile] == .added)
         #expect(lines.baseline?.source == "")

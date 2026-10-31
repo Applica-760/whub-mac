@@ -144,46 +144,72 @@ final class GitLineStore: ObservableObject {
     @Published private(set) var baseline: Baseline?
     @Published private(set) var errorMessage: String?
     @Published private var hunks: [LineDiffHunk] = []
+    @Published private(set) var isActive = false
+    @Published private(set) var isLoadingBaseline = false
     private var diffSource: String?
+    private var updateID = UUID()
+    private var loadID = UUID()
 
     func hunks(for location: FileLocation, source: String) -> [LineDiffHunk] {
-        baseline?.location == location && diffSource == source ? hunks : []
+        isActive && !isLoadingBaseline && baseline?.location == location && diffSource == source ? hunks : []
+    }
+
+    func setActive(_ active: Bool) {
+        guard isActive != active else { return }
+        isActive = active
+        if !active {
+            updateID = UUID()
+            loadID = UUID()
+            isLoadingBaseline = false
+        }
     }
 
     func setBaseline(location: FileLocation, source: String?) {
         let next = source.map { Baseline(location: location, source: $0) }
         guard baseline != next else { return }
+        updateID = UUID()
         baseline = next
         diffSource = nil
         hunks = []
     }
 
     func load(fileURL: URL, gitStore: GitStore) async {
-        baseline = nil
-        diffSource = nil
-        hunks = []
+        guard isActive, !Task.isCancelled else { return }
+        let loadID = UUID()
+        self.loadID = loadID
+        updateID = UUID()
+        isLoadingBaseline = true
         errorMessage = nil
+        defer {
+            if self.loadID == loadID { isLoadingBaseline = false }
+        }
         do {
             let loaded = try await Git.baselineText(at: fileURL)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, self.loadID == loadID else { return }
             setBaseline(location: .local(fileURL), source: loaded)
             try await gitStore.refreshStatus(for: fileURL)
         } catch GitError.notRepository {
+            guard !Task.isCancelled, self.loadID == loadID else { return }
+            setBaseline(location: .local(fileURL), source: nil)
             gitStore.clearStatus(for: fileURL)
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, self.loadID == loadID else { return }
+            setBaseline(location: .local(fileURL), source: nil)
             errorMessage = error.localizedDescription
         }
     }
 
     func update(source: String) async {
-        guard let baseline else { return }
+        guard isActive, !Task.isCancelled else { return }
+        let updateID = UUID()
+        self.updateID = updateID
+        guard !isLoadingBaseline, let baseline, diffSource != source else { return }
         do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
-        let calculation = Task.detached(priority: .utility) {
+        guard self.updateID == updateID, self.baseline == baseline else { return }
+        let loaded = await Task.detached(priority: .utility) {
             Git.diff(from: baseline.source, to: source)
-        }
-        let loaded = await calculation.value
-        guard !Task.isCancelled, self.baseline == baseline else { return }
+        }.value
+        guard !Task.isCancelled, self.updateID == updateID, self.baseline == baseline else { return }
         diffSource = source
         hunks = loaded
     }

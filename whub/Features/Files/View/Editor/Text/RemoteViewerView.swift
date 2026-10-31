@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import WhubClient
 
@@ -58,6 +59,7 @@ private struct RemoteCodeEditorView: View {
     @StateObject private var diffStore = GitLineStore()
     @State private var usageID = UUID()
     @Environment(\.isRetainedPageActive) private var isActive
+    @Environment(\.retainedPageActivity) private var activity
 
     private var path: String? {
         let prefix = git.root.path == "/" ? "/" : git.root.path + "/"
@@ -67,7 +69,7 @@ private struct RemoteCodeEditorView: View {
     }
 
     private var baseline: String? {
-        guard isActive, git.isConnected, git.watchError == nil, git.errorMessage == nil,
+        guard git.isConnected, git.watchError == nil, git.errorMessage == nil,
               let path, let diff = git.diffs[path], diff.content.type == "text" else { return nil }
         return diff.content.before
     }
@@ -77,10 +79,13 @@ private struct RemoteCodeEditorView: View {
                        language: codeLanguages[(location.name as NSString).pathExtension.lowercased()],
                        hunks: diffStore.hunks(for: location, source: source), location: location)
             .background(Color(nsColor: .textBackgroundColor))
-            .onAppear { updateUsage(isActive) }
-            .onChange(of: isActive) { _, active in updateUsage(active) }
-            .onDisappear { updateUsage(false) }
-            .task(id: RemoteCodeDiffID(baseline: baseline, source: source)) {
+            .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) {
+                diffStore.setActive($0)
+                updateUsage($0)
+            }
+            .onDisappear { diffStore.setActive(false); updateUsage(false) }
+            .task(id: RemoteCodeDiffID(baseline: baseline, source: source, isActive: diffStore.isActive)) {
+                guard diffStore.isActive, activity?.isActive.value ?? isActive else { return }
                 diffStore.setBaseline(location: location, source: baseline)
                 await diffStore.update(source: source)
             }
@@ -94,4 +99,5 @@ private struct RemoteCodeEditorView: View {
 private struct RemoteCodeDiffID: Equatable {
     let baseline: String?
     let source: String
+    let isActive: Bool
 }

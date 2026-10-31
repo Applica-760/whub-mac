@@ -1,9 +1,12 @@
+import Combine
 import SwiftUI
 import WhubClient
 import WhubGit
 
 struct DiffContent: View {
     @ObservedObject var state: LocalDiffStore
+    @Environment(\.isRetainedPageActive) private var isActive
+    @Environment(\.retainedPageActivity) private var activity
 
     var body: some View {
         VStack(spacing: 8) {
@@ -16,7 +19,7 @@ struct DiffContent: View {
                 switch diff.content {
                 case let .text(before, after):
                     if diff.change == nil { Text("未コミットの差分はありません").foregroundStyle(.secondary) }
-                    DiffView(before: before, after: after, fileURL: diff.fileURL)
+                    DiffView(before: before, after: after, fileURL: diff.fileURL, isCurrent: !state.needsRefresh)
                 case let .unsupported(reason):
                     ContentUnavailableView("テキスト比較の対象外", systemImage: "doc.badge.ellipsis",
                                            description: Text(UnsupportedDiffMessage.text(reason)))
@@ -25,6 +28,10 @@ struct DiffContent: View {
                 ProgressView("差分を読み込み中…").frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) {
+            state.setActive($0)
+        }
+        .onDisappear { state.setActive(false) }
     }
 }
 
