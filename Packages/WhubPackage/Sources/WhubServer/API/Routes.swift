@@ -43,6 +43,9 @@ func makeRouter(files: FilesAPI, manager: ManagerAPI, agent: AgentAPI, git: GitA
     router.post("files/rename") { request, _ -> Response in
         await files.operate(request, operation: .rename)
     }
+    router.post("files/move") { request, _ -> Response in
+        await files.operate(request, operation: .move)
+    }
     router.post("files/trash") { request, _ -> Response in
         await files.operate(request, operation: .trash)
     }

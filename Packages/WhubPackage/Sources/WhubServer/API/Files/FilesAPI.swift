@@ -4,7 +4,7 @@ import Hummingbird
 struct FilesAPI: Sendable {
     private static let maxResponseBytes = 8 * 1_048_576
 
-    enum Operation: Sendable { case createFile, createDirectory, rename, trash }
+    enum Operation: Sendable { case createFile, createDirectory, rename, move, trash }
 
     func operate(_ request: Request, operation: Operation) async -> Response {
         do {
@@ -12,14 +12,16 @@ struct FilesAPI: Sendable {
             let name: String?
             switch operation {
             case .createFile, .createDirectory, .trash: name = nil
-            case .rename:
+            case .rename, .move:
                 guard request.headers[.contentType]?.split(separator: ";").first?.lowercased() == "application/json" else {
                     throw FilesAPIError.invalidRequest
                 }
-                struct Body: Decodable { let name: String }
+                struct Body: Decodable { let name: String?; let directory: String? }
                 do {
                     let body = try await request.body.collect(upTo: 4096)
-                    name = try JSONDecoder().decode(Body.self, from: Data(body.readableBytesView)).name
+                    let decoded = try JSONDecoder().decode(Body.self, from: Data(body.readableBytesView))
+                    name = operation == .rename ? decoded.name : decoded.directory
+                    guard name != nil else { throw FilesAPIError.invalidRequest }
                 } catch { throw FilesAPIError.invalidRequest }
             }
             try await Task.detached {
@@ -29,6 +31,7 @@ struct FilesAPI: Sendable {
                 case .createDirectory: try directory.create(path: path, directory: true)
                 case .trash: try directory.trash(path: path)
                 case .rename: try directory.rename(path: path, name: name!)
+                case .move: try directory.move(path: path, directory: name!)
                 }
             }.value
             return Response(status: .noContent)

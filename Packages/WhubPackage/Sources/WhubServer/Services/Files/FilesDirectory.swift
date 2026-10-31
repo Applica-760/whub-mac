@@ -75,18 +75,26 @@ struct FilesDirectory: Sendable {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               name != ".", name != "..", !name.contains("/"), !name.contains(":"),
               name.rangeOfCharacter(from: .controlCharacters) == nil else { throw FilesError.invalidPath }
+        let parentPath = (path as NSString).deletingLastPathComponent
+        try move(path: path, directory: parentPath == "." ? "" : parentPath, name: name)
+    }
+
+    func move(path: String, directory: String, name: String? = nil) throws {
         let (parent, source) = try parentAndName(path: path)
         defer { close(parent) }
+        let destination = try files.openTarget(path: directory, directory: true)
+        defer { close(destination) }
+        let name = name ?? source
         var info = stat()
         guard fstatat(parent, source, &info, AT_SYMLINK_NOFOLLOW) == 0 else { throw FilesError.system(errno) }
         guard info.st_mode & mode_t(S_IFMT) != mode_t(S_IFLNK) else { throw FilesError.symlinkForbidden }
-        if source == name { return }
+        if (path as NSString).deletingLastPathComponent == directory && source == name { return }
         #if os(Linux)
         guard let symbol = dlsym(nil, "renameat2") else { throw FilesError.operationFailed }
         let renameExclusive = unsafeBitCast(symbol, to: (@convention(c) (Int32, UnsafePointer<CChar>, Int32, UnsafePointer<CChar>, UInt32) -> Int32).self)
-        let result = source.withCString { old in name.withCString { new in renameExclusive(parent, old, parent, new, 1) } }
+        let result = source.withCString { old in name.withCString { new in renameExclusive(parent, old, destination, new, 1) } }
         #else
-        let result = renameatx_np(parent, source, parent, name, UInt32(RENAME_EXCL))
+        let result = renameatx_np(parent, source, destination, name, UInt32(RENAME_EXCL))
         #endif
         guard result == 0 else { throw FilesError.system(errno) }
     }
