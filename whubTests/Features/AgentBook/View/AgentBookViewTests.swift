@@ -38,7 +38,7 @@ struct AgentBookViewTests {
     }
 
     @Test func linkFilePathsUseSessionDirectory() throws {
-        let path = WorkspaceView<EmptyView>.filePath
+        let path = AgentBookExchangeView.filePath
         #expect(path(try #require(URL(string: "src/main.swift:12:3")), "/work/project") == "/work/project/src/main.swift")
         #expect(path(try #require(URL(string: "../other.swift#L4")), "/work/project") == "/work/other.swift")
         #expect(path(try #require(URL(string: "file:///work/My%20File.swift:5")), nil) == "/work/My File.swift")
@@ -65,7 +65,7 @@ struct AgentBookViewTests {
         var targetsAgentBook = false
         let host = NSHostingView(rootView: VStack {
             AgentBookTabMenu(store: book, isActive: true, isShortcutTarget: { targetsAgentBook })
-            AgentBookView(store: book).environmentObject(connections).environmentObject(servers)
+            AgentBookView(store: book).environmentObject(FilesStore()).environmentObject(connections).environmentObject(servers)
         })
         let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 900),
                                    styleMask: [.titled], backing: .buffered, defer: false)
@@ -127,7 +127,7 @@ struct AgentBookViewTests {
         let connections = RemoteConnectionStore()
         let servers = RemoteServerStore(connections: connections)
         let host = NSHostingView(rootView: AgentBookView(store: book)
-            .environmentObject(connections).environmentObject(servers))
+            .environmentObject(FilesStore()).environmentObject(connections).environmentObject(servers))
         let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 750),
                                    styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -413,7 +413,7 @@ struct AgentBookViewTests {
         let connections = RemoteConnectionStore()
         let servers = RemoteServerStore(connections: connections)
         let host = NSHostingView(rootView: AgentBookView(store: book)
-            .environmentObject(connections).environmentObject(servers))
+            .environmentObject(FilesStore()).environmentObject(connections).environmentObject(servers))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 550),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -573,8 +573,11 @@ struct AgentBookViewTests {
         var spread = 0
         var pageCount = 0
         let window = AgentBookTestKeyWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        let connections = RemoteConnectionStore()
+        let servers = RemoteServerStore(connections: connections)
         let host = NSHostingView(rootView: AgentBookExchangeView(store: store, agentName: "Codex",
-            spread: Binding(get: { spread }, set: { spread = $0 }), pageCountChanged: { pageCount = $0 }, focus: focus))
+            spread: Binding(get: { spread }, set: { spread = $0 }), pageCountChanged: { pageCount = $0 }, focus: focus)
+            .environmentObject(FilesStore()).environmentObject(connections).environmentObject(servers))
         let content = try #require(window.contentView)
         host.frame = content.bounds
         content.addSubview(host)

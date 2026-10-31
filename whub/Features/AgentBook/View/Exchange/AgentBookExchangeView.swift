@@ -1,6 +1,8 @@
 import AppKit
 import Combine
+import SwiftData
 import SwiftUI
+import WhubCore
 import WhubAgent
 
 struct AgentBookExchangeView: View {
@@ -10,7 +12,10 @@ struct AgentBookExchangeView: View {
     let pageCountChanged: (Int) -> Void
     let focus: AgentBookFocus
     var featureActivity: RetainedPageActivity? = nil
-    let openLink: (URL) -> Bool
+    @Environment(\.openWorkspaceEditor) private var openEditor
+    @EnvironmentObject private var files: FilesStore
+    @EnvironmentObject private var connections: RemoteConnectionStore
+    @EnvironmentObject private var servers: RemoteServerStore
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
     @StateObject private var book: AgentBookPageLayout
@@ -19,15 +24,47 @@ struct AgentBookExchangeView: View {
 
     init(store: AgentStore, agentName: String, spread: Binding<Int>,
          pageCountChanged: @escaping (Int) -> Void, focus: AgentBookFocus,
-         featureActivity: RetainedPageActivity? = nil, openLink: @escaping (URL) -> Bool = { _ in false }) {
+         featureActivity: RetainedPageActivity? = nil) {
         self.store = store
         self.agentName = agentName
         self._spread = spread
         self.pageCountChanged = pageCountChanged
         self.focus = focus
         self.featureActivity = featureActivity
-        self.openLink = openLink
         self._book = StateObject(wrappedValue: AgentBookPageLayout())
+    }
+
+    private func openLink(_ url: URL) -> Bool {
+        if ["http", "https"].contains(url.scheme?.lowercased()) {
+            return NSWorkspace.shared.open(url)
+        }
+        guard let path = Self.filePath(for: url, directory: store.directory) else { return false }
+        let location: FileLocation
+        let root: FileLocation?
+        let hosts: [WhubCore.Host]
+        switch store.target {
+        case .local:
+            location = .local(URL(fileURLWithPath: path))
+            root = nil
+            hosts = []
+        case .remote(let host, _):
+            location = .remote(hostID: host.persistentModelID, path: path)
+            root = .remote(hostID: host.persistentModelID, path: (path as NSString).deletingLastPathComponent)
+            hosts = [host]
+        }
+        files.open(location, hosts: hosts, connections: connections, servers: servers, root: root)
+        openEditor()
+        return true
+    }
+
+    static func filePath(for url: URL, directory: String?) -> String? {
+        let raw = url.isFileURL ? url.path : (url.relativeString.removingPercentEncoding ?? url.relativeString)
+        let path = raw.replacingOccurrences(of: #"(?::[0-9]+(?::[0-9]+)?|#L[0-9]+(?:-L[0-9]+)?)$"#,
+                                            with: "", options: .regularExpression)
+        guard !path.isEmpty, url.isFileURL || URL(string: path)?.scheme == nil else { return nil }
+        if path.hasPrefix("/") { return (path as NSString).standardizingPath }
+        guard let directory, directory.hasPrefix("/") else { return nil }
+        return ((directory as NSString).appendingPathComponent(path) as NSString).standardizingPath
     }
 
     private var latestPageIsInteractive: Bool {
