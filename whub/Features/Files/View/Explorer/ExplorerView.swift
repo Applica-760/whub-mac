@@ -4,18 +4,6 @@ import SwiftUI
 import WhubCore
 import WhubGit
 
-struct ExplorerSidebar: View {
-    let onFileSelect: () -> Void
-    let focus: ExplorerFocusNavigation
-    @EnvironmentObject private var files: FilesStore
-
-    var body: some View {
-        ExplorerView(onFileSelect: onFileSelect, store: files.explorer,
-                     focus: focus)
-            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 640)
-    }
-}
-
 struct ExplorerView: View {
     let onFileSelect: () -> Void
     @Query(sort: \Project.name) private var projects: [Project]

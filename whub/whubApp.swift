@@ -35,7 +35,6 @@ struct whubApp: App {
                 AppView(section: $section)
                     .containerBackground(Color(nsColor: .windowBackgroundColor), for: .window)
                     .environmentObject(files)
-                    .environmentObject(files.activeEditor)
                     .environmentObject(files.git)
                     .environmentObject(terminalStore)
                     .environmentObject(agentBookStore)

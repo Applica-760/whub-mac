@@ -19,9 +19,10 @@ struct AppView: View {
         let selection = Binding(get: { section }, set: selectSection)
 
         NavigationSplitView {
-            ExplorerSidebar(onFileSelect: {
+            ExplorerView(onFileSelect: {
                 section = .editor
-            }, focus: explorerFocus)
+            }, store: files.explorer, focus: explorerFocus)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 640)
         } detail: {
             RetainedPageContainer(selection: section, focus: explorerFocus.content) { page in
                 page.content.environmentObject(files.activeEditor)
