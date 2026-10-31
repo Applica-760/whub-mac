@@ -124,11 +124,14 @@ struct CodeEditorView: NSViewRepresentable {
         let dark = colorScheme == .dark
         let key = HighlightKey(source: source, language: language, dark: dark, diffLines: diffLines)
         guard context.coordinator.highlighted != key else { return }
-        codeHighlighter?.setTheme(
-            dark ? "night-owl" : "xcode",
-            withFont: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).fontName,
-            ofSize: 13
-        )
+        let themeName = dark ? "night-owl" : "xcode"
+        if codeHighlighter?.theme.name != themeName {
+            codeHighlighter?.setTheme(
+                themeName,
+                withFont: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).fontName,
+                ofSize: 13
+            )
+        }
         let highlighted = language.flatMap { codeHighlighter?.highlight(source, as: $0) }
             ?? NSAttributedString(
                 string: source,
