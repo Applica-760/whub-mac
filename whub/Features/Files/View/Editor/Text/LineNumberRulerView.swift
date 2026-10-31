@@ -7,23 +7,25 @@ final class LineNumberRulerView: NSRulerView {
     private var lineCount = 0
     private var diffLines: [DiffLine]?
 
-    func update(source: String, hunks: [LineDiffHunk], diffLines: [DiffLine]? = nil) {
+    func update(source: String?, hunks: [LineDiffHunk], diffLines: [DiffLine]? = nil) {
         self.diffLines = diffLines
-        var lineStarts = [0]
-        for (offset, character) in source.utf16.enumerated() where character == 10 {
-            lineStarts.append(offset + 1)
-        }
-        let lineCount = source.isEmpty ? 0 : lineStarts.count - (source.hasSuffix("\n") ? 1 : 0)
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        let numberWidth = (String(max(999, lineStarts.count)) as NSString).size(withAttributes: [.font: font]).width + 16
-        let thickness = numberWidth + 5
-        if ruleThickness != thickness {
-            ruleThickness = thickness
-            scrollView?.tile()
+        if let source {
+            var lineStarts = [0]
+            for (offset, character) in source.utf16.enumerated() where character == 10 {
+                lineStarts.append(offset + 1)
+            }
+            let lineCount = source.isEmpty ? 0 : lineStarts.count - (source.hasSuffix("\n") ? 1 : 0)
+            let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+            let numberWidth = (String(max(999, lineStarts.count)) as NSString).size(withAttributes: [.font: font]).width + 16
+            let thickness = numberWidth + 5
+            if ruleThickness != thickness {
+                ruleThickness = thickness
+                scrollView?.tile()
+            }
+            self.lineStarts = lineStarts
+            self.lineCount = lineCount
         }
         self.hunks = hunks
-        self.lineStarts = lineStarts
-        self.lineCount = lineCount
         invalidateHashMarks()
         needsDisplay = true
     }

@@ -31,6 +31,7 @@ struct CodeEditorView: NSViewRepresentable {
 
     final class Coordinator {
         var highlighted: HighlightKey?
+        var lineNumbersNeedUpdate = true
         var didRestorePosition = false
         private weak var storage: NSTextStorage?
         private var observation: NSObjectProtocol?
@@ -40,11 +41,13 @@ struct CodeEditorView: NSViewRepresentable {
             if let observation { NotificationCenter.default.removeObserver(observation) }
             self.storage = storage
             highlighted = nil
+            lineNumbersNeedUpdate = true
             observation = NotificationCenter.default.addObserver(
                 forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: .main
             ) { [weak self] notification in
                 if let storage = notification.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) {
                     self?.highlighted = nil
+                    self?.lineNumbersNeedUpdate = true
                 }
             }
         }
@@ -118,7 +121,11 @@ struct CodeEditorView: NSViewRepresentable {
             context.coordinator.didRestorePosition = true
         }
         onScrollView?(scrollView)
-        (scrollView.verticalRulerView as? LineNumberRulerView)?.update(source: textView.string, hunks: hunks, diffLines: diffLines)
+        (scrollView.verticalRulerView as? LineNumberRulerView)?.update(
+            source: context.coordinator.lineNumbersNeedUpdate ? textView.string : nil,
+            hunks: hunks, diffLines: diffLines
+        )
+        context.coordinator.lineNumbersNeedUpdate = false
         guard state.textStorage.string == source,
               !state.editorViews.hasMarkedText else { return }
         let dark = colorScheme == .dark
