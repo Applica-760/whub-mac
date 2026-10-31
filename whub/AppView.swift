@@ -34,6 +34,25 @@ struct AppView: View {
                     .inspectorColumnWidth(min: 500, ideal: 600, max: 1200)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Picker("ページ", selection: selection) {
+                        ForEach(WorkspaceSection.allCases, id: \.self) { section in
+                            Label(section.label, systemImage: section.systemImage).tag(section)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                RemoteConnectionToolbar()
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Toggle AgentBook", systemImage: "sidebar.right") {
+                        showsAgentBook.toggle()
+                    }
+                }
+            }
         }
         .focusedSceneValue(\.workspaceActions, WorkspaceActions(
             selection: selection,
@@ -49,25 +68,6 @@ struct AppView: View {
         .focusedSceneValue(\.toggleExplorerFocus, { explorerFocus.toggle(prefersEditor: section == .editor) })
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 1000, minHeight: 550)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Picker("ページ", selection: selection) {
-                    ForEach(WorkspaceSection.allCases, id: \.self) { section in
-                        Label(section.label, systemImage: section.systemImage).tag(section)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-            RemoteConnectionToolbar()
-            SettingsToolbar()
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-            ToolbarItem(placement: .primaryAction) {
-                Button("Toggle AgentBook", systemImage: "sidebar.right") {
-                    showsAgentBook.toggle()
-                }
-            }
-        }
     }
 
     private func selectSection(_ next: WorkspaceSection) {

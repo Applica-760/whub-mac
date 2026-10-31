@@ -4,14 +4,10 @@ import WhubCore
 
 struct RemoteConnectionToolbar: ToolbarContent {
     var body: some ToolbarContent {
-        ToolbarSpacer(.fixed, placement: .primaryAction)
-
         ToolbarItem(placement: .primaryAction) {
             RemoteConnectionToolbarView()
         }
         .sharedBackgroundVisibility(.hidden)
-
-        ToolbarSpacer(.fixed, placement: .primaryAction)
     }
 }
 
