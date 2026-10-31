@@ -145,6 +145,7 @@ struct CodeEditorView: NSViewRepresentable {
                 state.textStorage.addAttributes(attributes, range: range)
             }
         }
+        if language == "markdown" { MarkdownEditorStyle.apply(to: state.textStorage, source: source) }
         if let diffLines {
             let paragraph = NSMutableParagraphStyle()
             paragraph.minimumLineHeight = 20
