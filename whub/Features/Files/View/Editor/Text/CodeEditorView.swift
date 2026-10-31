@@ -17,6 +17,7 @@ struct CodeEditorView: NSViewRepresentable {
     let hunks: [LineDiffHunk]
     var diffLines: [DiffLine]? = nil
     var onScrollView: ((NSScrollView) -> Void)? = nil
+    var onExpandDiff: ((Range<Int>) -> Void)? = nil
     var location: FileLocation? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -64,6 +65,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.editorID = editorID
         textView.onEdit = onEdit
         textView.diffLines = diffLines
+        textView.onExpandDiff = onExpandDiff
         textView.drawsBackground = false
         textView.isEditable = state.isEditable && !state.isFileOperationLocked
         textView.isRichText = false
@@ -109,6 +111,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.location = location
         textView.onEdit = onEdit
         textView.diffLines = diffLines
+        textView.onExpandDiff = onExpandDiff
         guard isActive else { return }
         if !context.coordinator.didRestorePosition {
             textView.restorePosition()
@@ -165,6 +168,10 @@ struct CodeEditorView: NSViewRepresentable {
                     state.textStorage.addAttribute(.backgroundColor, value: color.withAlphaComponent(0.18),
                                                    range: NSRange(location: offset, length: length))
                 }
+                if line.foldedRange != nil {
+                    state.textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor,
+                                                   range: NSRange(location: offset, length: length))
+                }
                 offset += length
             }
         }
@@ -201,6 +208,49 @@ final class CodeTextView: NSTextView {
     var editorID: String?
     var onEdit: (() -> Void)?
     var diffLines: [DiffLine]?
+    var onExpandDiff: ((Range<Int>) -> Void)?
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let diffLines, let layoutManager else { super.draw(dirtyRect); return }
+        var offset = 0
+        let lineWidth = 1 / (window?.backingScaleFactor ?? 1)
+        var frames: [NSRect] = []
+        for line in diffLines {
+            if line.foldedRange != nil, offset < (string as NSString).length {
+                let glyph = layoutManager.glyphIndexForCharacter(at: offset)
+                let fragment = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                let frame = NSRect(x: visibleRect.minX, y: fragment.minY + textContainerOrigin.y,
+                                   width: visibleRect.width, height: fragment.height).insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
+                if frame.intersects(dirtyRect) { frames.append(frame) }
+            }
+            offset += line.displayText.utf16.count
+        }
+        NSColor.separatorColor.withAlphaComponent(0.12).setFill()
+        for frame in frames { frame.fill() }
+        super.draw(dirtyRect)
+        NSColor.separatorColor.setStroke()
+        for frame in frames {
+            let border = NSBezierPath(rect: frame)
+            border.lineWidth = lineWidth
+            border.stroke()
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if let diffLines, let onExpandDiff {
+            let position = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
+            var offset = 0
+            for line in diffLines {
+                let end = offset + line.displayText.utf16.count
+                if position >= offset, position < end, let range = line.foldedRange {
+                    onExpandDiff(range)
+                    return
+                }
+                offset = end
+            }
+        }
+        super.mouseDown(with: event)
+    }
 
     func savePosition(includingUnfocused: Bool = false) {
         guard isEditable, !isHiddenOrHasHiddenAncestor, let editorID, let fileStore,
