@@ -26,7 +26,8 @@ struct EditorTabBarView: View {
                 switch tab {
                 case let .file(location), let .diff(location):
                     ExplorerContextMenu(location: location, isDirectory: false, basePath: files.explorer.treeBasePath,
-                                        tabMenu: true, onAction: { action, location in
+                                        tabMenu: true, previewVisible: store.selectedTab == .file(location) && store.markdownPreviews.contains(location),
+                                        onAction: { action, location in
                                             if case .showPreview = action { onShowPreview(location) }
                                         }, onShowDiff: { files.openDiff($0) })
                 }

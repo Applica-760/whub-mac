@@ -54,7 +54,7 @@ final class ExplorerContextMenu: NSMenu {
     private let relativePath: String?
 
     init(location: FileLocation, isDirectory: Bool, basePath: String?, allowsActions: Bool = true,
-         allowsFileOperations: Bool = true, createsOnly: Bool = false, tabMenu: Bool = false,
+         allowsFileOperations: Bool = true, createsOnly: Bool = false, tabMenu: Bool = false, previewVisible: Bool = false,
          onEdit: @escaping (ExplorerStore.NameEdit.Operation) -> Void = { _ in },
          onAction: @escaping (Action, FileLocation) -> Void = { _, _ in },
          onShowDiff: @escaping (FileLocation) -> Void) {
@@ -91,6 +91,7 @@ final class ExplorerContextMenu: NSMenu {
                 add(.openInBrowser)
             } else if !isDirectory, EditorStore.supportsMarkdownPreview(location) {
                 add(.showPreview)
+                if tabMenu && previewVisible { item(withTitle: "Show Preview")?.title = "Hide Preview" }
             }
         }
     }

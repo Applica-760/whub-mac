@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 import WhubGit
 
 final class ExplorerItemView: NSTableCellView {
+    private(set) var nameField: NSTextField?
     private static let iconSize: CGFloat = 16
     private static let nameSpacing: CGFloat = 4
 
@@ -17,12 +18,13 @@ final class ExplorerItemView: NSTableCellView {
         imageView = icon
 
         let name = NSTextField(labelWithString: "")
+        name.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         name.translatesAutoresizingMaskIntoConstraints = false
         name.lineBreakMode = .byTruncatingTail
         name.usesSingleLineMode = true
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(name)
-        textField = name
+        nameField = name
 
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -36,24 +38,23 @@ final class ExplorerItemView: NSTableCellView {
     }
 
     var requiredWidth: CGFloat {
-        Self.iconSize + Self.nameSpacing + (textField?.intrinsicContentSize.width ?? 0)
+        Self.iconSize + Self.nameSpacing + (nameField?.intrinsicContentSize.width ?? 0)
     }
 
     required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func update(item: ExplorerItem, change: GitChange?, unavailable: Bool,
                 editingName: String?, editingOperation: ExplorerStore.NameEdit.Operation?) {
-        textField?.attributedStringValue = NSAttributedString(
-            string: item.location.name,
-            attributes: unavailable ? [.strikethroughStyle: NSUnderlineStyle.single.rawValue] : [:]
-        )
+        var attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .regular)]
+        if unavailable { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+        nameField?.attributedStringValue = NSAttributedString(string: item.location.name, attributes: attributes)
         toolTip = unavailable ? "上部のメニューからProjectまたはWorktreeを選択してください。" : nil
-        textField?.textColor = switch change {
+        nameField?.textColor = switch change {
         case .added: .systemGreen
         case .modified, .deleted: .systemOrange
         case nil: item.location.name.hasPrefix(".") ? .secondaryLabelColor : .labelColor
         }
-        if unavailable { textField?.textColor = .disabledControlTextColor }
+        if unavailable { nameField?.textColor = .disabledControlTextColor }
         imageView?.alphaValue = unavailable ? 0.4 : 1
         imageView?.contentTintColor = nil
         if editingOperation == .newFolder {
@@ -66,15 +67,15 @@ final class ExplorerItemView: NSTableCellView {
             imageView?.image = NSWorkspace.shared.icon(for: .folder)
         }
         let editing = editingName != nil
-        textField?.isEditable = editing
-        textField?.isSelectable = editing
-        textField?.isBezeled = editing
-        textField?.drawsBackground = editing
-        textField?.placeholderString = editingOperation?.title
-        textField?.setAccessibilityLabel(editingOperation?.title)
+        nameField?.isEditable = editing
+        nameField?.isSelectable = editing
+        nameField?.isBezeled = editing
+        nameField?.drawsBackground = editing
+        nameField?.placeholderString = editingOperation?.title
+        nameField?.setAccessibilityLabel(editingOperation?.title)
         if let editingName {
-            textField?.stringValue = editingName
-            textField?.textColor = .labelColor
+            nameField?.stringValue = editingName
+            nameField?.textColor = .labelColor
         }
     }
 }

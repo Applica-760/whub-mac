@@ -73,7 +73,7 @@ struct ExplorerView: View {
 
     private func explorerTree(remoteChanges: [FileLocation: GitChange]) -> some View {
         ExplorerTreeView(
-            store: store, gitStore: gitStore, remoteChanges: remoteChanges, focus: focus,
+            store: store, gitStore: gitStore, editor: files.activeEditor, remoteChanges: remoteChanges, focus: focus,
             onFilePreview: { location in
                 files.preview(location, hosts: hosts, connections: connections, servers: servers)
                 onFileSelect()
