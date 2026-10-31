@@ -4,6 +4,7 @@ import WhubAgent
 /// Keeps AppKit images and local command display out of the execution model.
 @MainActor
 final class AgentModelMapping {
+    private var cachedExchanges: [UUID: (source: WhubAgent.AgentExchange, mapped: AgentExchange)] = [:]
     private var images: [UUID: AgentImageAttachment] = [:]
 
     func input(_ input: [AgentInput]) throws -> [WhubAgent.AgentInput] {
@@ -26,7 +27,12 @@ final class AgentModelMapping {
     }
 
     func exchanges(_ exchanges: [WhubAgent.AgentExchange]) throws -> [AgentExchange] {
-        try exchanges.map { source in
+        var next: [UUID: (source: WhubAgent.AgentExchange, mapped: AgentExchange)] = [:]
+        let result = try exchanges.map { source in
+            if let cached = cachedExchanges[source.id], cached.source == source {
+                next[source.id] = cached
+                return cached.mapped
+            }
             var exchange = AgentExchange(id: source.id, input: try source.input.map(input))
             exchange.additionalInputs = try source.additionalInputs.map {
                 AgentAdditionalInput(id: $0.id, input: try $0.input.map(input), outputIndex: $0.outputIndex)
@@ -43,8 +49,11 @@ final class AgentModelMapping {
                 }
             }
             exchange.status = source.status
+            next[source.id] = (source, exchange)
             return exchange
         }
+        cachedExchanges = next
+        return result
     }
 
     func content(_ content: WhubAgent.AgentContent) throws -> AgentContent {

@@ -52,6 +52,10 @@ final class AgentBookPageLayout: ObservableObject {
         let storage = NSTextStorage()
         let manager: NSLayoutManager = MarkdownLayoutManager()
         let container = NSTextContainer()
+        private(set) var revision = 0
+        private(set) var contentHeight: CGFloat = 0
+        private(set) var headerFrames: [(id: UUID, frame: CGRect)] = []
+        private(set) var promptFrames: [(id: UUID, frame: CGRect)] = []
         private(set) var codes: [Code] = []
         private(set) var prompts: [Prompt] = []
 
@@ -68,6 +72,10 @@ final class AgentBookPageLayout: ObservableObject {
             container.containerSize = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
             storage.setAttributedString(text)
             manager.ensureLayout(for: container)
+            revision += 1
+            contentHeight = manager.usedRect(for: container).maxY
+            headerFrames = controlFrames(for: .agentBookHeaderExchangeID, width: width)
+            promptFrames = controlFrames(for: .agentBookPromptExchangeID, width: width)
             codes = []
             storage.enumerateAttribute(.markdownCodeSource, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
                 guard let text = value as? String,
@@ -82,7 +90,18 @@ final class AgentBookPageLayout: ObservableObject {
                       let id = storage.attribute(.agentBookPromptID, at: range.location, effectiveRange: nil) as? UUID else { return }
                 prompts.append(Prompt(id: id, range: range, text: text, size: attachment.bounds.size))
             }
+        }
 
+        private func controlFrames(for key: NSAttributedString.Key, width: CGFloat) -> [(id: UUID, frame: CGRect)] {
+            var controls: [(id: UUID, frame: CGRect)] = []
+            storage.enumerateAttribute(key, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                guard let id = value as? UUID else { return }
+                let glyph = manager.glyphIndexForCharacter(at: range.location)
+                let line = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                controls.append((id, CGRect(x: AgentBookPageStyle.horizontalInset,
+                                            y: AgentBookPageStyle.pageInset + line.minY, width: width, height: 20)))
+            }
+            return controls
         }
     }
 
@@ -104,6 +123,7 @@ final class AgentBookPageLayout: ObservableObject {
     private var exchanges: [AgentExchange] = []
     private var agentName = ""
     private var inputs: [Input] = []
+    private var inputRevisions: [UUID: UUID] = [:]
     private struct RenderedExchange {
         let input: Input
         let page: Page
@@ -149,8 +169,11 @@ final class AgentBookPageLayout: ObservableObject {
 
     func update(_ exchanges: [AgentExchange], agentName: String) {
         expandedPrompts.formIntersection(exchanges.map(\.id))
+        let previous = Dictionary(uniqueKeysWithValues: inputs.map { ($0.id, $0) })
         let next = exchanges.map {
-            Input(id: $0.id, agentName: agentName, prompt: $0.input.agentBookPrompt, images: $0.input.agentBookImages.map(\.id),
+            if self.agentName == agentName, inputRevisions[$0.id] == $0.contentRevision,
+               let cached = previous[$0.id] { return cached }
+            return Input(id: $0.id, agentName: agentName, prompt: $0.input.agentBookPrompt, images: $0.input.agentBookImages.map(\.id),
                   additionalPrompts: $0.additionalInputs.map { $0.input.agentBookPrompt },
                   additionalImages: $0.additionalInputs.map { $0.input.agentBookImages.map(\.id) },
                   history: $0.history.map { output in
@@ -159,6 +182,7 @@ final class AgentBookPageLayout: ObservableObject {
                   isPromptExpanded: expandedPrompts.contains($0.id))
         }
         self.exchanges = exchanges
+        inputRevisions = Dictionary(uniqueKeysWithValues: exchanges.map { ($0.id, $0.contentRevision) })
         guard inputs != next else { return }
         self.agentName = agentName
         inputs = next
@@ -248,24 +272,14 @@ final class AgentBookPageLayout: ObservableObject {
 
     private func updateControlFrames() {
         contentBottoms = pages.enumerated().map { index, page in
-            min(size(for: index).height - 16, AgentBookPageStyle.pageInset + page.manager.usedRect(for: page.container).maxY)
+            min(size(for: index).height - 16, AgentBookPageStyle.pageInset + page.contentHeight)
         }
-        headers = controlFrames(for: .agentBookHeaderExchangeID)
-        promptControls = controlFrames(for: .agentBookPromptExchangeID)
-    }
-
-    private func controlFrames(for key: NSAttributedString.Key) -> [Header] {
-        var controls: [Header] = []
-        for (index, page) in pages.enumerated() {
-            page.storage.enumerateAttribute(key, in: NSRange(location: 0, length: page.storage.length)) { value, range, _ in
-                guard let id = value as? UUID else { return }
-                let glyph = page.manager.glyphIndexForCharacter(at: range.location)
-                let line = page.manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-                controls.append(Header(id: id, page: index,
-                                      frame: CGRect(x: AgentBookPageStyle.horizontalInset, y: AgentBookPageStyle.pageInset + line.minY, width: max(1, size(for: index).width - 2 * AgentBookPageStyle.horizontalInset), height: 20)))
-            }
+        headers = pages.enumerated().flatMap { index, page in
+            page.headerFrames.map { Header(id: $0.id, page: index, frame: $0.frame) }
         }
-        return controls
+        promptControls = pages.enumerated().flatMap { index, page in
+            page.promptFrames.map { Header(id: $0.id, page: index, frame: $0.frame) }
+        }
     }
 
     private func publish(pageCount: Int, spread: Int, error: String?) {

@@ -41,6 +41,13 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface, NSTextViewDel
     private let book: AgentBookPageLayout
     var colorScheme: ColorScheme = .light
     private var pages: [String: NSScrollView] = [:]
+    private struct Presentation: Equatable {
+        let revision: Int
+        let viewport: CGSize
+        let selectedPage: Int
+        let colorScheme: ColorScheme
+    }
+    private var presentations: [String: Presentation] = [:]
     private var readingOrigins: [String: CGPoint] = [:]
     private var readingPageID: String?
     var headerContent: ((AgentExchange) -> AnyView)?
@@ -141,13 +148,14 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface, NSTextViewDel
             readingOrigins[readingPageID] = scroll.contentView.bounds.origin
         }
         let previousPage = readingPageID.flatMap { id in book.pages.firstIndex { $0.id == id } }
-        let changed = book.prepare(viewport: bounds.size, colorScheme: colorScheme)
+        book.prepare(viewport: bounds.size, colorScheme: colorScheme)
         let animatesNavigation = previousPage != nil && previousPage != book.selectedPage
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let liveIDs = Set(book.pages.map(\.id))
         for id in Array(pages.keys) where !liveIDs.contains(id) {
             pages.removeValue(forKey: id)?.removeFromSuperview()
             readingOrigins.removeValue(forKey: id)
+            presentations.removeValue(forKey: id)
         }
         let livePromptIDs = Set(book.pages.flatMap(\.prompts).map(\.id))
         for id in Array(promptViews.keys) where !livePromptIDs.contains(id) {
@@ -166,7 +174,17 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface, NSTextViewDel
         var visibleCodeIDs = Set<String>()
         for (index, model) in book.pages.enumerated() {
             let visible = book.visiblePages.contains(index)
-            guard visible || pages[model.id] != nil else { continue }
+            guard visible else {
+                pages[model.id]?.isHidden = true
+                pages[model.id]?.setAccessibilityHidden(true)
+                if presentations[model.id]?.revision != model.revision,
+                   let selected = selections[model.id],
+                   let text = pages[model.id]?.documentView as? NSTextView {
+                    let start = min(selected.location, model.storage.length)
+                    text.setSelectedRange(NSRange(location: start, length: min(selected.length, model.storage.length - start)))
+                }
+                continue
+            }
             let scroll: NSScrollView
             let page: AgentBookNativeTextView
             if let existing = pages[model.id], let text = existing.documentView as? AgentBookNativeTextView {
@@ -195,37 +213,42 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface, NSTextViewDel
                 addSubview(scroll)
                 pages[model.id] = scroll
             }
-            let origin = readingOrigins[model.id] ?? .zero
-            let size = book.size(for: index)
-            let isPreview = index != book.selectedPage
-            (scroll as? AgentBookPageScrollView)?.isPreview = isPreview
-            scroll.setAccessibilityHidden(!visible || isPreview)
-            do {
-                scroll.drawsBackground = isPreview
-                scroll.backgroundColor = .windowBackgroundColor
-                scroll.wantsLayer = true
-                scroll.layer?.cornerRadius = 14
-                scroll.layer?.masksToBounds = true
-                scroll.layer?.borderWidth = isPreview ? 1 : 0
-                scroll.layer?.borderColor = NSColor.separatorColor.cgColor
-                scroll.layer?.zPosition = isPreview ? 0 : 1
+            let presentation = Presentation(revision: model.revision, viewport: bounds.size,
+                                            selectedPage: book.selectedPage, colorScheme: colorScheme)
+            let needsPageUpdate = scroll.isHidden || presentations[model.id] != presentation
+            if needsPageUpdate {
+                let origin = readingOrigins[model.id] ?? .zero
+                let size = book.size(for: index)
+                let isPreview = index != book.selectedPage
+                (scroll as? AgentBookPageScrollView)?.isPreview = isPreview
+                scroll.setAccessibilityHidden(!visible || isPreview)
+                do {
+                    scroll.drawsBackground = isPreview
+                    scroll.backgroundColor = .windowBackgroundColor
+                    scroll.wantsLayer = true
+                    scroll.layer?.cornerRadius = 14
+                    scroll.layer?.masksToBounds = true
+                    scroll.layer?.borderWidth = isPreview ? 1 : 0
+                    scroll.layer?.borderColor = NSColor.separatorColor.cgColor
+                    scroll.layer?.zPosition = isPreview ? 0 : 1
+                }
+                (scroll as? AgentBookPageScrollView)?.updatePresentation(
+                    side: index == book.selectedPage ? 0 : (index < book.selectedPage ? -1 : 1),
+                    frame: CGRect(origin: book.pageOrigin(index, viewport: bounds.size), size: book.displaySize(for: index)),
+                    logicalSize: size,
+                    animated: animatesNavigation && visible
+                )
+                page.frame.size = NSSize(width: size.width,
+                                        height: max(scroll.contentSize.height, ceil(model.manager.usedRect(for: model.container).maxY) + 2 * AgentBookPageStyle.pageInset))
+                if let selected = selections[model.id] {
+                    let start = min(selected.location, model.storage.length)
+                    page.setSelectedRange(NSRange(location: start, length: min(selected.length, model.storage.length - start)))
+                }
+                scroll.contentView.scroll(to: scroll.contentView.constrainBoundsRect(CGRect(origin: origin, size: scroll.contentView.bounds.size)).origin)
+                scroll.reflectScrolledClipView(scroll.contentView)
+                presentations[model.id] = presentation
             }
-            (scroll as? AgentBookPageScrollView)?.updatePresentation(
-                side: index == book.selectedPage ? 0 : (index < book.selectedPage ? -1 : 1),
-                frame: CGRect(origin: book.pageOrigin(index, viewport: bounds.size), size: book.displaySize(for: index)),
-                logicalSize: size,
-                animated: animatesNavigation && visible
-            )
-            page.frame.size = NSSize(width: size.width,
-                                    height: max(scroll.contentSize.height, ceil(model.manager.usedRect(for: model.container).maxY) + 2 * AgentBookPageStyle.pageInset))
-            if changed, let selected = selections[model.id] {
-                let start = min(selected.location, model.storage.length)
-                page.setSelectedRange(NSRange(location: start, length: min(selected.length, model.storage.length - start)))
-            }
-            scroll.contentView.scroll(to: scroll.contentView.constrainBoundsRect(CGRect(origin: origin, size: scroll.contentView.bounds.size)).origin)
-            scroll.reflectScrolledClipView(scroll.contentView)
-            scroll.isHidden = !visible
-            guard visible else { continue }
+            scroll.isHidden = false
             for control in book.headers where control.page == index {
                 if let exchange = book.exchange(control.id), let content = headerContent?(exchange) {
                     placeControl("header/\(control.id)", content: content, frame: control.frame, in: page)
@@ -235,6 +258,11 @@ final class AgentBookTextSurface: NSView, AgentBookReadingSurface, NSTextViewDel
                 if let content = promptContent?(control.id) {
                     placeControl("prompt/\(control.id)", content: content, frame: control.frame, in: page)
                 }
+            }
+            if !needsPageUpdate {
+                for prompt in model.prompts { promptViews[prompt.id]?.isHidden = false }
+                visibleCodeIDs.formUnion(model.codes.map(\.id))
+                continue
             }
             for prompt in model.prompts {
                 let inner: NSScrollView

@@ -16,10 +16,12 @@ typealias AgentExecutionStatus = WhubAgent.AgentExecutionStatus
 
 struct AgentExchange: Identifiable {
     let id: UUID
-    var input: [AgentInput]
-    var additionalInputs: [AgentAdditionalInput] = []
-    var outputs: [AgentOutput] = []
-    var status: AgentExecutionStatus = .running
+    // Copies retain this token; any content mutation invalidates derived page data.
+    private(set) var contentRevision = UUID()
+    var input: [AgentInput] { didSet { contentRevision = UUID() } }
+    var additionalInputs: [AgentAdditionalInput] = [] { didSet { contentRevision = UUID() } }
+    var outputs: [AgentOutput] = [] { didSet { contentRevision = UUID() } }
+    var status: AgentExecutionStatus = .running { didSet { contentRevision = UUID() } }
 
     var answers: [AgentOutput] { outputs.filter(\.isAnswer) }
     var history: [AgentOutput] { outputs.filter { !$0.isAnswer } }
