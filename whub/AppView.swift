@@ -3,36 +3,36 @@ import SwiftData
 import SwiftUI
 
 extension EnvironmentValues {
-    @Entry var openWorkspaceEditor: @MainActor () -> Void = {}
+    @Entry var openEditor: @MainActor () -> Void = {}
 }
 
 struct AppView: View {
     @EnvironmentObject private var files: FilesStore
     @EnvironmentObject private var agentBook: AgentBookStore
     @Environment(\.modelContext) private var context
-    @State private var section = FeaturePage.editor
+    @State private var selectedPage = FeaturePage.editor
     @State private var explorerFocus = ExplorerFocusNavigation()
     @State private var contentFocus = TabPaneFocus()
-    @State private var agentFocus = TabPaneFocus()
+    @State private var agentBookFocus = TabPaneFocus()
     @State private var showsAgentBook = true
 
     var body: some View {
-        let selection = Binding(get: { section }, set: selectSection)
+        let selection = Binding(get: { selectedPage }, set: selectPage)
 
         NavigationSplitView {
             ExplorerView(onFileSelect: {
-                section = .editor
+                selectedPage = .editor
             }, store: files.explorer, focus: explorerFocus)
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 640)
         } detail: {
-            RetainedPageContainer(selection: section, focus: explorerFocus.content) { page in
+            RetainedPageContainer(selection: selectedPage, focus: explorerFocus.content) { page in
                 page.content(context: context).environmentObject(files.activeEditor)
             }
             .background(TabPaneFocusView(focus: contentFocus, activatesOnClick: false))
             .inspector(isPresented: $showsAgentBook) {
                 AgentBookView(store: agentBook)
-                    .environment(\.openWorkspaceEditor, { selectSection(.editor) })
-                    .background(TabPaneFocusView(focus: agentFocus, activatesOnClick: false))
+                    .environment(\.openEditor, { selectPage(.editor) })
+                    .background(TabPaneFocusView(focus: agentBookFocus, activatesOnClick: false))
                     .inspectorColumnWidth(min: 500, ideal: 600, max: 1200)
             }
             .toolbar {
@@ -44,19 +44,19 @@ struct AppView: View {
             toggleAgentBook: { showsAgentBook.toggle() },
             targetsAgentBook: {
                 guard let window = NSApp.keyWindow else { return false }
-                return agentFocus.contains(window)
+                return agentBookFocus.contains(window)
             }
         ))
-        .navigationTitle(section.label)
+        .navigationTitle(selectedPage.label)
         .environment(\.explorerFocusNavigation, explorerFocus)
-        .focusedSceneValue(\.toggleExplorerFocus, { explorerFocus.toggle(prefersEditor: section == .editor) })
+        .focusedSceneValue(\.toggleExplorerFocus, { explorerFocus.toggle(prefersEditor: selectedPage == .editor) })
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 1000, minHeight: 550)
     }
 
-    private func selectSection(_ next: FeaturePage) {
+    private func selectPage(_ next: FeaturePage) {
         contentFocus.activate()
-        section = next
+        selectedPage = next
     }
 }
 
@@ -88,8 +88,8 @@ enum FeaturePage: CaseIterable, Hashable {
     }
 
     func moved(by offset: Int) -> Self {
-        let sections = Self.allCases
-        let index = sections.firstIndex(of: self)!
-        return sections[((index + offset) % sections.count + sections.count) % sections.count]
+        let pages = Self.allCases
+        let index = pages.firstIndex(of: self)!
+        return pages[((index + offset) % pages.count + pages.count) % pages.count]
     }
 }

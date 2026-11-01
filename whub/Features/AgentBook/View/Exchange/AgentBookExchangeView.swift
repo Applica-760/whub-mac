@@ -12,7 +12,7 @@ struct AgentBookExchangeView: View {
     let pageCountChanged: (Int) -> Void
     let focus: AgentBookFocus
     var featureActivity: RetainedPageActivity? = nil
-    @Environment(\.openWorkspaceEditor) private var openEditor
+    @Environment(\.openEditor) private var openEditor
     @EnvironmentObject private var files: FilesStore
     @EnvironmentObject private var connections: RemoteConnectionStore
     @EnvironmentObject private var servers: RemoteServerStore

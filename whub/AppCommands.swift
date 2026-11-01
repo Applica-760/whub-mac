@@ -23,7 +23,7 @@ extension FocusedValues {
 struct AppCommands: Commands {
     @FocusedValue(\.featureActions) private var featureActions
     let files: FilesStore
-    let agentBookStore: AgentBookStore
+    let agentBook: AgentBookStore
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
@@ -50,7 +50,7 @@ struct AppCommands: Commands {
                 Button(destination.label) { featureActions?.selection.wrappedValue = destination }
             }
             Divider()
-            AgentBookTabMenu(store: agentBookStore, isActive: featureActions != nil,
+            AgentBookTabMenu(store: agentBook, isActive: featureActions != nil,
                              isShortcutTarget: { featureActions?.targetsAgentBook() == true })
             Divider()
             Button("Toggle AgentBook") { featureActions?.toggleAgentBook() }

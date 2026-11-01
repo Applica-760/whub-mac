@@ -4,10 +4,10 @@ import SwiftUI
 import WhubCore
 
 @main
-struct whubApp: App {
+struct WhubApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var files = FilesStore()
-    @StateObject private var agentBookStore: AgentBookStore
+    @StateObject private var agentBook: AgentBookStore
     @StateObject private var remoteConnections: RemoteConnectionStore
     @StateObject private var remoteServers: RemoteServerStore
     private let workspaceContainer: ModelContainer
@@ -20,7 +20,7 @@ struct whubApp: App {
         do {
             let container = try Container.make()
             workspaceContainer = container
-            _agentBookStore = StateObject(wrappedValue: AgentBookStore(context: container.mainContext))
+            _agentBook = StateObject(wrappedValue: AgentBookStore(context: container.mainContext))
         } catch {
             fatalError("Unable to open workspace store: \(error)")
         }
@@ -33,7 +33,7 @@ struct whubApp: App {
                     .containerBackground(Color(nsColor: .windowBackgroundColor), for: .window)
                     .environmentObject(files)
                     .environmentObject(files.git)
-                    .environmentObject(agentBookStore)
+                    .environmentObject(agentBook)
                     .environmentObject(remoteConnections)
                     .environmentObject(remoteServers)
                     .onAppear {
@@ -41,7 +41,7 @@ struct whubApp: App {
                         appDelegate.remoteServers = remoteServers
                     }
                     .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-                        agentBookStore.disconnect()
+                        agentBook.disconnect()
                     }
                     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                         files.checkForExternalChanges()
@@ -49,7 +49,7 @@ struct whubApp: App {
             }
             .windowResizability(.contentMinSize)
             .commands {
-                AppCommands(files: files, agentBookStore: agentBookStore)
+                AppCommands(files: files, agentBook: agentBook)
             }
 
             Settings {
