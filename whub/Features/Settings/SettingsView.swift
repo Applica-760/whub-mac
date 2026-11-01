@@ -1,5 +1,4 @@
 import SwiftUI
-import WhubCore
 
 struct SettingsView: View {
     @Environment(\.dismissWindow) private var dismissWindow
@@ -13,10 +12,6 @@ struct SettingsView: View {
             HostSettingsView()
                 .padding()
                 .tabItem { Label("Hosts", systemImage: "desktopcomputer") }
-
-            ActivityCategorySettingsView()
-                .padding()
-                .tabItem { Label("Categories", systemImage: "tag") }
         }
         .frame(width: 960, height: 640)
         .onExitCommand { dismissWindow() }

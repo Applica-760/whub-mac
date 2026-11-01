@@ -6,7 +6,6 @@ struct OverviewView: View {
             VStack(spacing: 0) {
                 ServerWidget()
                 TodoWidget()
-                TimerView()
             }
         }
     }

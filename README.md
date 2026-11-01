@@ -10,7 +10,7 @@
 - **File**：ローカルのファイル編集・Git差分表示、リモートの既存ファイルの閲覧・編集・保存。
 - **Terminal**：複数タブのターミナル。
 - **AgentBook**：Local／RemoteでCodexを実行。会話を中央ページと前後のプレビューで表示し、再開・モデル選択・実行承認に対応。Webリンクは既定ブラウザで開きます。
-- **Overview**：Todo・活動時間の記録、リモートServerの管理。
+- **Overview**：Todo、リモートServerの管理。
 - **Motion**：実験機能のコードのみ保持。画面からはアクセスできません。
 
 ## 必要な環境
@@ -42,7 +42,7 @@ AgentBookは選択HostのBase Pathで実行し、履歴再開時はその会話�
 
 ## 保存データと権限
 
-Host、Project、活動記録などは `~/Library/Application Support/whub/workspace.store` に保存します。GUIとCLI、Debug版とRelease版はこの保存先を共有します。保存モデルを変更した場合は、GUIとCLIを揃えて再ビルドしてください。
+Host、Projectは `~/Library/Application Support/whub/workspace.store` に保存します。GUIとCLI、Debug版とRelease版はこの保存先を共有します。保存モデルを変更した場合は、GUIとCLIを揃えて再ビルドしてください。
 
 アプリのApp Sandboxは無効です。ファイル編集やターミナルは、起動したユーザーの権限で動作します。AgentBookの承認・実行制限はCodexの設定を使います。Motionを使う際はカメラへのアクセス許可が必要です。
 
