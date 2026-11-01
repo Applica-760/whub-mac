@@ -7,7 +7,6 @@ import WhubCore
 struct whubApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var files = FilesStore()
-    @StateObject private var terminalStore: TerminalStore
     @StateObject private var agentBookStore: AgentBookStore
     @StateObject private var remoteConnections: RemoteConnectionStore
     @StateObject private var remoteServers: RemoteServerStore
@@ -22,7 +21,6 @@ struct whubApp: App {
         do {
             let container = try Container.make()
             workspaceContainer = container
-            _terminalStore = StateObject(wrappedValue: TerminalStore(context: container.mainContext))
             _agentBookStore = StateObject(wrappedValue: AgentBookStore(context: container.mainContext))
         } catch {
             fatalError("Unable to open workspace store: \(error)")
@@ -36,7 +34,6 @@ struct whubApp: App {
                     .containerBackground(Color(nsColor: .windowBackgroundColor), for: .window)
                     .environmentObject(files)
                     .environmentObject(files.git)
-                    .environmentObject(terminalStore)
                     .environmentObject(agentBookStore)
                     .environmentObject(remoteConnections)
                     .environmentObject(remoteServers)

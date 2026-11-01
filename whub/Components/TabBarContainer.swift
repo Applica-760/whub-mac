@@ -6,9 +6,21 @@ struct TabBarActions {
     let close: () -> Void
 }
 
+private struct CreateTabKey: FocusedValueKey {
+    typealias Value = (NSWindow) -> Void
+}
+
+extension FocusedValues {
+    var createTab: ((NSWindow) -> Void)? {
+        get { self[CreateTabKey.self] }
+        set { self[CreateTabKey.self] = newValue }
+    }
+}
+
 struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
     let ids: [ID]
     let selection: ID?
+    var create: (() -> Void)? = nil
     let select: (ID) -> Void
     let close: (ID) -> Void
     let canClose: (ID) -> Bool
@@ -19,6 +31,7 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
 
     @Namespace private var namespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isRetainedPageActive) private var isActive
     @State private var position = ScrollPosition(x: 0)
     @State private var frames: [ID: CGRect] = [:]
     @State private var viewport = CGSize.zero
@@ -104,6 +117,7 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
             }
         }
         .animation(animation, value: selection)
+        .focusedSceneValue(\.createTab, createAction)
         .background(TabBarEventMonitor { event, point in
             if event.type == .rightMouseDown {
                 guard dragging == nil, !settling, let contextMenu,
@@ -143,6 +157,14 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
         }
         .onDisappear { cancelDrag() }
         .zIndex(1)
+    }
+
+    private var createAction: ((NSWindow) -> Void)? {
+        guard let create else { return nil }
+        return { window in
+            guard isActive, window.attachedSheet == nil, isShortcutTarget(window) else { return }
+            create()
+        }
     }
 
     private func reorderGesture(for id: ID) -> some Gesture {

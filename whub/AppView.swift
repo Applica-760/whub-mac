@@ -1,4 +1,5 @@
 import AppKit
+import SwiftData
 import SwiftUI
 
 extension EnvironmentValues {
@@ -8,7 +9,7 @@ extension EnvironmentValues {
 struct AppView: View {
     @EnvironmentObject private var files: FilesStore
     @EnvironmentObject private var agentBook: AgentBookStore
-    @EnvironmentObject private var terminal: TerminalStore
+    @Environment(\.modelContext) private var context
     @Binding var section: FeaturePage
     @State private var explorerFocus = ExplorerFocusNavigation()
     @State private var leftFocus = TabPaneFocus()
@@ -25,7 +26,7 @@ struct AppView: View {
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 640)
         } detail: {
             RetainedPageContainer(selection: section, focus: explorerFocus.content) { page in
-                page.content.environmentObject(files.activeEditor)
+                page.content(context: context).environmentObject(files.activeEditor)
             }
             .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
             .inspector(isPresented: $showsAgentBook) {
@@ -63,11 +64,6 @@ struct AppView: View {
         guard let window = NSApp.keyWindow, window.attachedSheet == nil else { return }
         if agentFocus.contains(window) {
             agentBook.add()
-        } else if leftFocus.contains(window) {
-            switch section {
-            case .terminal: terminal.add()
-            case .editor, .overview: break
-            }
         }
     }
 }
@@ -75,10 +71,10 @@ struct AppView: View {
 enum FeaturePage: CaseIterable, Hashable {
     case editor, terminal, overview
 
-    @ViewBuilder var content: some View {
+    @ViewBuilder func content(context: ModelContext) -> some View {
         switch self {
         case .editor: EditorView()
-        case .terminal: TerminalView()
+        case .terminal: TerminalView(context: context)
         case .overview: OverviewView()
         }
     }

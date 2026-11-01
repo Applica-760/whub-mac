@@ -1,8 +1,10 @@
 // テスト一覧:
 // - numberKeysSwitchTerminalFocusAndRetainSessions(): [TAB-F-001] [TAB-F-003] [TAB-F-006]
 // - commandWClosesSelectedTerminalTabAndFocusesReplacement(): [TAB-F-007] [TAB-F-010]
+// - ownedStoreRetainsSessionsAndReadsBasePathForNewTabs(): Store保持、BasePath再取得、非表示・他ウィンドウでの操作抑止、作成不可のタブ画面から戻った後の作成を検証。
 
 import AppKit
+import Combine
 import SwiftData
 import SwiftTerm
 import SwiftUI
@@ -23,7 +25,7 @@ struct TerminalViewTests {
         for _ in 1..<9 { store.add() }
         let sessions = store.sessions
         sessions[0].terminal.feed(text: "retained output")
-        let host = NSHostingView(rootView: TerminalView().environmentObject(store))
+        let host = NSHostingView(rootView: TerminalView(store: store))
         let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 650),
                                    styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -80,7 +82,7 @@ struct TerminalViewTests {
         firstInput.insertText("draft", replacementRange: NSRange(location: NSNotFound, length: 0))
         if tabCount == 2 { store.add() }
         let closing = store.selectedSession
-        let host = NSHostingView(rootView: TerminalView().environmentObject(store))
+        let host = NSHostingView(rootView: TerminalView(store: store))
         let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 650),
                                    styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -114,6 +116,112 @@ struct TerminalViewTests {
         #expect(input.received == (tabCount == 1 ? "x" : "draftx"))
         store.remove(closing.id)
         #expect(store.sessions.count == 1 && store.selectedSessionID == selected.id)
+    }
+
+    @Test func ownedStoreRetainsSessionsAndReadsBasePathForNewTabs() async throws {
+        let database = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                          configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let hosts = HostStore(context: database.mainContext)
+        let local = try hosts.addLocal(name: "local", basePath: "/first")
+        var directories: [String] = []
+        var sessions: [TerminalSession] = []
+        var creations = 0
+        var action: ((NSWindow) -> Void)?
+        let selection = TerminalPageSelection()
+        let makeStore = {
+            creations += 1
+            return TerminalStore(context: database.mainContext, makeSession: { directory in
+                directories.append(directory)
+                let session = TerminalSession(terminal: TerminalInputProbe(frame: .zero))
+                sessions.append(session)
+                return session
+            })
+        }
+        let host = NSHostingView(rootView: TerminalOwnershipTestRoot(selection: selection, makeStore: makeStore,
+                                                                    receiveAction: { action = $0 }))
+        let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 650),
+                                   styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        window.makeKey()
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return sessions.count == 1 && window.firstResponder === sessions[0].terminal && action != nil
+        }
+        #expect(directories == ["/first"])
+        let newTab = try #require(action)
+        try hosts.editLocal(local, name: "local", basePath: "/second")
+        newTab(window)
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return sessions.count == 2 && window.firstResponder === sessions[1].terminal
+        }
+        #expect(directories == ["/first", "/second"])
+
+        let other = NSTextView(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        let otherWindow = TabTestWindow(contentRect: other.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        otherWindow.isReleasedWhenClosed = false
+        defer { otherWindow.contentView = nil; otherWindow.close() }
+        otherWindow.contentView = other
+        #expect(otherWindow.makeFirstResponder(other))
+        newTab(otherWindow)
+        #expect(sessions.count == 2)
+
+        selection.showsTerminal = false
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return sessions[1].terminal.isHiddenOrHasHiddenAncestor
+        }
+        newTab(window)
+        #expect(sessions.count == 2)
+        selection.showsTerminal = true
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return window.firstResponder === sessions[1].terminal && !sessions[1].terminal.isHiddenOrHasHiddenAncestor
+        }
+        #expect(creations == 1)
+        #expect(directories == ["/first", "/second"])
+        let restoredAction = try #require(action)
+        restoredAction(window)
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return sessions.count == 3 && window.firstResponder === sessions[2].terminal
+        }
+        #expect(directories == ["/first", "/second", "/second"])
+    }
+}
+
+@MainActor private final class TerminalPageSelection: ObservableObject {
+    @Published var showsTerminal = true
+}
+
+private struct TerminalOwnershipTestRoot: View {
+    @ObservedObject var selection: TerminalPageSelection
+    let makeStore: () -> TerminalStore
+    let receiveAction: (((NSWindow) -> Void)?) -> Void
+
+    var body: some View {
+        RetainedPageContainer(selection: selection.showsTerminal) { terminal in
+            if terminal { TerminalView(store: makeStore()) }
+            else {
+                TabBarContainer(ids: [0], selection: 0, select: { _ in }, close: { _ in },
+                                canClose: { _ in false }, move: { _, _ in },
+                                isShortcutTarget: { _ in false }) { _, _, _ in
+                    Text("Other page")
+                }
+            }
+        }
+        .background(TerminalActionProbe(receive: receiveAction))
+    }
+}
+
+private struct TerminalActionProbe: View {
+    @FocusedValue(\.createTab) private var action
+    let receive: (((NSWindow) -> Void)?) -> Void
+
+    var body: some View {
+        Color.clear.onChange(of: action != nil, initial: true) { receive(action) }
     }
 }
 

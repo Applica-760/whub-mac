@@ -1,12 +1,21 @@
 import SwiftTerm
 import SwiftUI
+import SwiftData
 import MetalKit
 
 struct TerminalView: View {
     @Environment(\.isRetainedPageActive) private var isActive
     @State private var tabFocus = TabPaneFocus()
-    @EnvironmentObject private var store: TerminalStore
+    @StateObject private var store: TerminalStore
     @State private var pendingCloseID: TerminalSession.ID?
+
+    init(context: ModelContext) {
+        _store = StateObject(wrappedValue: TerminalStore(context: context))
+    }
+
+    init(store: @autoclosure @escaping () -> TerminalStore) {
+        _store = StateObject(wrappedValue: store())
+    }
 
     var body: some View {
         WidgetFrame {
@@ -19,6 +28,7 @@ struct TerminalView: View {
             TabBarContainer(
                 ids: store.sessions.map(\.id),
                 selection: store.selectedSessionID,
+                create: store.add,
                 select: { id in
                     tabFocus.activate()
                     store.select(id)

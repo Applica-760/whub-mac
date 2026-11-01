@@ -605,13 +605,14 @@ struct EditorViewTests {
 }
 
 private struct WorkspaceEditorTestRoot: View {
+    @Environment(\.modelContext) private var context
     @ObservedObject var files: FilesStore
     let leftFocus: TabPaneFocus
     let contentFocus: TabPaneFocus
 
     var body: some View {
         RetainedPageContainer(selection: FeaturePage.editor, focus: contentFocus) { page in
-            page.content.environmentObject(files.activeEditor)
+            page.content(context: context).environmentObject(files.activeEditor)
         }
         .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
         .environmentObject(files)
