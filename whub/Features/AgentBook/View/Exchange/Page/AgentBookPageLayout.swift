@@ -148,6 +148,7 @@ final class AgentBookPageLayout: ObservableObject {
         let input: Input
         let page: Page
         let size: CGSize
+        let colorScheme: ColorScheme
     }
 
     private var rendered: [RenderedExchange] = []
@@ -161,7 +162,7 @@ final class AgentBookPageLayout: ObservableObject {
 
     var visiblePages: Range<Int> {
         let margin = viewportSize.width >= AgentBookPageStyle.subpageThreshold && subpageSize.width >= 220 ? 1 : 0
-        return max(0, selectedPage - margin)..<min(pages.count, selectedPage + margin + 1)
+        return max(0, selectedPage - margin)..<min(inputs.count, selectedPage + margin + 1)
     }
 
     func size(for index: Int) -> CGSize {
@@ -253,7 +254,6 @@ final class AgentBookPageLayout: ObservableObject {
             || viewportSize != viewport || appearance != colorScheme else { return false }
         let readingID = rendered.indices.contains(selectedPage) ? rendered[selectedPage].input.id : nil
         let addedExchange = inputs.count > rendered.count
-        let changedSize = pageSize.width != size.width || appearance != colorScheme
         pageSize = size
         viewportSize = viewport
         let availableWidth = max(0, (viewport.width - size.width) / 2 - 40)
@@ -265,22 +265,27 @@ final class AgentBookPageLayout: ObservableObject {
         else if let readingID, let index = inputs.firstIndex(where: { $0.id == readingID }) { nextPage = index }
         if let pendingPromptID, let index = inputs.firstIndex(where: { $0.id == pendingPromptID }) { nextPage = index }
         selectedPage = nextPage
-        updateDocument(colorScheme: colorScheme, rebuild: changedSize)
+        updateDocument(colorScheme: colorScheme)
         updateControlFrames()
         pendingPromptID = nil
         publish(pageCount: max(1, pages.count), spread: nextPage, error: nil)
         return true
     }
 
-    private func updateDocument(colorScheme: ColorScheme, rebuild: Bool) {
+    private func updateDocument(colorScheme: ColorScheme) {
         let previous = Dictionary(uniqueKeysWithValues: rendered.map { ($0.input.id, $0) })
         rendered = inputs.enumerated().map { index, input in
             let cached = previous[input.id]
+            // Keep the last rendered inputs and dimensions until this page becomes visible.
+            guard visiblePages.contains(index) else {
+                return cached ?? RenderedExchange(input: input, page: Page(id: input.id.uuidString),
+                                                   size: .zero, colorScheme: colorScheme)
+            }
             let size = size(for: index)
             let content = CGSize(width: max(1, size.width - 2 * AgentBookPageStyle.horizontalInset),
                                  height: max(1, size.height - 2 * AgentBookPageStyle.pageInset))
             let page = cached?.page ?? Page(id: input.id.uuidString)
-            if rebuild || cached?.input != input || cached?.size.width != size.width {
+            if cached?.colorScheme != colorScheme || cached?.input != input || cached?.size.width != size.width {
                 page.update(render(exchanges[index], input: input, content: content, colorScheme: colorScheme), width: content.width)
             } else if let cached, cached.size.height != size.height {
                 // Only very short pages change the prompt's image size; normal resizing keeps its text.
@@ -292,7 +297,7 @@ final class AgentBookPageLayout: ObservableObject {
                 page.updatePromptHeight(max(1, size.height * 0.15),
                                         source: prompt?.attribute(.agentBookPromptSource, at: 0, effectiveRange: nil) as? NSAttributedString)
             }
-            return RenderedExchange(input: input, page: page, size: size)
+            return RenderedExchange(input: input, page: page, size: size, colorScheme: colorScheme)
         }
         pages = rendered.map(\.page)
         renderedRevision = revision
