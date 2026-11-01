@@ -116,42 +116,76 @@ final class LinuxFileWatcher: @unchecked Sendable {
     private func addDirectoryTree(_ root: URL) throws {
         let manager = FileManager.default
         var pending = [root]
-        while let directory = pending.popLast() {
-            if try shouldIgnore(directory) { continue }
-            let wd = inotify_add_watch(descriptor, directory.path, Self.mask | UInt32(IN_ONLYDIR | IN_DONT_FOLLOW))
-            guard wd >= 0 else { throw SystemError(operation: "inotify_add_watch", code: errno) }
-            directories[wd] = directory
-            for child in try manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]) {
-                let values = try child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-                if values.isDirectory == true && values.isSymbolicLink != true { pending.append(child) }
+        while !pending.isEmpty {
+            let candidates = pending
+            pending = []
+            let ignored = try ignoredDirectories(candidates)
+            for directory in candidates where !ignored.contains(directory) {
+                let wd = inotify_add_watch(descriptor, directory.path, Self.mask | UInt32(IN_ONLYDIR | IN_DONT_FOLLOW))
+                guard wd >= 0 else { throw SystemError(operation: "inotify_add_watch", code: errno) }
+                directories[wd] = directory
+                for child in try manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]) {
+                    let values = try child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                    if values.isDirectory == true && values.isSymbolicLink != true { pending.append(child) }
+                }
             }
         }
     }
 
-    private func shouldIgnore(_ directory: URL) throws -> Bool {
-        guard let worktree else { return false }
-        let path = directory.standardizedFileURL.path
+    private func ignoredDirectories(_ candidates: [URL]) throws -> Set<URL> {
+        guard let worktree else { return [] }
         let prefix = worktree.path == "/" ? "/" : worktree.path + "/"
-        guard path.hasPrefix(prefix), !managementDirectories.contains(where: {
-            path == $0.path || path.hasPrefix($0.path + "/")
-        }) else { return false }
-        let relative = String(path.dropFirst(prefix.count))
-        guard !trackedDirectories.contains(relative) else { return false }
-        let result = try Self.git(["check-ignore", "-q", "--no-index", "--", relative + "/"], at: worktree)
-        switch result.status {
-        case 0: return true
-        case 1: return false
-        default: throw SystemError(operation: "git check-ignore", code: result.status)
+        let paths: [(directory: URL, relative: String)] = candidates.compactMap { directory in
+            let path = directory.standardizedFileURL.path
+            guard path.hasPrefix(prefix), !managementDirectories.contains(where: {
+                path == $0.path || path.hasPrefix($0.path + "/")
+            }) else { return nil }
+            let relative = String(path.dropFirst(prefix.count))
+            guard !trackedDirectories.contains(relative) else { return nil }
+            return (directory, relative + "/")
         }
+        var ignored: Set<URL> = []
+        var start = 0
+        while start < paths.count {
+            var input = Data()
+            var end = start
+            while end < paths.count {
+                let path = Data(paths[end].relative.utf8) + Data([0])
+                if input.count + path.count > Int(PIPE_BUF) { break }
+                input.append(path)
+                end += 1
+            }
+            guard end > start else { throw SystemError(operation: "git path length", code: ENAMETOOLONG) }
+            let result = try Self.git(["check-ignore", "--no-index", "--stdin", "-z"], at: worktree, input: input)
+            guard result.status == 0 || result.status == 1 else {
+                throw SystemError(operation: "git check-ignore", code: result.status)
+            }
+            guard let output = String(data: result.data, encoding: .utf8) else {
+                throw SystemError(operation: "git path encoding", code: EINVAL)
+            }
+            let excluded = Set(output.split(separator: "\0").map(String.init))
+            for path in paths[start..<end] where excluded.contains(path.relative) {
+                ignored.insert(path.directory)
+            }
+            start = end
+        }
+        return ignored
     }
 
-    private static func git(_ arguments: [String], at directory: URL) throws -> (data: Data, status: Int32) {
+    private static func git(_ arguments: [String], at directory: URL, input: Data? = nil) throws -> (data: Data, status: Int32) {
         let process = Process()
         let output = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = ["-C", directory.path] + arguments
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
+        if let input {
+            let pipe = Pipe()
+            process.standardInput = pipe
+            // Each batch fits PIPE_BUF, so it can be filled before Git starts reading.
+            try pipe.fileHandleForWriting.write(contentsOf: input)
+            try pipe.fileHandleForWriting.close()
+        }
         try process.run()
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()

@@ -6,6 +6,7 @@
 // - GitAPITests.reportsNonRepository(): [GITAPI-F-005]
 // - GitAPITests.notifiesAndReleasesWatch(): [GITWATCH-F-004]
 // - GitAPITests.ignoresUntrackedDirectoriesButWatchesTrackedFiles(): [GITWATCH-F-005]
+// - GitAPITests.batchesIgnoreRules(): [GITWATCH-F-005]
 // - GitAPITests.rechecksIgnoreRules(): [GITWATCH-F-006]
 // - GitAPITests.reportsWatchErrors(): [GITWATCH-F-007]
 // - GitAPITests.clientReadsChangesAndDiff()
@@ -173,6 +174,28 @@ import Darwin
         #expect(try watcher.nextEvent(timeoutMilliseconds: 150) == nil)
         try fixture.write("tracked/file", "modified")
         #expect(try watcher.nextEvent(timeoutMilliseconds: 2_000) == .changed)
+    }
+
+    @Test func batchesIgnoreRules() async throws {
+        let fixture = try await GitFixture()
+        defer { fixture.remove() }
+        let names = (0..<80).map { "folder-\($0)-" + String(repeating: "日本語", count: 8) + " space\nline" }
+        for name in names {
+            try FileManager.default.createDirectory(at: fixture.root.appendingPathComponent(name), withIntermediateDirectories: true)
+            try fixture.write(name + "/file", "before")
+        }
+        try fixture.write(".gitignore", "/folder-*/\n!/folder-1-*/\n!/folder-79-*/\n")
+        let git = fixture.root.appendingPathComponent(".git")
+        let watcher = try LinuxFileWatcher(roots: [fixture.root, git], worktree: fixture.root, managementDirectories: [git])
+        for index in names.indices where index != 1 && index != 79 {
+            try fixture.write(names[index] + "/file", "ignored")
+        }
+        #expect(try watcher.nextEvent(timeoutMilliseconds: 150) == nil)
+        for index in [1, 79] {
+            try fixture.write(names[index] + "/file", "included")
+            #expect(try watcher.nextEvent(timeoutMilliseconds: 2_000) == .changed)
+            while try watcher.nextEvent(timeoutMilliseconds: 0) != nil {}
+        }
     }
 
     @Test func rechecksIgnoreRules() async throws {
