@@ -5,6 +5,7 @@ import WhubGit
 
 struct DiffContent: View {
     @ObservedObject var state: LocalDiffStore
+    @State private var usageID = UUID()
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
 
@@ -29,9 +30,9 @@ struct DiffContent: View {
             }
         }
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) {
-            state.setActive($0)
+            state.setUsage(id: usageID, active: $0)
         }
-        .onDisappear { state.setActive(false) }
+        .onDisappear { state.setUsage(id: usageID, active: false) }
     }
 }
 
@@ -40,6 +41,7 @@ struct RemoteDiffContent: View {
     let location: FileLocation
     @State private var usageID = UUID()
     @Environment(\.isRetainedPageActive) private var isActive
+    @Environment(\.retainedPageActivity) private var activity
 
     private var path: String {
         let prefix = git.root.path == "/" ? "/" : git.root.path + "/"
@@ -70,8 +72,7 @@ struct RemoteDiffContent: View {
                 ProgressView("差分を読み込み中…").frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .onAppear { updateUsage(isActive) }
-        .onChange(of: isActive) { _, active in updateUsage(active) }
+        .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) { updateUsage($0) }
         .onDisappear { updateUsage(false) }
     }
 

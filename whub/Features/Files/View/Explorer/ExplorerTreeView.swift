@@ -1,3 +1,4 @@
+import Combine
 import AppKit
 import SwiftUI
 import WhubGit
@@ -7,6 +8,7 @@ struct RemoteTreeGitView<Content: View>: View {
     let content: ([FileLocation: GitChange]) -> Content
     @State private var usageID = UUID()
     @Environment(\.isRetainedPageActive) private var isActive
+    @Environment(\.retainedPageActivity) private var activity
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -18,8 +20,9 @@ struct RemoteTreeGitView<Content: View>: View {
             }
             content(git.fileChanges)
         }
-        .onAppear { git.setUsage(id: usageID, listVisible: isActive, visibleDiffPaths: []) }
-        .onChange(of: isActive) { _, active in git.setUsage(id: usageID, listVisible: active, visibleDiffPaths: []) }
+        .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) {
+            git.setUsage(id: usageID, listVisible: $0, visibleDiffPaths: [])
+        }
         .onDisappear { git.setUsage(id: usageID, listVisible: false, visibleDiffPaths: []) }
     }
 }

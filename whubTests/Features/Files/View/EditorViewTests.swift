@@ -328,6 +328,17 @@ struct EditorViewTests {
         activity.setActive(false)
         try await Task.sleep(for: .milliseconds(100))
         #expect(window.firstResponder !== secondFile.editorViews.views.values.first?.documentView)
+        let container = NSView(frame: host.frame)
+        window.contentView = container
+        host.frame.size.width = 700
+        container.addSubview(host)
+        let otherPane = NSTextView(frame: NSRect(x: 710, y: 0, width: 180, height: 200))
+        container.addSubview(otherPane)
+        host.layoutSubtreeIfNeeded()
+        #expect(window.makeFirstResponder(otherPane))
+        activity.setActive(true)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(window.firstResponder === otherPane)
     }
 
     @Test func editorPositionsAreSeparateAndClampAfterShorterContent() async throws {

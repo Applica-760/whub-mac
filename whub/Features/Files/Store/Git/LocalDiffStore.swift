@@ -16,6 +16,7 @@ final class LocalDiffStore: ObservableObject {
     private var task: Task<Void, Never>?
     private var stopped = false
     private var isActive = false
+    private var activeUsers: Set<UUID> = []
     private lazy var watcher = FileWatcher { [weak self] event in
         guard let self else { return }
         if case let .changed(changes) = event {
@@ -45,7 +46,12 @@ final class LocalDiffStore: ObservableObject {
         task = Task { [weak self] in await self?.load() }
     }
 
-    func setActive(_ active: Bool) {
+    func setUsage(id: UUID, active: Bool) {
+        if active { activeUsers.insert(id) } else { activeUsers.remove(id) }
+        setActive(!activeUsers.isEmpty)
+    }
+
+    private func setActive(_ active: Bool) {
         guard !stopped, isActive != active else { return }
         isActive = active
         if active {

@@ -1,9 +1,11 @@
 import AppKit
+import Combine
 import SwiftUI
 import WhubGit
 
 struct CodeEditorView: NSViewRepresentable {
     @Environment(\.isRetainedPageActive) private var isActive
+    @Environment(\.retainedPageActivity) private var activity
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.explorerFocusNavigation) private var explorerFocus
     let state: FileStore
@@ -27,6 +29,16 @@ struct CodeEditorView: NSViewRepresentable {
         private var highlightTask: Task<Void, Never>?
         private weak var storage: NSTextStorage?
         private var observation: NSObjectProtocol?
+        private var activity: RetainedPageActivity?
+        private var activitySubscription: AnyCancellable?
+
+        func observeActivity(_ activity: RetainedPageActivity?) {
+            guard self.activity !== activity else { return }
+            self.activity = activity
+            activitySubscription = activity?.isActive.sink { [weak self] active in
+                if !active { self?.cancelHighlight() }
+            }
+        }
 
         func observe(_ storage: NSTextStorage) {
             guard self.storage !== storage else { return }
@@ -139,6 +151,7 @@ struct CodeEditorView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.observeActivity(activity)
         context.coordinator.observe(state.textStorage)
         guard let textView = scrollView.documentView as? CodeTextView else { return }
         textView.explorerFocus = explorerFocus
@@ -146,7 +159,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onEdit = onEdit
         textView.diffLines = diffLines
         textView.onExpandDiff = onExpandDiff
-        guard isActive else {
+        guard isActive, activity?.isActive.value != false else {
             context.coordinator.cancelHighlight()
             return
         }

@@ -52,6 +52,7 @@ struct AppView: View {
         .focusedSceneValue(\.toggleExplorerFocus, { explorerFocus.toggle(prefersEditor: selectedPage == .editor) })
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 1000, minHeight: 550)
+        .modifier(WindowVisibility())
     }
 
     private func selectPage(_ next: FeaturePage) {

@@ -5,7 +5,25 @@ import SwiftUI
 final class RetainedPageActivity {
     let isActive = CurrentValueSubject<Bool, Never>(false)
 
+    private var requestedActive = false
+    private var parent: RetainedPageActivity?
+    private var subscription: AnyCancellable?
+
+    func setParent(_ parent: RetainedPageActivity?) {
+        guard self.parent !== parent else { return }
+        subscription = nil
+        self.parent = parent
+        subscription = parent?.isActive.sink { [weak self] _ in self?.update() }
+        update()
+    }
+
     func setActive(_ active: Bool) {
+        requestedActive = active
+        update()
+    }
+
+    private func update() {
+        let active = requestedActive && (parent?.isActive.value ?? true)
         guard isActive.value != active else { return }
         isActive.send(active)
     }
@@ -31,7 +49,7 @@ struct RetainedPageContainer<Page: Hashable, Content: View>: NSViewRepresentable
     func updateNSView(_ container: NSView, context: Context) {
         focus?.view = container
         context.coordinator.update(container, selection: selection, availablePages: availablePages,
-                                   isActive: environment.isRetainedPageActive, rootView: rootView)
+                                   isActive: environment.isRetainedPageActive, parentActivity: environment.retainedPageActivity, rootView: rootView)
     }
 
     static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
@@ -55,6 +73,7 @@ struct RetainedPageContainer<Page: Hashable, Content: View>: NSViewRepresentable
         var pages: [Page: HostedPage] = [:]
 
         func update(_ container: NSView, selection: Page, availablePages: [Page]?, isActive: Bool,
+                    parentActivity: RetainedPageActivity? = nil,
                     rootView: (Page, RetainedPageActivity) -> AnyView) {
             if let availablePages {
                 let available = Set(availablePages)
@@ -79,6 +98,8 @@ struct RetainedPageContainer<Page: Hashable, Content: View>: NSViewRepresentable
                 container.addSubview(page)
                 pages[selection] = HostedPage(view: page, activity: activity)
             }
+
+            for page in pages.values { page.activity.setParent(parentActivity) }
 
             // Stop work before hiding; hidden hosting views can defer SwiftUI updates.
             for (id, page) in pages where id != selection || !isActive {

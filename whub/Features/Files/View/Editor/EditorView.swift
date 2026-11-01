@@ -91,7 +91,11 @@ struct EditorView: View {
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) { active in
             guard active != wasActive else { return }
             wasActive = active
-            if active { restoreEditorFocus() }
+            if active {
+                if let window = tabFocus.view?.window, let responder = window.firstResponder as? NSView,
+                   !responder.isHiddenOrHasHiddenAncestor, !tabFocus.contains(window) { return }
+                restoreEditorFocus()
+            }
             else {
                 focusRequest = UUID()
                 currentEditor?.savePosition(includingUnfocused: true)

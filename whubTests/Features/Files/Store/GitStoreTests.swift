@@ -8,6 +8,29 @@ import WhubGit
 
 @Suite @MainActor
 struct GitStoreTests {
+    private let usageID = UUID()
+
+    @Test func sharedDiffRemainsActiveUntilLastVisibleUserLeaves() async throws {
+        let fixture = try GitTestFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let store = LocalDiffStore(fileURL: fixture.firstFile, directory: fixture.first)
+        defer { store.stop() }
+        let other = UUID()
+        store.setUsage(id: usageID, active: true)
+        store.setUsage(id: other, active: true)
+        try await waitForGitTest { !store.isLoading }
+        store.setUsage(id: usageID, active: false)
+        store.refresh()
+        #expect(store.isLoading)
+        try await waitForGitTest { !store.isLoading }
+        store.setUsage(id: other, active: false)
+        store.refresh()
+        #expect(!store.isLoading && store.needsRefresh)
+        store.setUsage(id: usageID, active: true)
+        try await waitForGitTest { !store.needsRefresh }
+        #expect(store.diff != nil)
+    }
+
     @Test func diffUsesFilesOwnRepositoryAndSurvivesDeletedParent() async throws {
         let fixture = try GitTestFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -22,14 +45,14 @@ struct GitStoreTests {
         files.explorer.localTree.setRoot(fixture.directory)
         files.openDiff(.local(file))
         let diff = try #require(files.activeEditor.local.diffStores[file])
-        diff.setActive(true)
+        diff.setUsage(id: usageID, active: true)
         try await waitForGitTest { !diff.isLoading }
         #expect(diff.diff?.content == .text(before: "before\n", after: "after\n"))
         files.activeEditor.close(.diff(.local(file)))
         try FileManager.default.removeItem(at: parent)
         files.openDiff(.local(file))
         let deleted = try #require(files.activeEditor.local.diffStores[file])
-        deleted.setActive(true)
+        deleted.setUsage(id: usageID, active: true)
         try await waitForGitTest { !deleted.isLoading }
         #expect(deleted.diff?.content == .text(before: "before\n", after: ""))
         files.activeEditor.close(.diff(.local(file)))
@@ -48,7 +71,7 @@ struct GitStoreTests {
         document.content = .text("unsaved")
         files.openDiff(location, preview: true)
         let diff = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
-        diff.setActive(true)
+        diff.setUsage(id: usageID, active: true)
         try await waitForGitTest { !diff.isLoading }
         #expect(diff.diff?.content == .text(before: "", after: "original\n"))
         #expect(files.activeEditor.tabs == [.file(location), .diff(.local(fixture.firstFile))])
@@ -82,17 +105,17 @@ struct GitStoreTests {
         let location = FileLocation.local(fixture.firstFile)
         files.openDiff(location)
         let diff = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
-        diff.setActive(true)
+        diff.setUsage(id: usageID, active: true)
         try await waitForGitTest { diff.diff != nil && !files.git.isLoadingDiff }
         #expect(diff.diff?.change == nil)
         files.open(location, hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
-        diff.setActive(false)
+        diff.setUsage(id: usageID, active: false)
         let local = try #require(files.activeEditor.local.fileStores[location])
         local.document.content = .text("saved\n")
         try await local.save()
         files.openDiff(location)
-        diff.setActive(true)
+        diff.setUsage(id: usageID, active: true)
         try await waitForGitTest {
             diff.diff?.content == .text(before: "original\n", after: "saved\n")
                 && files.git.diffChanges[fixture.firstFile] == .modified
@@ -150,17 +173,17 @@ struct GitStoreTests {
         let files = FilesStore()
         files.openDiff(.local(fixture.firstFile), preview: true)
         let first = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
-        first.setActive(true)
+        first.setUsage(id: usageID, active: true)
         files.openDiff(.local(fixture.secondFile), preview: true)
         #expect(files.activeEditor.local.diffStores[fixture.firstFile] == nil)
         let second = try #require(files.activeEditor.local.diffStores[fixture.secondFile])
-        second.setActive(true)
+        second.setUsage(id: usageID, active: true)
         try await waitForGitTest { !second.isLoading }
         #expect(first.diff == nil)
         #expect(second.diff?.fileURL == fixture.secondFile)
         files.activeEditor.close(.diff(.local(fixture.secondFile)))
         let failed = LocalDiffStore(fileURL: fixture.secondFile, directory: fixture.first)
-        failed.setActive(true)
+        failed.setUsage(id: usageID, active: true)
         try await waitForGitTest { !failed.isLoading }
         #expect(failed.errorMessage != nil)
         #expect(failed.diff == nil)

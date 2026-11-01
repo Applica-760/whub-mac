@@ -6,6 +6,7 @@
 
 import AppKit
 import Combine
+import MetalKit
 import SwiftData
 import SwiftTerm
 import SwiftUI
@@ -16,6 +17,66 @@ import WhubCore
 
 @Suite @MainActor
 struct TerminalViewTests {
+    @Test func windowActivityPausesRenderingWithoutReplacingTerminal() async throws {
+        let terminal = TerminalInputProbe(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        try terminal.setUseMetal(true)
+        let activity = RetainedPageActivity()
+        activity.setActive(true)
+        let host = NSHostingView(rootView: LocalTerminalView(terminal: terminal)
+            .environment(\.retainedPageActivity, activity))
+        let window = TabTestWindow(contentRect: terminal.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return terminal.window === window
+        }
+        let renderer = try #require(terminal.subviews.compactMap { $0 as? MTKView }.first)
+        #expect(renderer.enableSetNeedsDisplay)
+        #expect(renderer.isPaused)
+        activity.setActive(false)
+        #expect(!renderer.enableSetNeedsDisplay)
+        terminal.feed(text: "output received while hidden")
+        #expect(terminal.window === window)
+        activity.setActive(true)
+        #expect(renderer.enableSetNeedsDisplay)
+        #expect(terminal.window === window)
+        #expect(renderer.isPaused)
+    }
+
+    @Test func visibilityResumeKeepsFocusInOtherPane() async throws {
+        let database = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                          configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let store = TerminalStore(context: database.mainContext, makeSession: { _ in
+            TerminalSession(terminal: TerminalInputProbe(frame: .zero))
+        })
+        let other = TerminalInputProbe(frame: .zero)
+        func root(_ active: Bool) -> AnyView {
+            AnyView(HStack {
+                TerminalView(store: store).environment(\.isRetainedPageActive, active)
+                LocalTerminalView(terminal: other)
+            })
+        }
+        let host = NSHostingView(rootView: root(true))
+        let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 650),
+                                   styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return window.firstResponder === store.selectedSession.terminal
+        }
+        host.rootView = root(false)
+        host.layoutSubtreeIfNeeded()
+        #expect(window.makeFirstResponder(other))
+        host.rootView = root(true)
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(window.firstResponder === other)
+    }
+
     @Test func numberKeysSwitchTerminalFocusAndRetainSessions() async throws {
         let database = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))

@@ -10,6 +10,63 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct RetainedPageContainerTests {
+    // Window notifications must reach retained children without a SwiftUI update.
+    @Test func windowVisibilityPropagatesAndKeepsSelection() throws {
+        let window = VisibilityTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        let activity = RetainedPageActivity()
+        let observer = WindowVisibilityObserver.VisibilityView(activity: activity)
+        window.contentView = observer
+        let coordinator = RetainedPageContainer<Int, Text>.Coordinator()
+        let root: (Int, RetainedPageActivity) -> AnyView = { id, _ in AnyView(Text("Page \(id)")) }
+        coordinator.update(observer, selection: 1, availablePages: nil, isActive: true,
+                           parentActivity: activity, rootView: root)
+        let first = try #require(coordinator.pages[1])
+        let nested = RetainedPageActivity()
+        nested.setParent(first.activity)
+        nested.setActive(true)
+        #expect(nested.isActive.value)
+        window.reportsVisible = false
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        #expect(!first.activity.isActive.value && !nested.isActive.value)
+        window.reportsVisible = true
+        window.reportsMiniaturized = true
+        NotificationCenter.default.post(name: NSWindow.didMiniaturizeNotification, object: window)
+        #expect(!nested.isActive.value)
+        window.reportsMiniaturized = false
+        NotificationCenter.default.post(name: NSWindow.didDeminiaturizeNotification, object: window)
+        #expect(nested.isActive.value)
+        coordinator.update(observer, selection: 2, availablePages: nil, isActive: true,
+                           parentActivity: activity, rootView: root)
+        activity.setActive(false)
+        activity.setActive(true)
+        #expect(!nested.isActive.value)
+        #expect(coordinator.pages[2]?.activity.isActive.value == true)
+        #expect(coordinator.pages[1]?.view === first.view)
+        window.contentView = nil
+        #expect(!activity.isActive.value)
+    }
+
+    @Test func windowActivityIsIndependentAndSuppressesDuplicateNotifications() {
+        let first = RetainedPageActivity()
+        let second = RetainedPageActivity()
+        let child = RetainedPageActivity()
+        first.setActive(true)
+        second.setActive(true)
+        child.setParent(first)
+        child.setActive(true)
+        var changes: [Bool] = []
+        let subscription = child.isActive.sink { changes.append($0) }
+        first.setActive(false)
+        first.setActive(false)
+        #expect(second.isActive.value)
+        child.setParent(second)
+        first.setActive(true)
+        #expect(changes == [true, false, true])
+        withExtendedLifetime(subscription) {}
+    }
+
     @Test func sessionViewsSurviveSwitchesAndClosedTabsAreRemoved() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -121,4 +178,11 @@ private struct RetainedInputProbe: NSViewRepresentable {
         return input
     }
     func updateNSView(_ view: NSTextView, context: Context) {}
+}
+
+private final class VisibilityTestWindow: NSWindow {
+    var reportsVisible = true
+    var reportsMiniaturized = false
+    override var occlusionState: NSWindow.OcclusionState { reportsVisible ? .visible : [] }
+    override var isMiniaturized: Bool { reportsMiniaturized }
 }

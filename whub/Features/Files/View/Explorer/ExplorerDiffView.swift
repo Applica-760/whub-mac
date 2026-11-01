@@ -1,3 +1,4 @@
+import Combine
 import AppKit
 import SwiftUI
 import WhubClient
@@ -12,6 +13,7 @@ struct RemoteExplorerDiffView: View {
     let onShowMarkdownPreview: (FileLocation) -> Void
     @State private var usageID = UUID()
     @Environment(\.isRetainedPageActive) private var isActive
+    @Environment(\.retainedPageActivity) private var activity
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -37,8 +39,9 @@ struct RemoteExplorerDiffView: View {
         }
         .padding(.horizontal)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { git.setUsage(id: usageID, listVisible: isActive, visibleDiffPaths: []) }
-        .onChange(of: isActive) { _, active in git.setUsage(id: usageID, listVisible: active, visibleDiffPaths: []) }
+        .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) {
+            git.setUsage(id: usageID, listVisible: $0, visibleDiffPaths: [])
+        }
         .onDisappear { git.setUsage(id: usageID, listVisible: false, visibleDiffPaths: []) }
     }
 }

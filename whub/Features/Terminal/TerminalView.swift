@@ -1,3 +1,4 @@
+import Combine
 import SwiftTerm
 import SwiftUI
 import SwiftData
@@ -69,15 +70,18 @@ struct TerminalView: View {
             focusTerminal()
         }
         .onChange(of: isActive) { _, active in
-            if active { focusTerminal() }
+            if active { focusTerminal(preservingOtherPane: true) }
         }
     }
 
-    private func focusTerminal() {
+    private func focusTerminal(preservingOtherPane: Bool = false) {
         guard isActive else { return }
         DispatchQueue.main.async {
             let terminal = store.selectedSession.terminal
-            guard !terminal.isHiddenOrHasHiddenAncestor else { return }
+            guard !terminal.isHiddenOrHasHiddenAncestor, terminal.window?.isKeyWindow == true else { return }
+            if preservingOtherPane, let window = terminal.window,
+               let responder = window.firstResponder as? NSView,
+               !responder.isHiddenOrHasHiddenAncestor, !tabFocus.contains(window) { return }
             terminal.window?.makeFirstResponder(terminal)
         }
     }
@@ -93,19 +97,38 @@ struct TerminalView: View {
     }
 }
 
-private struct LocalTerminalView: NSViewRepresentable {
+struct LocalTerminalView: NSViewRepresentable {
     @Environment(\.isRetainedPageActive) private var isActive
+    @Environment(\.retainedPageActivity) private var activity
     let terminal: LocalProcessTerminalView
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         return terminal
     }
 
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func updateNSView(_ terminal: LocalProcessTerminalView, context: Context) {
-        for renderer in terminal.subviews.compactMap({ $0 as? MTKView }) {
-            guard renderer.enableSetNeedsDisplay != isActive else { continue }
-            renderer.enableSetNeedsDisplay = isActive
-            if isActive { renderer.setNeedsDisplay(renderer.bounds) }
+        context.coordinator.subscription = activity?.isActive.sink { [weak terminal] active in
+            if let terminal { Coordinator.setRendering(terminal, active: active) }
+        }
+        Coordinator.setRendering(terminal, active: activity?.isActive.value ?? isActive)
+    }
+
+    static func dismantleNSView(_ terminal: LocalProcessTerminalView, coordinator: Coordinator) {
+        coordinator.subscription = nil
+        Coordinator.setRendering(terminal, active: false)
+    }
+
+    final class Coordinator {
+        var subscription: AnyCancellable?
+
+        static func setRendering(_ terminal: LocalProcessTerminalView, active: Bool) {
+            for renderer in terminal.subviews.compactMap({ $0 as? MTKView }) {
+                guard renderer.enableSetNeedsDisplay != active else { continue }
+                renderer.enableSetNeedsDisplay = active
+                if active { renderer.setNeedsDisplay(renderer.bounds) }
+            }
         }
     }
 }
