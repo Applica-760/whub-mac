@@ -2,7 +2,7 @@ import Foundation
 import Hummingbird
 import HummingbirdTesting
 import Testing
-import WhubClient
+@testable import WhubClient
 @testable import WhubAgent
 @testable import WhubServer
 
@@ -463,6 +463,9 @@ struct AgentAPITests {
         let sync = AgentSynchronization()
         let snapshot = try sync.open(state)
         var document = try JSONDecoder().decode(AgentJSONValue.self, from: sync.snapshot(snapshot.id, cursor: 0).data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .millisecondsSince1970
+        var restored = try AgentSessionConnection.restore(document, decoder: decoder, previous: nil, changes: [])
         for step in 0..<6 {
             let revision = state.revision
             switch step {
@@ -479,11 +482,17 @@ struct AgentAPITests {
             let changes = try JSONDecoder().decode([AgentStateChange].self, from: delta.data)
             if step == 0 { #expect(!changes.contains { $0.path.first == "exchanges" }) }
             for change in changes { try applyAgentChange(change, to: &document) }
+            restored = try AgentSessionConnection.restore(document, decoder: decoder, previous: restored, changes: changes)
+            try expectAgentState(restored, state)
             let fresh = try sync.open(state)
             let expected = try JSONDecoder().decode(AgentJSONValue.self, from: sync.snapshot(fresh.id, cursor: 0).data)
             #expect(document == expected)
             try sync.release(fresh.id)
         }
+        let replaced = try AgentSessionConnection.restore(
+            document, decoder: decoder, previous: state.replacingExchanges([]),
+            changes: [.init(operation: .set, path: [], value: document)])
+        try expectAgentState(replaced, state)
     }
 
     @Test func prunedChangesRequireSnapshotWithoutLosingSession() async throws {

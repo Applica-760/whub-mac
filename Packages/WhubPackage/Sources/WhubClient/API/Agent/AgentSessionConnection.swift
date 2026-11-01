@@ -84,7 +84,8 @@ public actor AgentSessionConnection {
             var document = previous.document
             for change in changes { try apply(change, to: &document, path: change.path[...]) }
             return try await materialize(api, sessionID: sessionID, snapshot: previous.snapshot,
-                                         document: document, revision: first.toRevision, images: previous.images)
+                                         document: document, revision: first.toRevision, images: previous.images,
+                                         previous: previous.state, changes: changes)
         } catch WhubClientError.api(status: 410, code: "resyncRequired", message: _) {
             try await api.releaseSnapshot(sessionID: sessionID, snapshotID: previous.snapshot.id)
             return try await loadSnapshot(api, sessionID: sessionID, images: previous.images)
@@ -131,7 +132,8 @@ public actor AgentSessionConnection {
     }
 
     private static func materialize(_ api: AgentAPI, sessionID: UUID, snapshot: AgentSnapshot,
-                                    document: AgentJSONValue, revision: UInt64, images: [UUID: Data]) async throws -> Content {
+                                    document: AgentJSONValue, revision: UInt64, images: [UUID: Data],
+                                    previous: AgentSessionState? = nil, changes: [AgentStateChange] = []) async throws -> Content {
         var references: [UUID: (mediaType: String, byteCount: Int)] = [:]
         try imageReferences(document, into: &references)
         var cache: [UUID: Data] = [:]
@@ -160,12 +162,39 @@ public actor AgentSessionConnection {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
         decoder.userInfo[.agentImageData] = cache
-        let data = try JSONEncoder().encode(document)
         let state: AgentSessionState
-        do { state = try decoder.decode(AgentSessionState.self, from: data) }
+        do { state = try restore(document, decoder: decoder, previous: previous, changes: changes) }
         catch { throw WhubClientError.invalidResponse }
         guard state.id == sessionID, state.revision == revision else { throw WhubClientError.invalidResponse }
         return Content(snapshot: snapshot, document: document, images: cache, state: state)
+    }
+
+    static func restore(_ document: AgentJSONValue, decoder: JSONDecoder,
+                        previous: AgentSessionState?, changes: [AgentStateChange]) throws -> AgentSessionState {
+        let encoder = JSONEncoder()
+        guard let previous else {
+            return try decoder.decode(AgentSessionState.self, from: encoder.encode(document))
+        }
+        guard case .object(var metadata) = document, case .array(let values) = metadata["exchanges"] else {
+            throw WhubClientError.invalidResponse
+        }
+        var changed: Set<Int> = []
+        for change in changes {
+            if change.path.isEmpty || (change.path == ["exchanges"] && change.operation != .append) {
+                return try decoder.decode(AgentSessionState.self, from: encoder.encode(document))
+            }
+            if change.path.first == "exchanges", change.path.count > 1,
+               let index = Int(change.path[1]) { changed.insert(index) }
+        }
+        metadata["exchanges"] = .array([])
+        let state = try decoder.decode(AgentSessionState.self, from: encoder.encode(AgentJSONValue.object(metadata)))
+        var exchanges = previous.exchanges
+        for index in values.indices where index >= exchanges.count || changed.contains(index) {
+            let exchange = try decoder.decode(AgentExchange.self, from: encoder.encode(values[index]))
+            if index < exchanges.count { exchanges[index] = exchange }
+            else { exchanges.append(exchange) }
+        }
+        return state.replacingExchanges(exchanges)
     }
 
     private static func imageReferences(_ value: AgentJSONValue,

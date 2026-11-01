@@ -29,4 +29,10 @@ public struct AgentSessionState: Identifiable, Codable, Sendable, Equatable {
     public internal(set) var respondingRequestIDs: Set<String> = []
 
     public var isRunning: Bool { exchanges.last?.status == .running }
+
+    public func replacingExchanges(_ exchanges: [AgentExchange]) -> Self {
+        var state = self
+        state.exchanges = exchanges
+        return state
+    }
 }
