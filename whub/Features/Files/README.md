@@ -28,6 +28,7 @@ Files/
 │   │   ├── RemoteEditorStore.swift
 │   │   │                          // ファイル別のRemoteFileStoreを保持
 │   │   ├── LocalFileStore.swift   // FileStore・保存時のデータを保持し、読み書き・外部変更を管理
+│   │   ├── LocalFileIO.swift      // ファイル別の直列キューで読み書き・比較・文字列変換を実行
 │   │   ├── RemoteFileStore.swift  // FileStore・通信状態を保持し、読み書き・競合・切断を管理
 │   │   ├── FileStore.swift        // 本文・保存済み本文・Undo・エディタ位置を保持
 │   │   └── FileEncoding.swift     // UTF-8の読み書きと、保存時の改行・BOMの保持を担当
@@ -87,5 +88,6 @@ EditorはWorkspaceの左ペインに表示する。他のFeatureへ切り替え�
 - Store追加前に、管理する状態がワークスペース・タブ・ファイルのどれに属するかを確認し、既存Storeと同じ状態を別に持たせない。
 - ファイルの新規作成・改名・ゴミ箱移動は `FilesStore` を通す。改名・ゴミ箱移動では、FilesStoreが全ワークスペースを確認し、`EditorStore` が影響するタブを抽出する。未保存・入力中・保存中の判定は `LocalFileStore`／`RemoteFileStore` が担当する。
 - 読み書き・競合確認は `LocalFileStore`／`RemoteFileStore`、共通の編集状態は `FileStore` に置く。
+- ローカルのディスク処理は `LocalFileIO` に渡し、画面側で待機しない。外部変更通知は集約し、入力確定時の再判定には取得済み内容を使う。保存完了時は保存開始時の本文だけを保存済みにする。
 - リモート接続・サーバー管理は、外部から渡される `RemoteConnectionStore`／`RemoteServerStore` を使う。
 - 所有関係・操作の入口・共通部品の使い方を変更したら、このREADMEも更新する。

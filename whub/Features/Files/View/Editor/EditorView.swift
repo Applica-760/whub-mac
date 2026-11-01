@@ -175,7 +175,11 @@ private struct FileContent: View {
                     .foregroundStyle(.orange)
                     .padding(8)
             }
-            fileContent
+            if state.isLoading {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                fileContent
+            }
         }
     }
 

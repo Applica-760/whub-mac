@@ -43,6 +43,7 @@ struct GitStoreTests {
         files.explorer.localTree.setRoot(fixture.first)
         let location = FileLocation.local(fixture.firstFile)
         files.preview(location, hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let document = try #require(files.activeEditor.file(for: location))
         document.content = .text("unsaved")
         files.openDiff(location, preview: true)
@@ -85,10 +86,11 @@ struct GitStoreTests {
         try await waitForGitTest { diff.diff != nil && !files.git.isLoadingDiff }
         #expect(diff.diff?.change == nil)
         files.open(location, hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         diff.setActive(false)
         let local = try #require(files.activeEditor.local.fileStores[location])
         local.document.content = .text("saved\n")
-        try local.save()
+        try await local.save()
         files.openDiff(location)
         diff.setActive(true)
         try await waitForGitTest {

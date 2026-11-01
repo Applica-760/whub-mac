@@ -154,7 +154,7 @@ struct ExplorerStoreTests {
         #expect(store.nameEdit == nil)
     }
 
-    @Test func localMutationsProtectUnsavedTabsAndDoNotOverwrite() throws {
+    @Test func localMutationsProtectUnsavedTabsAndDoNotOverwrite() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/ExplorerStoreTests/" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -190,6 +190,7 @@ struct ExplorerStoreTests {
         #expect(throws: (any Error).self) { try files.create(in: directory, name: "folder", isDirectory: true) }
         let location = FileLocation.local(file)
         files.open(location, hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let editor = files.activeEditor
         let local = try #require(editor.local.fileStores[location])
         local.document.content = .text("unsaved")
@@ -200,7 +201,7 @@ struct ExplorerStoreTests {
         #expect(editor.tabs == [.file(location)])
         #expect(local.document.hasUnsavedChanges)
         #expect(FileManager.default.fileExists(atPath: file.path))
-        try local.save()
+        try await local.save()
         try files.move(other, to: destination)
         #expect(try String(contentsOf: destination.appendingPathComponent("other.txt"), encoding: .utf8) == "other")
         #expect(!FileManager.default.fileExists(atPath: other.path))
@@ -213,6 +214,7 @@ struct ExplorerStoreTests {
         let renamed = directory.appendingPathComponent("renamed/file.txt")
         #expect(try String(contentsOf: renamed, encoding: .utf8) == "unsaved")
         files.open(.local(renamed), hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let trashed = try #require(try files.trash(renamed))
         defer { try? FileManager.default.removeItem(at: trashed) }
         #expect(!FileManager.default.fileExists(atPath: renamed.path))

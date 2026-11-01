@@ -105,7 +105,7 @@ struct EditorStoreTests {
         #expect(files.activeEditor.tabs.isEmpty)
     }
 
-    @Test func markdownPreviewReusesDocumentsAndTracksEachOpenFile() throws {
+    @Test func markdownPreviewReusesDocumentsAndTracksEachOpenFile() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -119,24 +119,29 @@ struct EditorStoreTests {
         let files = FilesStore()
         let editor = files.activeEditor
         files.openMarkdownPreview(first)
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let document = try #require(editor.file(for: first))
         #expect(editor.selectedTab == .file(first) && editor.previewTab == nil)
         #expect(editor.markdownPreviewLocation == first && editor.markdownPreviews == [first])
         document.content = .text("# Unsaved")
         editor.setMarkdownPreviewVisible(false, for: first)
         files.openMarkdownPreview(first)
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(editor.file(for: first) === document && document.hasUnsavedChanges)
         if case let .text(source) = document.content { #expect(source == "# Unsaved") }
         else { Issue.record("Markdown source must remain editable text") }
         files.openMarkdownPreview(second)
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(editor.markdownPreviews == [first, second])
         editor.setMarkdownPreviewVisible(false, for: first)
         #expect(editor.markdownPreviews == [second])
         editor.close(.file(second))
         #expect(editor.markdownPreviews.isEmpty)
         files.openMarkdownPreview(plain)
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(!editor.tabs.contains(.file(plain)))
         files.openMarkdownPreview(binary)
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(editor.markdownPreviewLocation == nil && !editor.markdownPreviews.contains(binary))
     }
 
@@ -575,7 +580,7 @@ struct EditorStoreTests {
         #expect(reads == 2)
     }
 
-    @Test func localConflictPreservesEditsAndAdoptsLatest() throws {
+    @Test func localConflictPreservesEditsAndAdoptsLatest() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -583,27 +588,29 @@ struct EditorStoreTests {
         let url = directory.appendingPathComponent("file.txt")
         try Data("original".utf8).write(to: url)
         let local = LocalFileStore(fileURL: url)
+        try await waitForEditorTest { !local.isLoading }
         let document = local.document
         document.content = .text("my edits")
         try Data("external".utf8).write(to: url)
         local.checkForExternalChanges()
+        try await waitForEditorTest { local.diskMessage != nil }
         #expect(local.diskMessage != nil)
         #expect(document.hasUnsavedChanges)
-        #expect(throws: LocalFileStore.SaveError.self) { try local.save() }
+        await #expect(throws: LocalFileStore.SaveError.self) { try await local.save() }
         #expect(try String(contentsOf: url, encoding: .utf8) == "external")
         #expect(document.savedSource == "original")
-        try local.adoptLatest()
+        try await local.adoptLatest()
         #expect(document.textStorage.string == "external")
         #expect(!document.hasUnsavedChanges)
         #expect(local.diskMessage == nil)
         let revision = local.diskRevision
         try Data([0xff, 0xfe]).write(to: url)
-        #expect(throws: LocalFileStore.SaveError.self) { try local.adoptLatest() }
+        await #expect(throws: LocalFileStore.SaveError.self) { try await local.adoptLatest() }
         #expect(document.textStorage.string == "external")
         #expect(local.diskRevision == revision)
     }
 
-    @Test func workspaceSwitchPreservesLocalTabsAndUnsavedContents() throws {
+    @Test func workspaceSwitchPreservesLocalTabsAndUnsavedContents() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/EditorTests/" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -627,7 +634,9 @@ struct EditorStoreTests {
         let first = FileLocation.local(roots[0].appendingPathComponent("first.txt"))
         let second = FileLocation.local(roots[0].appendingPathComponent("second.txt"))
         files.open(first, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         files.preview(second, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         projectEditor.move(.file(second), before: .file(first))
         projectEditor.select(.file(first))
         let document = try #require(projectEditor.local.fileStores[first])
@@ -639,6 +648,7 @@ struct EditorStoreTests {
         #expect(worktreeEditor.tabs.isEmpty)
         let worktreeFile = FileLocation.local(roots[1].appendingPathComponent("first.txt"))
         files.preview(worktreeFile, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let worktreeDocument = try #require(worktreeEditor.local.fileStores[worktreeFile])
         #expect(worktreeDocument.document.savedSource == roots[1].path)
         worktreeDocument.document.content = .text("unsaved worktree edit")
@@ -651,7 +661,7 @@ struct EditorStoreTests {
         #expect(projectEditor.selectedTab == .file(first))
         #expect(projectEditor.previewTab == nil)
         #expect(document.document.hasUnsavedChanges)
-        try document.save()
+        try await document.save()
         #expect(try String(contentsOf: roots[0].appendingPathComponent("first.txt"), encoding: .utf8) == "unsaved project edit")
         #expect(try String(contentsOf: roots[1].appendingPathComponent("first.txt"), encoding: .utf8) == roots[1].path)
         projectEditor.close(.file(second))
@@ -662,7 +672,7 @@ struct EditorStoreTests {
         #expect(worktreeEditor.selectedTab == .file(worktreeFile))
         #expect(worktreeEditor.previewTab == .file(worktreeFile))
         #expect(worktreeDocument.document.hasUnsavedChanges)
-        try worktreeDocument.save()
+        try await worktreeDocument.save()
         #expect(try String(contentsOf: roots[1].appendingPathComponent("first.txt"), encoding: .utf8) == "unsaved worktree edit")
         worktreeEditor.close(.file(worktreeFile))
         projectEditor.close(.file(first))
@@ -709,7 +719,7 @@ struct EditorStoreTests {
         }
     }
 
-    @Test func localEditingAndTabs() throws {
+    @Test func localEditingAndTabs() async throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/ViewerTests/" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -721,6 +731,7 @@ struct EditorStoreTests {
         let connections = RemoteConnectionStore()
         let location = FileLocation.local(url)
         files.preview(location, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(editor.remote.states.isEmpty)
         let localFile = try #require(editor.local.fileStores[location])
         let file = localFile.document
@@ -730,8 +741,9 @@ struct EditorStoreTests {
         file.content = .text("edited")
         #expect(file.hasUnsavedChanges)
         files.open(location, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(editor.local.fileStores[location] === localFile)
-        try localFile.save()
+        try await localFile.save()
         #expect(try String(contentsOf: url, encoding: .utf8) == "edited")
         #expect(!file.hasUnsavedChanges)
         #expect(editor.previewTab == nil)

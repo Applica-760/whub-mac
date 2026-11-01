@@ -65,6 +65,7 @@ struct EditorViewTests {
         try Data("first file".utf8).write(to: firstURL)
         try Data("second file".utf8).write(to: secondURL)
         files.preview(.local(firstURL), hosts: [], connections: connections, servers: servers)
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let first = try #require(files.activeEditor.file(for: .local(firstURL)))
         let leftFocus = TabPaneFocus()
         let contentFocus = TabPaneFocus()
@@ -83,6 +84,7 @@ struct EditorViewTests {
         try #require(!first.editorViews.views.isEmpty, "Initial file editor is displayed")
         files.explorer.selectedLocation = .local(directory)
         files.preview(.local(secondURL), hosts: [], connections: connections, servers: servers)
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(files.activeEditor.selectedTab == .file(.local(secondURL)))
         let second = try #require(files.activeEditor.file(for: .local(secondURL)))
         try? await waitForEditorTest {
@@ -117,6 +119,7 @@ struct EditorViewTests {
             store.open(.file(location))
             return location
         }
+        try await waitForEditorTest { store.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let documents = try locations.map { try #require(store.file(for: $0)) }
         let host = NSHostingView(rootView: EditorView().environmentObject(store)
             .environmentObject(files).environmentObject(files.git))
@@ -168,7 +171,7 @@ struct EditorViewTests {
         #expect(store.file(for: locations[0]) === documents[0])
         #expect(documents[0].textStorage.string == "# FXYile 1")
         for location in locations.dropFirst().dropLast() { store.close(.file(location)) }
-        try #require(store.local.fileStores[locations[0]]).save()
+        try await #require(store.local.fileStores[locations[0]]).save()
         try await waitForEditorTest {
             host.layoutSubtreeIfNeeded()
             return window.firstResponder === editors[0]
@@ -188,6 +191,7 @@ struct EditorViewTests {
         let store = files.activeEditor
         let location = FileLocation.local(url)
         store.local.load(location)
+        try await waitForEditorTest { store.local.fileStores[location]?.isLoading == false }
         store.open(.file(location))
         let file = try #require(store.file(for: location))
         let window = EditorFocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 450),
@@ -261,6 +265,7 @@ struct EditorViewTests {
             try Data((0..<100).map { "line \($0) 日本語😀\n" }.joined().utf8).write(to: #require(location.localURL))
             files.explorer.selectedLocation = location
             files.activeEditor.local.load(location)
+            try await waitForEditorTest { files.activeEditor.local.fileStores[location]?.isLoading == false }
             files.activeEditor.open(.file(location))
             stores.append(files.activeEditor)
         }
@@ -580,6 +585,7 @@ struct EditorViewTests {
         let connections = RemoteConnectionStore()
         let location = FileLocation.local(url)
         files.open(location, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
+        try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let local = try #require(editor.local.fileStores[location])
         let document = local.document
         #expect(editor.file(for: location) === document)
@@ -588,6 +594,7 @@ struct EditorViewTests {
         text.fileStore = document
         #expect(text.validateMenuItem(NSMenuItem(title: "Save", action: #selector(CodeTextView.saveDocument(_:)), keyEquivalent: "s")))
         text.saveDocument(nil)
+        try await waitForEditorTest { !document.hasUnsavedChanges && !local.isSaving }
         #expect(try Data(contentsOf: url) == bom + Data("second\r\n".utf8))
         #expect(!document.hasUnsavedChanges)
         try Data("updated externally".utf8).write(to: url)

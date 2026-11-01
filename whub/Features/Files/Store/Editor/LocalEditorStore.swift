@@ -84,6 +84,6 @@ final class LocalEditorStore: ObservableObject {
     }
 
     func close(_ location: FileLocation) {
-        fileStores.removeValue(forKey: location)
+        fileStores.removeValue(forKey: location)?.stop()
     }
 }

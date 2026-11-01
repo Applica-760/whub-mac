@@ -5,11 +5,19 @@ final class EditorStore: ObservableObject {
     @Published private(set) var tabs: [EditorTab] = []
     @Published private(set) var selectedTab: EditorTab?
     @Published private(set) var previewTab: EditorTab?
-    @Published private(set) var markdownPreviews: Set<FileLocation> = []
+    @Published private var requestedMarkdownPreviews: Set<FileLocation> = []
     let local = LocalEditorStore()
     let remote = RemoteEditorStore()
     private var changes: AnyCancellable?
     private var isClosing = false
+
+    var markdownPreviews: Set<FileLocation> {
+        requestedMarkdownPreviews.filter { location in
+            guard let file = local.fileStores[location], !file.isLoading else { return true }
+            if case .text = file.document.content { return true }
+            return false
+        }
+    }
 
     init() {
         changes = Publishers.Merge(local.objectWillChange, remote.objectWillChange)
@@ -17,7 +25,8 @@ final class EditorStore: ObservableObject {
     }
 
     func file(for location: FileLocation) -> FileStore? {
-        local.fileStores[location]?.document ?? remote.file(for: location)
+        if let file = local.fileStores[location] { return file.isLoading ? nil : file.document }
+        return remote.file(for: location)
     }
 
     static func supportsMarkdownPreview(_ location: FileLocation) -> Bool {
@@ -33,12 +42,12 @@ final class EditorStore: ObservableObject {
     func setMarkdownPreviewVisible(_ visible: Bool, for location: FileLocation) {
         if visible {
             guard Self.supportsMarkdownPreview(location), tabs.contains(.file(location)) else { return }
-            if case .local = location {
+            if case .local = location, local.fileStores[location]?.isLoading != true {
                 guard case .text = file(for: location)?.content else { return }
             }
-            markdownPreviews.insert(location)
+            requestedMarkdownPreviews.insert(location)
         } else {
-            markdownPreviews.remove(location)
+            requestedMarkdownPreviews.remove(location)
         }
     }
 
@@ -93,6 +102,7 @@ final class EditorStore: ObservableObject {
         }
         if case let .file(previous) = previewTab,
            file(for: previous)?.hasUnsavedChanges == true || file(for: previous)?.editorViews.hasMarkedText == true
+            || local.fileStores[previous]?.isSaving == true
             || remote.fileStores[previous]?.needsCloseConfirmation == true {
             previewTab = nil
         }
@@ -120,8 +130,15 @@ final class EditorStore: ObservableObject {
             }
             return
         }
+        if case let .file(file) = tab, let localFile = local.fileStores[file], localFile.blocksFileOperation {
+            Task { @MainActor in
+                defer { isClosing = false }
+                guard await localFile.confirmClose() else { return }
+                finishClose(tab)
+            }
+            return
+        }
         defer { isClosing = false }
-        if case let .file(file) = tab, local.fileStores[file]?.confirmClose() == false { return }
         finishClose(tab)
     }
 
@@ -157,7 +174,7 @@ final class EditorStore: ObservableObject {
     private func release(_ tab: EditorTab) {
         switch tab {
         case let .file(location):
-            markdownPreviews.remove(location)
+            requestedMarkdownPreviews.remove(location)
             local.close(location)
             remote.close(location)
         case let .diff(location):
