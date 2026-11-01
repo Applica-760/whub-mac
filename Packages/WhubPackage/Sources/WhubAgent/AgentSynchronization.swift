@@ -19,7 +19,7 @@ final class AgentSynchronization {
     private static let idleLifetime: TimeInterval = 300
     private var views: [UUID: View] = [:]
     private var revisions: [Revision] = []
-    private var previous: AgentJSONValue?
+    private var previous: AgentSessionState?
     private var previousRevision: UInt64 = 0
     private var expiry: Task<Void, Never>?
 
@@ -30,7 +30,7 @@ final class AgentSynchronization {
         let data = try encoder().encode(document)
         let snapshot = AgentSnapshot(id: UUID(), revision: state.revision, byteCount: data.count)
         if views.isEmpty {
-            previous = document
+            previous = state
             previousRevision = state.revision
         }
         views[snapshot.id] = View(snapshot: snapshot, data: data, accessedAt: Date())
@@ -73,12 +73,11 @@ final class AgentSynchronization {
         guard !views.isEmpty, state.revision != previousRevision else { return }
         // These documents contain only our own Codable models; encoding failure is a programming error.
         do {
-            let next = try document(state)
             var changes: [AgentStateChange] = []
-            if let previous { diff(previous, next, path: [], into: &changes) }
+            if let previous { try diff(previous, state, into: &changes) }
             let data = try encoder().encode(changes)
             revisions.append(Revision(from: previousRevision, to: state.revision, data: data))
-            previous = next
+            previous = state
             previousRevision = state.revision
             var bytes = revisions.reduce(0) { $0 + $1.data.count }
             while bytes > Self.retainedBytes || revisions.count > 256 {
@@ -134,7 +133,7 @@ final class AgentSynchronization {
                                  nextCursor: end < data.count ? end : nil, data: data.subdata(in: cursor..<end))
     }
 
-    private func document(_ state: AgentSessionState) throws -> AgentJSONValue {
+    private func document(_ state: some Encodable) throws -> AgentJSONValue {
         let encoder = encoder()
         encoder.userInfo[.agentImageReferences] = true
         return try JSONDecoder().decode(AgentJSONValue.self, from: encoder.encode(state))
@@ -145,6 +144,28 @@ final class AgentSynchronization {
         encoder.dateEncodingStrategy = .millisecondsSince1970
         encoder.outputFormatting = [.sortedKeys]
         return encoder
+    }
+
+    private func diff(_ old: AgentSessionState, _ new: AgentSessionState, into result: inout [AgentStateChange]) throws {
+        var oldMetadata = old
+        var newMetadata = new
+        oldMetadata.exchanges = []
+        newMetadata.exchanges = []
+        diff(try document(oldMetadata), try document(newMetadata), path: [], into: &result)
+
+        // Compare models before JSON conversion; completed history normally shares its storage.
+        if new.exchanges.count < old.exchanges.count {
+            result.append(.init(operation: .set, path: ["exchanges"], value: try document(new.exchanges)))
+            return
+        }
+        for index in old.exchanges.indices where old.exchanges[index] != new.exchanges[index] {
+            diff(try document(old.exchanges[index]), try document(new.exchanges[index]),
+                 path: ["exchanges", String(index)], into: &result)
+        }
+        if new.exchanges.count > old.exchanges.count {
+            result.append(.init(operation: .append, path: ["exchanges"],
+                                value: try document(Array(new.exchanges.dropFirst(old.exchanges.count)))))
+        }
     }
 
     private func diff(_ old: AgentJSONValue, _ new: AgentJSONValue, path: [String], into result: inout [AgentStateChange]) {

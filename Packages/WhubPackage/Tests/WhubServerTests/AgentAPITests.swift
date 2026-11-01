@@ -455,6 +455,37 @@ struct AgentAPITests {
         #expect(restored.revision == UInt64.max)
     }
 
+    @Test func historyChangesAndMetadataReconstructState() async throws {
+        let runtime = AgentRuntime(makeAdapter: { _ in AgentAPITestAdapter() })
+        defer { runtime.shutdown() }
+        var state = try await runtime.create(kind: .codex, directory: "/workspace")
+        state.exchanges = (0..<4).map { AgentExchange(input: [.text("Question \($0)")]) }
+        let sync = AgentSynchronization()
+        let snapshot = try sync.open(state)
+        var document = try JSONDecoder().decode(AgentJSONValue.self, from: sync.snapshot(snapshot.id, cursor: 0).data)
+        for step in 0..<6 {
+            let revision = state.revision
+            switch step {
+            case 0: state.isStopping = true
+            case 1: state.exchanges[0].additionalInputs.append(.init(input: [.text("More")], outputIndex: 0))
+            case 2: state.exchanges.swapAt(0, 3)
+            case 3: state.exchanges.removeLast()
+            case 4: state.exchanges = []
+            default: state.exchanges = [AgentExchange(input: [.text("New")])]
+            }
+            state.revision += 1
+            sync.publish(state)
+            let delta = try #require(try sync.changes(snapshot.id, after: revision, cursor: 0))
+            let changes = try JSONDecoder().decode([AgentStateChange].self, from: delta.data)
+            if step == 0 { #expect(!changes.contains { $0.path.first == "exchanges" }) }
+            for change in changes { try applyAgentChange(change, to: &document) }
+            let fresh = try sync.open(state)
+            let expected = try JSONDecoder().decode(AgentJSONValue.self, from: sync.snapshot(fresh.id, cursor: 0).data)
+            #expect(document == expected)
+            try sync.release(fresh.id)
+        }
+    }
+
     @Test func prunedChangesRequireSnapshotWithoutLosingSession() async throws {
         let factory = AgentAPITestFactory()
         let runtime = AgentRuntime(makeAdapter: { try factory.make($0) })
