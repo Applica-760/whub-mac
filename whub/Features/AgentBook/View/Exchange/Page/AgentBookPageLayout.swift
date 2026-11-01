@@ -71,6 +71,26 @@ final class AgentBookPageLayout: ObservableObject {
         func update(_ text: NSAttributedString, width: CGFloat) {
             container.containerSize = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
             storage.setAttributedString(text)
+            updateLayout()
+        }
+
+        func updatePromptHeight(_ height: CGFloat, source: NSAttributedString?) {
+            storage.beginEditing()
+            for prompt in prompts {
+                let attachment = NSTextAttachment()
+                attachment.bounds = CGRect(x: 0, y: 0, width: prompt.size.width, height: height)
+                attachment.attachmentCell = AgentBookContentCell()
+                storage.addAttribute(.attachment, value: attachment, range: prompt.range)
+                if let source {
+                    storage.addAttribute(.agentBookPromptSource, value: source, range: prompt.range)
+                }
+            }
+            storage.endEditing()
+            updateLayout()
+        }
+
+        private func updateLayout() {
+            let width = container.containerSize.width
             manager.ensureLayout(for: container)
             revision += 1
             contentHeight = manager.usedRect(for: container).maxY
@@ -233,7 +253,7 @@ final class AgentBookPageLayout: ObservableObject {
             || viewportSize != viewport || appearance != colorScheme else { return false }
         let readingID = rendered.indices.contains(selectedPage) ? rendered[selectedPage].input.id : nil
         let addedExchange = inputs.count > rendered.count
-        let changedSize = viewportSize != viewport || appearance != colorScheme
+        let changedSize = pageSize.width != size.width || appearance != colorScheme
         pageSize = size
         viewportSize = viewport
         let availableWidth = max(0, (viewport.width - size.width) / 2 - 40)
@@ -260,8 +280,17 @@ final class AgentBookPageLayout: ObservableObject {
             let content = CGSize(width: max(1, size.width - 2 * AgentBookPageStyle.horizontalInset),
                                  height: max(1, size.height - 2 * AgentBookPageStyle.pageInset))
             let page = cached?.page ?? Page(id: input.id.uuidString)
-            if rebuild || cached?.input != input || cached?.size != size {
+            if rebuild || cached?.input != input || cached?.size.width != size.width {
                 page.update(render(exchanges[index], input: input, content: content, colorScheme: colorScheme), width: content.width)
+            } else if let cached, cached.size.height != size.height {
+                // Only very short pages change the prompt's image size; normal resizing keeps its text.
+                let oldImageHeight = min(80, cached.size.height - 2 * AgentBookPageStyle.pageInset - 24)
+                let imageHeight = min(80, content.height - 24)
+                let prompt = oldImageHeight != imageHeight
+                    ? renderPrompt([exchanges[index].input] + exchanges[index].additionalInputs.map(\.input), id: input.id, content: content)
+                    : nil
+                page.updatePromptHeight(max(1, size.height * 0.15),
+                                        source: prompt?.attribute(.agentBookPromptSource, at: 0, effectiveRange: nil) as? NSAttributedString)
             }
             return RenderedExchange(input: input, page: page, size: size)
         }
