@@ -16,6 +16,9 @@ struct AgentBookView: View {
             }
         }
         .background(TabPaneFocusView(focus: tabFocus))
+        .modifier(CreateTab(create: store.add, isShortcutTarget: { window in
+            pendingCloseID == nil && tabFocus.contains(window)
+        }))
         .background(TabBarShortcuts(
             ids: store.tabs.map(\.id), selection: store.selectedTabID,
             select: select, close: requestClose,

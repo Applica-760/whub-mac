@@ -1,6 +1,7 @@
 // テスト一覧:
 // - numberKeysSwitchTerminalFocusAndRetainSessions(): [TAB-F-001] [TAB-F-003] [TAB-F-006]
 // - commandWClosesSelectedTerminalTabAndFocusesReplacement(): [TAB-F-007] [TAB-F-010]
+// - createTargetsOnlyFocusedPaneWithTerminalAndAgentBookVisible(): 同時表示したペインの作成先と確認中の抑止。
 // - ownedStoreRetainsSessionsAndReadsBasePathForNewTabs(): Store保持、BasePath再取得、非表示・他ウィンドウでの操作抑止、作成不可のタブ画面から戻った後の作成を検証。
 
 import AppKit
@@ -10,6 +11,7 @@ import SwiftTerm
 import SwiftUI
 import Testing
 import WhubCore
+@testable import WhubAgent
 @testable import whub
 
 @Suite @MainActor
@@ -118,6 +120,72 @@ struct TerminalViewTests {
         #expect(store.sessions.count == 1 && store.selectedSessionID == selected.id)
     }
 
+    @Test func createTargetsOnlyFocusedPaneWithTerminalAndAgentBookVisible() async throws {
+        let database = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                          configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let terminal = TerminalStore(context: database.mainContext, makeSession: { _ in
+            TerminalSession(terminal: TerminalInputProbe(frame: .zero))
+        })
+        let book = AgentBookStore(context: database.mainContext,
+            runtime: AgentRuntime(makeAdapter: { _ in TestAgentSession() }), notify: { _ in })
+        defer { book.disconnect() }
+        let connections = RemoteConnectionStore()
+        let host = NSHostingView(rootView: HStack {
+            TerminalView(store: terminal)
+            AgentBookView(store: book)
+        }
+            .environmentObject(FilesStore())
+            .environmentObject(connections)
+            .environmentObject(RemoteServerStore(connections: connections)))
+        let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 750),
+                                   styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return terminal.selectedSession.terminal.window === window && book.selectedTab.store.isConnected
+        }
+        #expect(window.makeFirstResponder(terminal.selectedSession.terminal))
+        CreateTab.perform(in: window)
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return terminal.sessions.count == 2 && window.firstResponder === terminal.selectedSession.terminal
+        }
+        #expect(book.tabs.count == 1)
+
+        let input = try #require(tabTestViews(in: host, of: NSTextView.self).first {
+            $0.isEditable && !$0.isHiddenOrHasHiddenAncestor
+        })
+        #expect(window.makeFirstResponder(input))
+        CreateTab.perform(in: window)
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return book.tabs.count == 2 && book.selectedTab.store.isConnected
+                && window.firstResponder is NSTextView && window.firstResponder !== input
+        }
+        #expect(terminal.sessions.count == 2)
+
+        try sendTabTestKey("w", code: 13, to: window)
+        try await waitForEditorTest { window.attachedSheet != nil }
+        CreateTab.perform(in: window)
+        #expect(book.tabs.count == 2 && terminal.sessions.count == 2)
+        let sheet = try #require(window.attachedSheet)
+        let content = try #require(sheet.contentView)
+        let cancel = try #require(tabTestViews(in: content, of: NSButton.self)
+            .first { $0.title == "キャンセル" })
+        cancel.performClick(nil)
+        try await waitForEditorTest { window.attachedSheet == nil }
+
+        #expect(window.makeFirstResponder(terminal.selectedSession.terminal))
+        CreateTab.perform(in: window)
+        try await waitForEditorTest {
+            host.layoutSubtreeIfNeeded()
+            return terminal.sessions.count == 3 && window.firstResponder === terminal.selectedSession.terminal
+        }
+        #expect(book.tabs.count == 2)
+    }
+
     @Test func ownedStoreRetainsSessionsAndReadsBasePathForNewTabs() async throws {
         let database = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
@@ -126,7 +194,6 @@ struct TerminalViewTests {
         var directories: [String] = []
         var sessions: [TerminalSession] = []
         var creations = 0
-        var action: ((NSWindow) -> Void)?
         let selection = TerminalPageSelection()
         let makeStore = {
             creations += 1
@@ -137,8 +204,7 @@ struct TerminalViewTests {
                 return session
             })
         }
-        let host = NSHostingView(rootView: TerminalOwnershipTestRoot(selection: selection, makeStore: makeStore,
-                                                                    receiveAction: { action = $0 }))
+        let host = NSHostingView(rootView: TerminalOwnershipTestRoot(selection: selection, makeStore: makeStore))
         let window = TabTestWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 650),
                                    styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -147,12 +213,11 @@ struct TerminalViewTests {
         window.makeKey()
         try await waitForEditorTest {
             host.layoutSubtreeIfNeeded()
-            return sessions.count == 1 && window.firstResponder === sessions[0].terminal && action != nil
+            return sessions.count == 1 && window.firstResponder === sessions[0].terminal
         }
         #expect(directories == ["/first"])
-        let newTab = try #require(action)
         try hosts.editLocal(local, name: "local", basePath: "/second")
-        newTab(window)
+        CreateTab.perform(in: window)
         try await waitForEditorTest {
             host.layoutSubtreeIfNeeded()
             return sessions.count == 2 && window.firstResponder === sessions[1].terminal
@@ -165,7 +230,7 @@ struct TerminalViewTests {
         defer { otherWindow.contentView = nil; otherWindow.close() }
         otherWindow.contentView = other
         #expect(otherWindow.makeFirstResponder(other))
-        newTab(otherWindow)
+        CreateTab.perform(in: otherWindow)
         #expect(sessions.count == 2)
 
         selection.showsTerminal = false
@@ -173,7 +238,7 @@ struct TerminalViewTests {
             host.layoutSubtreeIfNeeded()
             return sessions[1].terminal.isHiddenOrHasHiddenAncestor
         }
-        newTab(window)
+        CreateTab.perform(in: window)
         #expect(sessions.count == 2)
         selection.showsTerminal = true
         try await waitForEditorTest {
@@ -182,8 +247,7 @@ struct TerminalViewTests {
         }
         #expect(creations == 1)
         #expect(directories == ["/first", "/second"])
-        let restoredAction = try #require(action)
-        restoredAction(window)
+        CreateTab.perform(in: window)
         try await waitForEditorTest {
             host.layoutSubtreeIfNeeded()
             return sessions.count == 3 && window.firstResponder === sessions[2].terminal
@@ -199,7 +263,6 @@ struct TerminalViewTests {
 private struct TerminalOwnershipTestRoot: View {
     @ObservedObject var selection: TerminalPageSelection
     let makeStore: () -> TerminalStore
-    let receiveAction: (((NSWindow) -> Void)?) -> Void
 
     var body: some View {
         RetainedPageContainer(selection: selection.showsTerminal) { terminal in
@@ -212,16 +275,6 @@ private struct TerminalOwnershipTestRoot: View {
                 }
             }
         }
-        .background(TerminalActionProbe(receive: receiveAction))
-    }
-}
-
-private struct TerminalActionProbe: View {
-    @FocusedValue(\.createTab) private var action
-    let receive: (((NSWindow) -> Void)?) -> Void
-
-    var body: some View {
-        Color.clear.onChange(of: action != nil, initial: true) { receive(action) }
     }
 }
 

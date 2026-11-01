@@ -42,7 +42,6 @@ struct AppView: View {
         .focusedSceneValue(\.featureActions, FeatureActions(
             selection: selection,
             toggleAgentBook: { showsAgentBook.toggle() },
-            newTab: newTab,
             targetsAgentBook: {
                 guard let window = NSApp.keyWindow else { return false }
                 return agentFocus.contains(window)
@@ -58,13 +57,6 @@ struct AppView: View {
     private func selectSection(_ next: FeaturePage) {
         leftFocus.activate()
         section = next
-    }
-
-    private func newTab() {
-        guard let window = NSApp.keyWindow, window.attachedSheet == nil else { return }
-        if agentFocus.contains(window) {
-            agentBook.add()
-        }
     }
 }
 

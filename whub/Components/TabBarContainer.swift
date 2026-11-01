@@ -6,14 +6,22 @@ struct TabBarActions {
     let close: () -> Void
 }
 
-private struct CreateTabKey: FocusedValueKey {
-    typealias Value = (NSWindow) -> Void
-}
+struct CreateTab: ViewModifier {
+    private static let notification = Notification.Name("whub.createTab")
+    let create: (() -> Void)?
+    let isShortcutTarget: (NSWindow) -> Bool
+    @Environment(\.isRetainedPageActive) private var isActive
 
-extension FocusedValues {
-    var createTab: ((NSWindow) -> Void)? {
-        get { self[CreateTabKey.self] }
-        set { self[CreateTabKey.self] = newValue }
+    static func perform(in window: NSWindow) {
+        NotificationCenter.default.post(name: notification, object: window)
+    }
+
+    func body(content: Content) -> some View {
+        content.onReceive(NotificationCenter.default.publisher(for: Self.notification)) { notification in
+            guard let create, isActive, let window = notification.object as? NSWindow,
+                  window.attachedSheet == nil, isShortcutTarget(window) else { return }
+            create()
+        }
     }
 }
 
@@ -31,7 +39,6 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
 
     @Namespace private var namespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.isRetainedPageActive) private var isActive
     @State private var position = ScrollPosition(x: 0)
     @State private var frames: [ID: CGRect] = [:]
     @State private var viewport = CGSize.zero
@@ -117,7 +124,7 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
             }
         }
         .animation(animation, value: selection)
-        .focusedSceneValue(\.createTab, createAction)
+        .modifier(CreateTab(create: create, isShortcutTarget: isShortcutTarget))
         .background(TabBarEventMonitor { event, point in
             if event.type == .rightMouseDown {
                 guard dragging == nil, !settling, let contextMenu,
@@ -157,14 +164,6 @@ struct TabBarContainer<ID: Hashable & Sendable, Tab: View>: View {
         }
         .onDisappear { cancelDrag() }
         .zIndex(1)
-    }
-
-    private var createAction: ((NSWindow) -> Void)? {
-        guard let create else { return nil }
-        return { window in
-            guard isActive, window.attachedSheet == nil, isShortcutTarget(window) else { return }
-            create()
-        }
     }
 
     private func reorderGesture(for id: ID) -> some Gesture {

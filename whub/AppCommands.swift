@@ -6,7 +6,6 @@ struct FeatureActions: FocusedValueKey {
 
     let selection: Binding<FeaturePage>
     let toggleAgentBook: () -> Void
-    let newTab: () -> Void
     let targetsAgentBook: () -> Bool
 
     func movePage(_ offset: Int) {
@@ -23,19 +22,14 @@ extension FocusedValues {
 
 struct AppCommands: Commands {
     @FocusedValue(\.featureActions) private var featureActions
-    @FocusedValue(\.createTab) private var createTab
     let files: FilesStore
     let agentBookStore: AgentBookStore
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("新規タブ") {
-                guard let window = NSApp.keyWindow, window.attachedSheet == nil else { return }
-                if featureActions?.targetsAgentBook() == true {
-                    featureActions?.newTab()
-                } else {
-                    createTab?(window)
-                }
+                guard let window = NSApp.keyWindow else { return }
+                CreateTab.perform(in: window)
             }
             .keyboardShortcut("t", modifiers: .command)
             .disabled(featureActions == nil)
