@@ -10,9 +10,9 @@ struct AppView: View {
     @EnvironmentObject private var files: FilesStore
     @EnvironmentObject private var agentBook: AgentBookStore
     @Environment(\.modelContext) private var context
-    @Binding var section: FeaturePage
+    @State private var section = FeaturePage.editor
     @State private var explorerFocus = ExplorerFocusNavigation()
-    @State private var leftFocus = TabPaneFocus()
+    @State private var contentFocus = TabPaneFocus()
     @State private var agentFocus = TabPaneFocus()
     @State private var showsAgentBook = true
 
@@ -28,7 +28,7 @@ struct AppView: View {
             RetainedPageContainer(selection: section, focus: explorerFocus.content) { page in
                 page.content(context: context).environmentObject(files.activeEditor)
             }
-            .background(TabPaneFocusView(focus: leftFocus, activatesOnClick: false))
+            .background(TabPaneFocusView(focus: contentFocus, activatesOnClick: false))
             .inspector(isPresented: $showsAgentBook) {
                 AgentBookView(store: agentBook)
                     .environment(\.openWorkspaceEditor, { selectSection(.editor) })
@@ -55,7 +55,7 @@ struct AppView: View {
     }
 
     private func selectSection(_ next: FeaturePage) {
-        leftFocus.activate()
+        contentFocus.activate()
         section = next
     }
 }

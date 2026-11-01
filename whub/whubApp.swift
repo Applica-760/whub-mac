@@ -10,7 +10,6 @@ struct whubApp: App {
     @StateObject private var agentBookStore: AgentBookStore
     @StateObject private var remoteConnections: RemoteConnectionStore
     @StateObject private var remoteServers: RemoteServerStore
-    @State private var section = FeaturePage.editor
     private let workspaceContainer: ModelContainer
 
     init() {
@@ -30,7 +29,7 @@ struct whubApp: App {
     var body: some Scene {
         Group {
             WindowGroup {
-                AppView(section: $section)
+                AppView()
                     .containerBackground(Color(nsColor: .windowBackgroundColor), for: .window)
                     .environmentObject(files)
                     .environmentObject(files.git)
