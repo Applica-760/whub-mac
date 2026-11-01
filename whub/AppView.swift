@@ -35,23 +35,7 @@ struct AppView: View {
                     .inspectorColumnWidth(min: 500, ideal: 600, max: 1200)
             }
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Picker("ページ", selection: selection) {
-                        ForEach(FeaturePage.allCases, id: \.self) { section in
-                            Label(section.label, systemImage: section.systemImage).tag(section)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                }
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-                RemoteConnectionToolbar()
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Toggle AgentBook", systemImage: "sidebar.right") {
-                        showsAgentBook.toggle()
-                    }
-                }
+                AppToolbar(selection: selection, showsAgentBook: $showsAgentBook)
             }
         }
         .focusedSceneValue(\.featureActions, FeatureActions(
