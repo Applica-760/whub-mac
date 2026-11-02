@@ -1,4 +1,5 @@
 // テスト一覧:
+// - RemoteGitStoreTests.unchangedUsageDoesNotPublish(connected:)
 // - RemoteGitStoreTests.refreshesChangesAndVisibleDiffOnNotification(): [RGITSTORE-F-001]
 // - RemoteGitStoreTests.stopsWhileDisconnectedAndReloadsOnReconnect(): [RGITSTORE-F-002]
 // - RemoteGitStoreTests.discardsResultFromPreviousConnection(): [RGITSTORE-F-003]
@@ -8,6 +9,7 @@
 // - RemoteGitStoreTests.convertsChangesForRemoteFiles()
 // - RemoteGitStoreTests.lineMarkersFollowBaselineAndUnsavedContent()
 
+import Combine
 import Foundation
 import SwiftData
 import Testing
@@ -18,6 +20,29 @@ import WhubGit
 
 @Suite(.serialized) @MainActor
 struct RemoteGitStoreTests {
+    @Test(arguments: [false, true])
+    func unchangedUsageDoesNotPublish(connected: Bool) async throws {
+        let fixture = try RemoteGitFixture()
+        defer { fixture.store.stop() }
+        if connected { await fixture.connections.connect(fixture.host) }
+        let usage = UUID()
+        fixture.store.setUsage(id: usage, listVisible: true, visibleDiffPaths: [])
+        if connected {
+            try await eventually { !fixture.store.isLoading && GitProtocol.state.waitCount > 0 }
+        }
+        var notifications = 0
+        let subscription = fixture.store.objectWillChange.sink { notifications += 1 }
+        fixture.store.setUsage(id: usage, listVisible: true, visibleDiffPaths: [])
+        #expect(notifications == 0)
+
+        fixture.store.setUsage(id: usage, listVisible: false, visibleDiffPaths: [])
+        notifications = 0
+        fixture.store.setUsage(id: usage, listVisible: false, visibleDiffPaths: [])
+        #expect(notifications == 0)
+        subscription.cancel()
+        await fixture.close()
+    }
+
     @Test func lineMarkersFollowBaselineAndUnsavedContent() async throws {
         let fixture = try RemoteGitFixture()
         defer { fixture.store.stop() }

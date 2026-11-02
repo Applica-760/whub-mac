@@ -49,7 +49,7 @@ final class RemoteGitStore: ObservableObject {
     }
 
     func setUsage(listVisible: Bool, visibleDiffPaths: Set<String>) {
-        let changed = self.listVisible != listVisible || self.visibleDiffPaths != visibleDiffPaths
+        guard self.listVisible != listVisible || self.visibleDiffPaths != visibleDiffPaths else { return }
         self.listVisible = listVisible
         self.visibleDiffPaths = visibleDiffPaths
         diffs = diffs.filter { visibleDiffPaths.contains($0.key) }
@@ -58,7 +58,7 @@ final class RemoteGitStore: ObservableObject {
             return
         }
         synchronizeConnection()
-        if changed { refresh() }
+        refresh()
     }
 
     func setUsage(id: UUID, listVisible: Bool, visibleDiffPaths: Set<String>) {
