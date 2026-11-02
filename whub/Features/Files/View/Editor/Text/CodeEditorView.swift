@@ -25,6 +25,7 @@ struct CodeEditorView: NSViewRepresentable {
         var highlighted: CodeHighlighter.Request?
         var lineNumbersNeedUpdate = true
         var didRestorePosition = false
+        private var needsHighlightDelay = false
         private var pending: CodeHighlighter.Request?
         private var highlightTask: Task<Void, Never>?
         private weak var storage: NSTextStorage?
@@ -46,11 +47,13 @@ struct CodeEditorView: NSViewRepresentable {
             self.storage = storage
             cancelHighlight()
             highlighted = nil
+            needsHighlightDelay = false
             lineNumbersNeedUpdate = true
             observation = NotificationCenter.default.addObserver(
                 forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: .main
             ) { [weak self] notification in
                 if let storage = notification.object as? NSTextStorage, storage.editedMask.contains(.editedCharacters) {
+                    self?.needsHighlightDelay = true
                     self?.highlighted = nil
                     self?.cancelHighlight()
                     self?.lineNumbersNeedUpdate = true
@@ -72,7 +75,11 @@ struct CodeEditorView: NSViewRepresentable {
             guard pending != request else { return }
             cancelHighlight()
             pending = request
+            let delay = needsHighlightDelay
             highlightTask = Task { [weak self, weak state, weak textView] in
+                if delay {
+                    do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+                }
                 let result = await CodeHighlighter.shared.highlight(request)
                 guard !Task.isCancelled, let self, self.pending == request else { return }
                 self.pending = nil
@@ -81,11 +88,8 @@ struct CodeEditorView: NSViewRepresentable {
                       !textView.isHiddenOrHasHiddenAncestor,
                       !state.editorViews.hasMarkedText,
                       state.textStorage.string == request.source else { return }
-                state.textStorage.beginEditing()
-                result.text.enumerateAttributes(in: NSRange(location: 0, length: result.text.length)) { attributes, range, _ in
-                    state.textStorage.setAttributes(attributes, range: range)
-                }
-                state.textStorage.endEditing()
+                CodeHighlighter.apply(result, to: state.textStorage)
+                self.needsHighlightDelay = false
                 textView.typingAttributes = [
                     .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
                     .foregroundColor: NSColor.labelColor,

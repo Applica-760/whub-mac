@@ -1,4 +1,5 @@
 import AppKit
+import CoreFoundation
 import Highlighter
 import WhubGit
 
@@ -16,6 +17,31 @@ actor CodeHighlighter {
     // Only immutable snapshots leave the actor; its parser and mutable buffers stay isolated.
     nonisolated struct Result: @unchecked Sendable {
         let text: NSAttributedString
+    }
+
+    @MainActor
+    static func apply(_ result: Result, to storage: NSTextStorage) {
+        // Compare without bridging every attribute dictionary into Swift.
+        let target = result.text as CFAttributedString
+        let current = storage as CFAttributedString
+        var changes: [NSRange] = []
+        var index = 0
+        while index < result.text.length {
+            var targetRange = CFRange(), currentRange = CFRange()
+            let targetAttributes = CFAttributedStringGetAttributes(target, index, &targetRange)!
+            let currentAttributes = CFAttributedStringGetAttributes(current, index, &currentRange)!
+            let end = min(targetRange.location + targetRange.length, currentRange.location + currentRange.length)
+            if !CFEqual(targetAttributes, currentAttributes) {
+                changes.append(NSRange(location: index, length: end - index))
+            }
+            index = end
+        }
+        guard !changes.isEmpty else { return }
+        storage.beginEditing()
+        for range in changes {
+            storage.setAttributes(result.text.attributes(at: range.location, effectiveRange: nil), range: range)
+        }
+        storage.endEditing()
     }
 
     func highlight(_ request: Request) -> Result? {
@@ -65,6 +91,9 @@ actor CodeHighlighter {
                     offset += length
                 }
             }
+            // Match TextKit's fallback fonts before comparing attributes on the UI thread.
+            text.fixAttributes(in: NSRange(location: 0, length: text.length))
+            guard !Task.isCancelled else { return nil }
             return Result(text: NSAttributedString(attributedString: text))
         }
     }
