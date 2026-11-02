@@ -33,43 +33,159 @@ public extension Git {
     }
 
     static func diff(from original: String, to source: String) -> [LineDiffHunk] {
+        diff(from: original, to: source, checkCancellation: {})
+    }
+
+    static func diff(from original: String, to source: String,
+                     checkCancellation: () throws -> Void) rethrows -> [LineDiffHunk] {
+        try checkCancellation()
         guard original != source else { return [] }
-        func lines(_ text: String) -> [String] {
+        func lines(_ text: String) throws -> [String] {
             guard !text.isEmpty else { return [] }
-            var lines = text.components(separatedBy: "\n")
-            for index in 0..<(lines.count - 1) { lines[index] += "\n" }
-            if lines.last == "" { lines.removeLast() }
-            return lines
-        }
-        let old = lines(original)
-        let new = lines(source)
-        let changes = new.difference(from: old)
-        var removed = Set<Int>()
-        var inserted = Set<Int>()
-        for change in changes {
-            switch change {
-            case let .remove(offset, _, _): removed.insert(offset)
-            case let .insert(offset, _, _): inserted.insert(offset)
+            var result = text.components(separatedBy: "\n")
+            for index in 0..<(result.count - 1) {
+                if index.isMultiple(of: 256) { try checkCancellation() }
+                result[index] += "\n"
             }
+            if result.last == "" { result.removeLast() }
+            return result
         }
+        let oldLines = try lines(original)
+        let newLines = try lines(source)
+        var oldRange = oldLines.indices, newRange = newLines.indices
+        while !oldRange.isEmpty, !newRange.isEmpty, oldLines[oldRange.lowerBound] == newLines[newRange.lowerBound] {
+            if oldRange.lowerBound.isMultiple(of: 256) { try checkCancellation() }
+            oldRange = (oldRange.lowerBound + 1)..<oldRange.upperBound
+            newRange = (newRange.lowerBound + 1)..<newRange.upperBound
+        }
+        while !oldRange.isEmpty, !newRange.isEmpty, oldLines[oldRange.upperBound - 1] == newLines[newRange.upperBound - 1] {
+            if oldRange.upperBound.isMultiple(of: 256) { try checkCancellation() }
+            oldRange = oldRange.lowerBound..<(oldRange.upperBound - 1)
+            newRange = newRange.lowerBound..<(newRange.upperBound - 1)
+        }
+        var identifiers: [String: Int] = [:]
+        func encode(_ lines: ArraySlice<String>) throws -> [Int] {
+            var result: [Int] = []
+            for (index, line) in lines.enumerated() {
+                if index.isMultiple(of: 256) { try checkCancellation() }
+                if let id = identifiers[line] { result.append(id) }
+                else {
+                    let id = identifiers.count
+                    identifiers[line] = id
+                    result.append(id)
+                }
+            }
+            return result
+        }
+        let old = try encode(oldLines[oldRange])
+        let new = try encode(newLines[newRange])
         var hunks: [LineDiffHunk] = []
-        var oldIndex = 0
-        var newIndex = 0
-        while oldIndex < old.count || newIndex < new.count {
-            if removed.contains(oldIndex) || inserted.contains(newIndex) {
-                let oldStart = oldIndex
-                let newStart = newIndex
-                repeat {
-                    if removed.contains(oldIndex) { oldIndex += 1 }
-                    if inserted.contains(newIndex) { newIndex += 1 }
-                } while removed.contains(oldIndex) || inserted.contains(newIndex)
-                hunks.append(LineDiffHunk(oldLines: oldStart..<oldIndex, newLines: newStart..<newIndex))
+        func append(_ oldRange: Range<Int>, _ newRange: Range<Int>) {
+            guard !oldRange.isEmpty || !newRange.isEmpty else { return }
+            if let last = hunks.last, last.oldLines.upperBound == oldRange.lowerBound,
+               last.newLines.upperBound == newRange.lowerBound {
+                hunks[hunks.count - 1] = LineDiffHunk(oldLines: last.oldLines.lowerBound..<oldRange.upperBound,
+                                                     newLines: last.newLines.lowerBound..<newRange.upperBound)
+            } else { hunks.append(LineDiffHunk(oldLines: oldRange, newLines: newRange)) }
+        }
+
+        // Meet in the middle to reconstruct a shortest edit path without storing every frontier.
+        func split(_ a: Range<Int>, _ b: Range<Int>) throws -> (Int, Int) {
+            let n = a.count, m = b.count
+            let limit = (n + m + 1) / 2
+            let offset = limit + 1
+            var forward = Array(repeating: -1, count: 2 * limit + 3)
+            var backward = forward
+            forward[offset + 1] = 0
+            backward[offset + 1] = 0
+            let delta = n - m
+            let odd = !delta.isMultiple(of: 2)
+            for distance in 0...limit {
+                try checkCancellation()
+                for k in stride(from: -distance, through: distance, by: 2) {
+                    if (k + distance).isMultiple(of: 256) { try checkCancellation() }
+                    let index = offset + k
+                    var x = k == -distance || (k != distance && forward[index - 1] < forward[index + 1])
+                        ? forward[index + 1] : forward[index - 1] + 1
+                    var y = x - k
+                    while x < n, y < m, x >= 0, y >= 0, old[a.lowerBound + x] == new[b.lowerBound + y] {
+                        if x.isMultiple(of: 256) { try checkCancellation() }
+                        x += 1; y += 1
+                    }
+                    forward[index] = x
+                    let reverseK = delta - k
+                    if odd, abs(reverseK) <= distance - 1,
+                       backward[offset + reverseK] >= 0, x >= n - backward[offset + reverseK] {
+                        return (a.lowerBound + x, b.lowerBound + y)
+                    }
+                }
+                for k in stride(from: -distance, through: distance, by: 2) {
+                    if (k + distance).isMultiple(of: 256) { try checkCancellation() }
+                    let index = offset + k
+                    var x = k == -distance || (k != distance && backward[index - 1] < backward[index + 1])
+                        ? backward[index + 1] : backward[index - 1] + 1
+                    var y = x - k
+                    while x < n, y < m, x >= 0, y >= 0, old[a.upperBound - x - 1] == new[b.upperBound - y - 1] {
+                        if x.isMultiple(of: 256) { try checkCancellation() }
+                        x += 1; y += 1
+                    }
+                    backward[index] = x
+                    let forwardK = delta - k
+                    if !odd, abs(forwardK) <= distance,
+                       forward[offset + forwardK] >= 0, forward[offset + forwardK] >= n - x {
+                        let forwardX = forward[offset + forwardK]
+                        return (a.lowerBound + forwardX, b.lowerBound + forwardX - forwardK)
+                    }
+                }
+            }
+            preconditionFailure("A shortest edit path must cross the two search frontiers")
+        }
+
+        func compare(_ oldRange: Range<Int>, _ newRange: Range<Int>) throws {
+            try checkCancellation()
+            var a = oldRange, b = newRange
+            while !a.isEmpty, !b.isEmpty, old[a.lowerBound] == new[b.lowerBound] {
+                if a.lowerBound.isMultiple(of: 256) { try checkCancellation() }
+                a = (a.lowerBound + 1)..<a.upperBound
+                b = (b.lowerBound + 1)..<b.upperBound
+            }
+            while !a.isEmpty, !b.isEmpty, old[a.upperBound - 1] == new[b.upperBound - 1] {
+                if a.upperBound.isMultiple(of: 256) { try checkCancellation() }
+                a = a.lowerBound..<(a.upperBound - 1)
+                b = b.lowerBound..<(b.upperBound - 1)
+            }
+            guard !a.isEmpty, !b.isEmpty else { append(a, b); return }
+            var oldIDs = Set<Int>()
+            for i in a {
+                if i.isMultiple(of: 256) { try checkCancellation() }
+                oldIDs.insert(old[i])
+            }
+            var sharesLine = false
+            for j in b {
+                if j.isMultiple(of: 256) { try checkCancellation() }
+                if oldIDs.contains(new[j]) { sharesLine = true; break }
+            }
+            guard sharesLine else { append(a, b); return }
+            if a.count == 1 {
+                let match = b.first { new[$0] == old[a.lowerBound] }!
+                append(a.lowerBound..<a.lowerBound, b.lowerBound..<match)
+                append(a.upperBound..<a.upperBound, (match + 1)..<b.upperBound)
+            } else if b.count == 1 {
+                let match = a.first { old[$0] == new[b.lowerBound] }!
+                append(a.lowerBound..<match, b.lowerBound..<b.lowerBound)
+                append((match + 1)..<a.upperBound, b.upperBound..<b.upperBound)
             } else {
-                oldIndex += 1
-                newIndex += 1
+                let (x, y) = try split(a, b)
+                try compare(a.lowerBound..<x, b.lowerBound..<y)
+                try compare(x..<a.upperBound, y..<b.upperBound)
             }
         }
-        return hunks
+        try compare(old.indices, new.indices)
+        try checkCancellation()
+        return hunks.map {
+            LineDiffHunk(oldLines: ($0.oldLines.lowerBound + oldRange.lowerBound)..<($0.oldLines.upperBound + oldRange.lowerBound),
+                         newLines: ($0.newLines.lowerBound + newRange.lowerBound)..<($0.newLines.upperBound + newRange.lowerBound))
+        }
     }
 
     static func diff(at fileURL: URL) async throws -> [LineDiffHunk] {

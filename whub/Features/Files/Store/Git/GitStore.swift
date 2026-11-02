@@ -149,6 +149,7 @@ final class GitLineStore: ObservableObject {
     private var diffSource: String?
     private var updateID = UUID()
     private var loadID = UUID()
+    private let calculation = DiffCalculation<[LineDiffHunk]>()
 
     func hunks(for location: FileLocation, source: String) -> [LineDiffHunk] {
         isActive && !isLoadingBaseline && baseline?.location == location && diffSource == source ? hunks : []
@@ -158,6 +159,7 @@ final class GitLineStore: ObservableObject {
         guard isActive != active else { return }
         isActive = active
         if !active {
+            calculation.cancel()
             updateID = UUID()
             loadID = UUID()
             isLoadingBaseline = false
@@ -167,6 +169,7 @@ final class GitLineStore: ObservableObject {
     func setBaseline(location: FileLocation, source: String?) {
         let next = source.map { Baseline(location: location, source: $0) }
         guard baseline != next else { return }
+        calculation.cancel()
         updateID = UUID()
         baseline = next
         diffSource = nil
@@ -177,6 +180,7 @@ final class GitLineStore: ObservableObject {
         guard isActive, !Task.isCancelled else { return }
         let loadID = UUID()
         self.loadID = loadID
+        calculation.cancel()
         updateID = UUID()
         isLoadingBaseline = true
         errorMessage = nil
@@ -203,14 +207,21 @@ final class GitLineStore: ObservableObject {
         guard isActive, !Task.isCancelled else { return }
         let updateID = UUID()
         self.updateID = updateID
+        calculation.cancel()
         guard !isLoadingBaseline, let baseline, diffSource != source else { return }
         do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
         guard self.updateID == updateID, self.baseline == baseline else { return }
-        let loaded = await Task.detached(priority: .utility) {
-            Git.diff(from: baseline.source, to: source)
-        }.value
-        guard !Task.isCancelled, self.updateID == updateID, self.baseline == baseline else { return }
-        diffSource = source
-        hunks = loaded
+        do {
+            let loaded = try await calculation.run {
+                try Git.diff(from: baseline.source, to: source, checkCancellation: { try Task.checkCancellation() })
+            }
+            guard !Task.isCancelled, self.updateID == updateID, self.baseline == baseline else { return }
+            diffSource = source
+            hunks = loaded
+        } catch is CancellationError {
+            return
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }

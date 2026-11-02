@@ -25,6 +25,11 @@ nonisolated struct DiffLayout: Sendable {
     }
 
     init(before: String, after: String) {
+        self.init(before: before, after: after, checkCancellation: {})
+    }
+
+    init(before: String, after: String, checkCancellation: () throws -> Void) rethrows {
+        try checkCancellation()
         func lines(_ text: String) -> [String] {
             guard !text.isEmpty else { return [] }
             var result = text.components(separatedBy: "\n")
@@ -38,8 +43,10 @@ nonisolated struct DiffLayout: Sendable {
         var right: [DiffLine] = []
         var oldIndex = 0
         var newIndex = 0
-        for hunk in Git.diff(from: before, to: after) {
+        for hunk in try Git.diff(from: before, to: after, checkCancellation: checkCancellation) {
+            try checkCancellation()
             while oldIndex < hunk.oldLines.lowerBound {
+                if oldIndex.isMultiple(of: 256) { try checkCancellation() }
                 left.append(DiffLine(number: oldIndex + 1, source: old[oldIndex], change: nil))
                 right.append(DiffLine(number: newIndex + 1, source: new[newIndex], change: nil))
                 oldIndex += 1
@@ -47,6 +54,7 @@ nonisolated struct DiffLayout: Sendable {
             }
             let modified = !hunk.oldLines.isEmpty && !hunk.newLines.isEmpty
             for offset in 0..<max(hunk.oldLines.count, hunk.newLines.count) {
+                if offset.isMultiple(of: 256) { try checkCancellation() }
                 left.append(offset < hunk.oldLines.count
                     ? DiffLine(number: oldIndex + offset + 1, source: old[oldIndex + offset], change: modified ? .modified : .deleted)
                     : DiffLine(number: nil, source: "", change: nil))
@@ -58,6 +66,7 @@ nonisolated struct DiffLayout: Sendable {
             newIndex = hunk.newLines.upperBound
         }
         while oldIndex < old.count {
+            if oldIndex.isMultiple(of: 256) { try checkCancellation() }
             left.append(DiffLine(number: oldIndex + 1, source: old[oldIndex], change: nil))
             right.append(DiffLine(number: newIndex + 1, source: new[newIndex], change: nil))
             oldIndex += 1
@@ -132,6 +141,7 @@ struct DiffView: View {
     @State private var beforeFile = FileStore(source: "")
     @State private var afterFile = FileStore(source: "")
     @State private var scrolling = DiffScrollSync()
+    @State private var calculation = DiffCalculation<DiffLayout>()
     @State private var loadedSource: Source?
     @State private var isActive = false
     @Environment(\.isRetainedPageActive) private var isPageActive
@@ -148,6 +158,7 @@ struct DiffView: View {
         .background(Color(nsColor: .textBackgroundColor))
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isPageActive).eraseToAnyPublisher()) {
             isActive = $0
+            if !$0 { calculation.cancel() }
         }
         .task(id: isActive && isCurrent ? Source(before: before, after: after) : nil) {
             guard isActive, isCurrent, activity?.isActive.value ?? isPageActive else { return }
@@ -155,14 +166,19 @@ struct DiffView: View {
             guard loadedSource != source else { return }
             let before = before
             let after = after
-            let loaded = await Task.detached(priority: .utility) { DiffLayout(before: before, after: after) }.value
+            let loaded: DiffLayout
+            do {
+                loaded = try await calculation.run {
+                    try DiffLayout(before: before, after: after, checkCancellation: { try Task.checkCancellation() })
+                }
+            } catch { return }
             guard !Task.isCancelled, activity?.isActive.value ?? isPageActive else { return }
             loadedSource = source
             fullLayout = loaded
             expanded = []
             updateLayout(loaded.folded(expanded: []))
         }
-        .onDisappear { scrolling.disconnect() }
+        .onDisappear { calculation.cancel(); scrolling.disconnect() }
     }
 
     private func pane(title: String, file: FileStore, lines: [DiffLine]?, before: Bool) -> some View {
