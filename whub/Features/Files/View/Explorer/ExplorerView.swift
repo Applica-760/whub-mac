@@ -20,7 +20,7 @@ struct ExplorerView: View {
         VStack(alignment: .leading, spacing: 16) {
             ExplorerPulldownView(store: store)
             if store.showsDiff, let root = store.selectedLocation, case .remote = root,
-               let remoteGit = files.remoteGit(for: root, hosts: hosts.compactMap { $0 as? RemoteHost },
+               let remoteGit = files.git.remoteGit(for: root, hosts: hosts.compactMap { $0 as? RemoteHost },
                                                connections: connections, servers: servers) {
                 RemoteExplorerDiffView(git: remoteGit, editor: files.activeEditor, focus: focus,
                                        onPreview: { openDiff($0, preview: true) },
@@ -33,7 +33,7 @@ struct ExplorerView: View {
                                  onOpen: { openDiff($0, preview: false) },
                                  onShowMarkdownPreview: showMarkdownPreview)
             } else if let root = store.selectedLocation, case .remote = root,
-                      let remoteGit = files.remoteGit(for: root, hosts: hosts.compactMap { $0 as? RemoteHost },
+                      let remoteGit = files.git.remoteGit(for: root, hosts: hosts.compactMap { $0 as? RemoteHost },
                                                       connections: connections, servers: servers) {
                 RemoteTreeGitView(git: remoteGit) { changes in explorerTree(remoteChanges: changes) }
                     .id(root)

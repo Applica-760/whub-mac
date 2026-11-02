@@ -1,6 +1,8 @@
 import Combine
 import Foundation
+import SwiftData
 import WhubGit
+import WhubCore
 
 @MainActor
 final class GitStore: ObservableObject {
@@ -16,6 +18,30 @@ final class GitStore: ObservableObject {
     var onManagementDirectoriesChange: (() -> Void)?
     private var requestID = 0
     private var refreshTask: Task<Void, Never>?
+
+    private(set) var remoteGitStores: [FileLocation: RemoteGitStore] = [:]
+
+    func remoteGit(for root: FileLocation, hosts: [RemoteHost], connections: RemoteConnectionStore,
+                   servers: RemoteServerStore) -> RemoteGitStore? {
+        guard case let .remote(hostID, _) = root,
+              let host = hosts.first(where: { $0.persistentModelID == hostID }) else { return nil }
+        if let store = remoteGitStores[root] { return store }
+        let store = RemoteGitStore(root: root, host: host, connections: connections, servers: servers)
+        remoteGitStores[root] = store
+        return store
+    }
+
+    func releaseRemoteGit(for root: FileLocation) {
+        remoteGitStores.removeValue(forKey: root)?.stop()
+    }
+
+    func handleFileChanges(_ event: FileWatcher.Event, worktreeChanged: Bool, root: URL) {
+        guard case let .changed(changes) = event else { refresh(); return }
+        let roots = [root.standardizedFileURL.path, root.resolvingSymlinksInPath().path]
+        if worktreeChanged || Git.needsStatusRefresh(
+            changedPaths: changes.map(\.path), worktreeRoots: roots, managementDirectories: managementDirectories
+        ) { refresh() }
+    }
 
     func setRoot(_ url: URL?) {
         if rootURL != url {

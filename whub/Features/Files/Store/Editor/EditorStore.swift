@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import WhubCore
 
 final class EditorStore: ObservableObject {
     @Published private(set) var tabs: [EditorTab] = []
@@ -22,6 +23,46 @@ final class EditorStore: ObservableObject {
     init() {
         changes = Publishers.Merge(local.objectWillChange, remote.objectWillChange)
             .sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+
+    func preview(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
+        prepare(location, hosts: hosts, connections: connections, servers: servers, root: root)
+        preview(.file(location))
+    }
+
+    func open(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
+        prepare(location, hosts: hosts, connections: connections, servers: servers, root: root)
+        open(.file(location))
+    }
+
+    func openDiff(_ location: FileLocation, preview: Bool = false) {
+        if case .remote = location {
+            if preview { self.preview(.diff(location)) }
+            else { open(.diff(location)) }
+            return
+        }
+        guard let url = location.localURL else { return }
+        let fileURL = url.standardizedFileURL
+        local.loadDiff(at: fileURL)
+        if preview { self.preview(.diff(.local(fileURL))) }
+        else { open(.diff(.local(fileURL))) }
+    }
+
+    func openMarkdownPreview(_ location: FileLocation) {
+        guard EditorStore.supportsMarkdownPreview(location) else { return }
+        local.load(location)
+        open(.file(location))
+        setMarkdownPreviewVisible(true, for: location)
+    }
+
+    private func prepare(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
+        switch location {
+        case .local:
+            local.load(location)
+        case .remote:
+            remote.load(location, root: root,
+                               hosts: hosts.compactMap { $0 as? RemoteHost }, connections: connections, servers: servers)
+        }
     }
 
     func file(for location: FileLocation) -> FileStore? {
@@ -54,6 +95,30 @@ final class EditorStore: ObservableObject {
     func refresh() {
         remote.refresh()
         local.refresh()
+    }
+
+    func checkForExternalChanges() {
+        local.checkForExternalChanges()
+        local.refreshDiffs()
+    }
+
+    struct FileOperationLock {
+        fileprivate let files: [RemoteFileStore]
+
+        func unlock() {
+            for file in files { file.isFileOperationLocked = false }
+        }
+    }
+
+    func lockForFileOperation(_ tab: EditorTab) -> FileOperationLock {
+        let files: [RemoteFileStore]
+        if case let .file(location) = tab, let file = remote.fileStores[location] {
+            files = [file]
+        } else {
+            files = []
+        }
+        for file in files { file.isFileOperationLocked = true }
+        return FileOperationLock(files: files)
     }
 
     enum FileOperationError: Error {

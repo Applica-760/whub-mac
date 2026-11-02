@@ -46,7 +46,7 @@ struct EditorView: View {
                let state = store.local.diffStores[url] {
                 DiffContent(state: state).id(location)
             } else if case let .diff(location) = store.selectedTab, case .remote = location,
-                      let root = files.explorer.selectedLocation, let git = files.remoteGitStores[root] {
+                      let root = files.explorer.selectedLocation, let git = files.git.remoteGitStores[root] {
                 RemoteDiffContent(git: git, location: location).id(location)
             } else if case let .file(location) = store.selectedTab, let state = store.local.fileStores[location] {
                 FileContent(state: state, editorID: editorID, refreshID: files.refreshID,
@@ -55,7 +55,7 @@ struct EditorView: View {
                 }
                 .id(location)
             } else if case let .file(location) = store.selectedTab, case .remote = location {
-                RemoteViewerView(store: store.remote, git: files.explorer.selectedLocation.flatMap { files.remoteGitStores[$0] },
+                RemoteViewerView(store: store.remote, git: files.explorer.selectedLocation.flatMap { files.git.remoteGitStores[$0] },
                                  location: location, editorID: editorID, showsMarkdownPreview: store.markdownPreviews.contains(location))
                     .id(location)
             } else {

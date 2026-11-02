@@ -135,7 +135,7 @@ struct ExplorerStoreTests {
         for operation in [ExplorerStore.NameEdit.Operation.newFile, .newFolder] {
             store.beginNameEditing(operation, item: folder, parent: nil)
             store.updateName("../invalid")
-            #expect(throws: FilesStore.OperationError.self) { try files.commitName() }
+            #expect(throws: FileOperation.OperationError.self) { try files.commitName() }
             #expect(store.nameEdit?.name == "../invalid")
             let name = operation == .newFile ? "file.txt" : "folder"
             store.updateName(name)
@@ -149,6 +149,14 @@ struct ExplorerStoreTests {
         try files.commitName()
         #expect(store.nameEdit == nil)
         #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("renamed.txt").path))
+        store.beginNameEditing(.newFile, item: folder, parent: nil)
+        let previous = try #require(store.nameEdit)
+        store.beginNameEditing(.newFolder, item: folder, parent: nil)
+        let current = try #require(store.nameEdit)
+        store.finishNameEditing(previous)
+        #expect(store.nameEdit?.item === current.item)
+        store.finishNameEditing(current)
+        #expect(store.nameEdit == nil)
         store.beginNameEditing(.newFile, item: folder, parent: nil)
         store.selectedLocation = nil
         #expect(store.nameEdit == nil)
@@ -181,7 +189,7 @@ struct ExplorerStoreTests {
         #expect(try String(contentsOf: file, encoding: .utf8) == "saved")
         #expect(try String(contentsOf: other, encoding: .utf8) == "other")
         for name in ["", " ", ".", "..", "../outside", "a/b", "a:b", "a\n"] {
-            #expect(throws: FilesStore.OperationError.self) {
+            #expect(throws: FileOperation.OperationError.self) {
                 try files.create(in: folder, name: name, isDirectory: false)
             }
         }

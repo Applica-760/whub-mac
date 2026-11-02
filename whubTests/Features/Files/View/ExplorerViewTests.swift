@@ -408,8 +408,8 @@ struct ExplorerViewTests {
             #expect(store.nameEdit?.item === edit.item)
             #expect(store.nameEdit?.operation == action)
             #expect(store.nameEdit?.name == "partial")
-            coordinator.onCommitName = { throw FilesStore.OperationError.invalidName }
-            #expect(throws: FilesStore.OperationError.self) { try coordinator.commitName("../bad") }
+            coordinator.onCommitName = { throw FileOperation.OperationError.invalidName }
+            #expect(throws: FileOperation.OperationError.self) { try coordinator.commitName("../bad") }
             #expect(store.nameEdit?.name == "../bad")
             coordinator.cancelEditing()
             #expect(store.nameEdit == nil)

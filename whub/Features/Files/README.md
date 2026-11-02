@@ -13,7 +13,9 @@ Files/
 │   └── ExplorerItem.swift         // ツリーに表示する項目を表す
 ├── Store/
 │   ├── FilesStore.swift           // Explorer・Gitと、ワークスペース別のEditorを保持
-│   │                              // ファイルを開く処理・作成・改名・ゴミ箱移動を調整
+│   │                              // ファイルを開く処理・作成・改名・移動・ゴミ箱移動を調整
+│   ├── FileOperation/
+│   │   └── FileOperation.swift    // 名前検証と、ローカル・リモートの作成・改名・移動・ゴミ箱移動を実行
 │   ├── Explorer/
 │   │   ├── ExplorerStore.swift    // 選択場所・名前入力状態と、配下の4つのStoreを保持
 │   │   ├── LocalWorkspaceStore.swift
@@ -23,7 +25,7 @@ Files/
 │   │   ├── LocalTreeStore.swift   // ローカルのツリー・取得結果を保持し、変更を監視
 │   │   └── RemoteTreeStore.swift  // リモートのツリー・ディレクトリ別の取得状態を保持
 │   ├── Editor/
-│   │   ├── EditorStore.swift      // タブ・選択・プレビューと、Local／RemoteEditorを保持
+│   │   ├── EditorStore.swift      // タブ・選択・プレビュー、開く準備・編集ロックと、Local／RemoteEditorを管理
 │   │   ├── LocalEditorStore.swift // ファイル別のLocalFileStore・LocalDiffStoreを保持
 │   │   ├── RemoteEditorStore.swift
 │   │   │                          // ファイル別のRemoteFileStoreを保持
@@ -33,7 +35,7 @@ Files/
 │   │   ├── FileStore.swift        // 本文・保存済み本文・Undo・エディタ位置を保持
 │   │   └── FileEncoding.swift     // UTF-8の読み書きと、保存時の改行・BOMの保持を担当
 │   ├── Git/
-│   │   ├── GitStore.swift         // 選択ルートのGit変更一覧・取得状態を保持
+│   │   ├── GitStore.swift         // ローカルのGit変更一覧・更新判定と、ルート別RemoteGitStoreを管理
 │   │   ├── LocalDiffStore.swift   // ファイル単位の差分・取得状態を保持し、変更を監視
 │   │   └── RemoteGitStore.swift   // Hostとリポジトリ単位の監視・差分取得を管理
 │   └── FileWatcher.swift          // ファイルシステムの変更を通知
@@ -86,8 +88,8 @@ EditorはWorkspaceの左ペインに表示する。他のFeatureへ切り替え�
 ## 変更時に守る境界
 
 - Store追加前に、管理する状態がワークスペース・タブ・ファイルのどれに属するかを確認し、既存Storeと同じ状態を別に持たせない。
-- ファイルの新規作成・改名・ゴミ箱移動は `FilesStore` を通す。改名・ゴミ箱移動では、FilesStoreが全ワークスペースを確認し、`EditorStore` が影響するタブを抽出する。未保存・入力中・保存中の判定は `LocalFileStore`／`RemoteFileStore` が担当する。
+- ファイルの新規作成・改名・移動・ゴミ箱移動は `FilesStore` を通し、`FileOperation` が実行する。FilesStoreは全ワークスペースの確認と操作後の更新を調整する。`EditorStore` は影響するタブの抽出と編集ロックを担当し、未保存・入力中・保存中の判定は `LocalFileStore`／`RemoteFileStore` に任せる。
 - 読み書き・競合確認は `LocalFileStore`／`RemoteFileStore`、共通の編集状態は `FileStore` に置く。
-- ローカルのディスク処理は `LocalFileIO` に渡し、画面側で待機しない。外部変更通知は集約し、入力確定時の再判定には取得済み内容を使う。保存完了時は保存開始時の本文だけを保存済みにする。
+- ローカル本文の読み書きは `LocalFileIO` に渡し、画面側で待機しない。外部変更通知は集約し、入力確定時の再判定には取得済み内容を使う。保存完了時は保存開始時の本文だけを保存済みにする。
 - リモート接続・サーバー管理は、外部から渡される `RemoteConnectionStore`／`RemoteServerStore` を使う。
 - 所有関係・操作の入口・共通部品の使い方を変更したら、このREADMEも更新する。

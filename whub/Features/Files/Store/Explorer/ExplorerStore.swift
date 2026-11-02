@@ -17,7 +17,7 @@ final class ExplorerStore: ObservableObject {
         }
     }
     struct NameEdit {
-        enum Operation { case newFile, newFolder, rename }
+        typealias Operation = FileOperation.NameOperation
         let operation: Operation
         let item: ExplorerItem
         let parent: ExplorerItem?
@@ -42,6 +42,10 @@ final class ExplorerStore: ObservableObject {
     func updateName(_ name: String) { nameEdit?.name = name }
 
     func cancelNameEditing() { nameEdit = nil }
+
+    func finishNameEditing(_ edit: NameEdit) {
+        if nameEdit?.item === edit.item { cancelNameEditing() }
+    }
 
     @Published var showsDiff = false
     @Published private(set) var expansionRevision = 0

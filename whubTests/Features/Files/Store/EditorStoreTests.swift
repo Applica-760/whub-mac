@@ -34,6 +34,24 @@ import WhubClient
 
 @Suite @MainActor
 struct EditorStoreTests {
+    @Test func fileOperationLockCanBeReleasedAfterTabCloses() async throws {
+        let fixture = try ViewerFixture()
+        let root = fixture.root()
+        let location = root.appending("file.swift")
+        let editor = EditorStore()
+        editor.remote.load(location, root: root, write: { _, _, _, text in text }) { _, _, _ in "saved" }
+        editor.open(.file(location))
+        let file = try #require(editor.remote.fileStores[location])
+        try await waitForEditorTest { file.document != nil }
+        let lock = editor.lockForFileOperation(.file(location))
+        #expect(file.isFileOperationLocked)
+        #expect(file.document?.isFileOperationLocked == true)
+        editor.closeAfterFileOperation(.file(location))
+        #expect(editor.remote.fileStores[location] == nil)
+        lock.unlock()
+        #expect(!file.isFileOperationLocked)
+    }
+
     @Test func remoteImageRetainsPreviewAcrossFailureAndReconnect() async throws {
         let fixture = try ViewerFixture()
         let root = fixture.root()
