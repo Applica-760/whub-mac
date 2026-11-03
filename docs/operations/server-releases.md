@@ -12,7 +12,7 @@ Linux上のSwift・Git・systemd userサービスが必要。更新は対象Serv
 - 保存先はcheckout外の絶対パスとし、dev／prodで共用する。同じcheckoutでBuildを並行実行しない。
 - dev／prodのsystemd userサービスを事前登録する。`ExecStart`は各環境の`current/whub-server`の絶対パス。シェル・ラッパーを挟まず、Server自身をMainPIDにする。
 - 待受は`127.0.0.1`か`::1`。他の`WHUB_SERVER_HOST`は起動拒否。`WHUB_SERVER_PORT`は環境別に分け、health URLは同じloopbackの`/ping`にする。Macは既存SSHのポート転送で接続する。
-- systemdの起動・停止タイムアウトは有限値にする。更新は`systemd-run --user`で常駐Serverから独立した一時サービスとして起動する。ログアウト後・OS再起動後の常駐設定は後続作業。
+- systemdの起動・停止タイムアウトは有限値にする。更新は`systemd-run --user`で常駐Serverから独立した一時サービスとして起動する。
 - systemd 254以降を使う。起動引数の環境変数展開を無効にする`--expand-environment=no`を使用する（[systemdの公式文書](https://github.com/systemd/systemd/blob/v254/man/systemd-run.xml)）。
 
 Files APIの閲覧ルートはMacが保持する。`/files/list`・`/files/read`の`root`は絶対パス、`path`は配下の相対パス（省略時は空）。`WHUB_SERVER_ROOT`は使わない。
@@ -181,4 +181,4 @@ Apply時、または一括更新のビルド成功後、旧`current`を`previous
 3. 復旧結果を別途記録する。保存済み履歴は自動修正されない。ビルド中断時は`updates/<id>`に作業中の成果物が残る場合がある。
 4. プロセス停止と環境の状態を確認する。`<root>/update.lock/worker`があれば空を確認し、`rmdir`で削除する。次に`update.lock/id`だけを削除し、空の`update.lock`を`rmdir`で削除する。これで次の更新を実行できる。
 
-MacではHTTPルート・受付・保存済み要求の別プロセス実行を検証する。systemd起動・実サービスの確認は差し替える。Linuxの実systemdによる切り替え・復旧、ログアウト・OS再起動後の常駐は未検証。不明点と常駐設定は[Issue #90](https://github.com/Applica-760/whub-mac/issues/90)で管理する。
+Macではsystemd処理を差し替え、HTTP受付と別プロセス実行を検証する。

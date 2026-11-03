@@ -12,7 +12,7 @@ WhubServerのHTTP APIをアプリから呼び出す。HTTPの詳細はClientに�
 | `API/Manager/ManagerAPI.swift` | Server管理APIの入力・応答 |
 | `API/Agent/` | Agent APIの入力・応答と、取得したSession状態の同期 |
 
-アプリは `client.files` や `client.git` を通して操作する。SSH接続とClientの生成はアプリ側の `RemoteServerStore` が担当する。
+アプリは `client.files` や `client.git` を通して操作する。SSH接続は `RemoteConnectionStore`、ポート転送とClient生成は `RemoteServerStore` が担当する。
 
 ## APIの記法
 

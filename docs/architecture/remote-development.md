@@ -48,4 +48,4 @@ Local／RemoteともWhubAgentの`AgentRuntime`が実行を所有する。Local�
 
 ## 4. dev／prodの選択
 
-DevとProd2つのServerを持つ。これらはSwiftの Debug build と Archive build によってルーティングされる。
+通常の接続先は`DEBUG`有効時にdev、それ以外はprod。Server管理画面ではdev／prodを個別に操作する。

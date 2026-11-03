@@ -13,7 +13,20 @@
 | POST | `/files/create-file` | 空ファイル作成。query：`root`・`path` | 204：成功。既存の名前は409 |
 | POST | `/files/create-directory` | ディレクトリ作成。query：`root`・`path` | 204：成功。既存の名前は409 |
 | POST | `/files/rename` | 同じディレクトリ内で改名。query：`root`・`path`。JSON body：`name` | 204：成功。既存の名前は409 |
+| POST | `/files/move` | 同じroot内で移動。query：`root`・`path`。JSON body：移動先の相対パス`directory`（root直下は空文字列） | 204：成功。名前を保持し、移動先の同名項目は409 |
 | POST | `/files/trash` | ゴミ箱へ移動。query：`root`・`path` | 204：成功。Linuxでは `gio trash` を使用し、利用不可の場合は失敗 |
+
+## Git
+
+| Method | Endpoint | 用途・入力 | 応答・注意 |
+| --- | --- | --- | --- |
+| GET | `/git/changes` | 変更一覧。query：絶対パスの`root` | 200：HEADと保存済み作業ツリーの変更一覧 |
+| GET | `/git/diff` | ファイル差分。query：`root`・相対パスの`path` | 200：変更種別と変更前後の内容 |
+| POST | `/git/watches` | 監視開始。query：`root` | 200：監視IDとrevision |
+| GET | `/git/watches/{id}` | 変更待機。query：取得済みrevisionの`after` | 200：revision。5秒間変化なしは204 |
+| DELETE | `/git/watches/{id}` | 監視解除 | 204：成功 |
+
+監視はLinuxで動作する。詳細は[差分取得](../../specifications/WhubServer/git-diff.md)・[変更監視](../../specifications/WhubServer/git-watch.md)を参照。
 
 ## Agent
 
