@@ -1,8 +1,7 @@
-import AppKit
-import SwiftUI
+import Foundation
 
 /// Keep Markdown containers so nested lists and multi-paragraph quotes stay together.
-struct MarkdownSource {
+struct MarkdownDocument {
     let source: String
 
     struct Block: Identifiable, Hashable {
@@ -34,10 +33,6 @@ struct MarkdownSource {
             let path = Array((run.presentationIntent?.components ?? []).reversed())
             var text = AttributedString(parsed[run.range])
             text.presentationIntent = nil
-            if run.inlinePresentationIntent?.contains(.code) == true {
-                text.font = .system(size: 14, design: .monospaced)
-                text.backgroundColor = Color.secondary.opacity(0.16)
-            }
             if path.isEmpty {
                 root.children.append(Block(id: -(root.children.count + 2), kind: .paragraph, text: text))
             } else {
@@ -49,142 +44,100 @@ struct MarkdownSource {
 
 }
 
-struct MarkdownDocument {
-    let text: NSAttributedString
-    let codes: [Code]
-
-    struct Code {
-        let range: NSRange
-        let text: String
-        let size: CGSize
-    }
-
-    init(source: String, width: CGFloat, colorScheme: ColorScheme) {
-        let output = NSMutableAttributedString(string: "")
-        var codes: [Code] = []
-        var afterTable = false
-        let renderer = MarkdownInlineRenderer(weight: .regular, colorScheme: colorScheme)
-        var separator = NSColor.separatorColor
-        NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
-            separator = NSColor.separatorColor.usingColorSpace(.deviceRGB) ?? .separatorColor
-        }
-
-        func paragraph(_ text: NSAttributedString, indent: CGFloat = 0,
-                       blocks: [NSTextBlock] = [], before: CGFloat = 0) {
-            let part = NSMutableAttributedString(attributedString: text)
-            part.append(NSAttributedString(string: "\n"))
-            let style = NSMutableParagraphStyle()
-            style.lineSpacing = 4
-            style.paragraphSpacing = 10
-            style.paragraphSpacingBefore = afterTable ? 12 : before
-            style.headIndent = indent
-            style.firstLineHeadIndent = indent
-            style.textBlocks = blocks
-            part.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: part.length))
-            output.append(part)
-            afterTable = false
-        }
-
-        func render(_ block: MarkdownSource.Block, indent: CGFloat = 0,
-                    ordered: Bool = false, decorations: [NSTextBlock] = []) {
-            switch block.kind {
-            case .orderedList, .unorderedList:
-                for child in block.children {
-                    render(child, indent: indent, ordered: block.kind == .orderedList, decorations: decorations)
-                }
-            case .listItem(let ordinal):
-                for (index, child) in block.children.enumerated() {
-                    if index == 0, child.children.isEmpty {
-                        let part = NSMutableAttributedString(attributedString: renderer.attributed(AttributedString(ordered ? "\(ordinal).  " : "•  ")))
-                        part.append(renderer.attributed(child.text))
-                        paragraph(part, indent: indent + 16, blocks: decorations)
-                    } else { render(child, indent: indent + 24, decorations: decorations) }
-                }
-            case .blockQuote:
-                let quote = NSTextBlock()
-                quote.setWidth(3, type: .absoluteValueType, for: .border, edge: .minX)
-                quote.setBorderColor(NSColor.secondaryLabelColor.withAlphaComponent(0.5))
-                quote.setWidth(14, type: .absoluteValueType, for: .padding, edge: .minX)
-                for child in block.children { render(child, indent: indent, decorations: decorations + [quote]) }
-            case .header(let level):
-                let size = [25.0, 22, 20, 18, 16, 15][min(max(level, 1), 6) - 1]
-                paragraph(MarkdownInlineRenderer(fontSize: size, weight: .regular, colorScheme: colorScheme).attributed(block.text),
-                          indent: indent, blocks: decorations, before: level <= 2 ? 10 : 4)
-            case .codeBlock:
-                let code = String(block.text.characters)
-                let lines = code.components(separatedBy: "\n")
-                let lineHeight = MarkdownCodeStyle.codeLineHeight
-                let size = CGSize(width: max(1, width - indent), height: CGFloat(max(1, lines.count)) * lineHeight + 2 * MarkdownCodeStyle.codeInset)
-                let attachment = NSTextAttachment()
-                attachment.bounds = CGRect(origin: .zero, size: size)
-                let part = NSMutableAttributedString(attachment: attachment)
-                part.addAttribute(.markdownCodeSource, value: code, range: NSRange(location: 0, length: 1))
-                codes.append(Code(range: NSRange(location: output.length, length: 1), text: code, size: size))
-                paragraph(part, indent: indent, blocks: decorations)
-            case .table(let columns):
-                guard !columns.isEmpty else { return }
-                let table = NSTextTable()
-                table.numberOfColumns = columns.count
-                table.collapsesBorders = true
-                table.layoutAlgorithm = .fixedLayoutAlgorithm
-                let rows = block.children.map { row in
-                    columns.indices.map { index in
-                        let text = row.children.first { $0.kind == .tableCell(columnIndex: index) }?.text ?? AttributedString()
-                        return renderer.attributed(text)
-                    }
-                }
-                let preferred = columns.indices.map { column in
-                    ceil(rows.map { $0[column].size().width }.max() ?? 0) + 2
-                }
-                let padding = CGFloat(columns.count) * 24
-                let natural = preferred.reduce(0, +)
-                let tableWidth = min(natural + padding, max(1, width - indent))
-                table.setContentWidth(tableWidth, type: .absoluteValueType)
-                for (rowIndex, row) in rows.enumerated() {
-                    for column in columns.indices {
-                        let cell = NSTextTableBlock(table: table, startingRow: rowIndex, rowSpan: 1,
-                                                    startingColumn: column, columnSpan: 1)
-                        cell.setContentWidth(max(1, tableWidth - padding) * preferred[column] / max(1, natural), type: .absoluteValueType)
-                        cell.setWidth(0.5, type: .absoluteValueType, for: .border, edge: .maxY)
-                        cell.setBorderColor(separator)
-                        cell.setWidth(6, type: .absoluteValueType, for: .padding)
-                        cell.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
-                        cell.setWidth(12, type: .absoluteValueType, for: .padding, edge: .maxX)
-                        if block.children[rowIndex].kind == .tableHeaderRow {
-                            cell.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.12)
-                        }
-                        let start = output.length
-                        paragraph(row[column], indent: indent, blocks: decorations + [cell])
-                        let style = (output.attribute(.paragraphStyle, at: start, effectiveRange: nil) as! NSParagraphStyle).mutableCopy() as! NSMutableParagraphStyle
-                        style.lineSpacing = 0
-                        style.paragraphSpacing = 0
-                        style.alignment = columns[column].alignment == .right ? .right : columns[column].alignment == .center ? .center : .left
-                        output.addAttribute(.paragraphStyle, value: style, range: NSRange(location: start, length: output.length - start))
-                    }
-                }
-                afterTable = true
-            case .thematicBreak:
-                let rule = NSTextBlock()
-                rule.setWidth(0.5, type: .absoluteValueType, for: .border, edge: .maxY)
-                rule.setBorderColor(separator)
-                paragraph(NSAttributedString(string: ""), indent: indent, blocks: decorations + [rule])
-            default:
-                if block.children.isEmpty {
-                    paragraph(renderer.attributed(block.text), indent: indent, blocks: decorations)
-                } else {
-                    for child in block.children { render(child, indent: indent, decorations: decorations) }
-                }
-            }
-        }
-        for block in MarkdownSource(source: source).blocks { render(block) }
-        assert(codes.allSatisfy {
-            output.attribute(.markdownCodeSource, at: $0.range.location, effectiveRange: nil) as? String == $0.text
-        }, "Code attachments must retain their complete, unwrapped source for copying")
-        text = output
-        self.codes = codes
-    }
+nonisolated struct MarkdownFormula: Hashable, Sendable {
+    let source: String
+    let latex: String?
+    let display: Bool
 }
 
-extension NSAttributedString.Key {
-    static let markdownCodeSource = NSAttributedString.Key("whub.book.codeSource")
+nonisolated enum MarkdownFormulaAttribute: AttributedStringKey {
+    typealias Value = MarkdownFormula
+    static let name = "whub.formula"
+}
+
+/// Protect LaTeX from Markdown's underscore, backslash and line-break processing.
+struct MarkdownMathSource {
+    let markdown: String
+    private let formulas: [(token: String, formula: MarkdownFormula)]
+
+    init(_ source: String) {
+        guard source.contains("$") else { markdown = source; formulas = []; return }
+        let bytes = Array(source.utf8)
+        var lineStarts = [0]
+        for index in bytes.indices where bytes[index] == 10 { lineStarts.append(index + 1) }
+        let parsed = try? AttributedString(markdown: source, options: .init(
+            interpretedSyntax: .full, appliesSourcePositionAttributes: true
+        ))
+        let protected: [Range<Int>] = parsed?.runs.compactMap { run in
+            let code = run.inlinePresentationIntent?.contains(.code) == true
+                || run.presentationIntent?.components.contains { if case .codeBlock = $0.kind { return true }; return false } == true
+            guard code || run.link != nil, let position = run.markdownSourcePosition,
+                  position.startLine > 0, position.startLine <= lineStarts.count,
+                  position.endLine > 0, position.endLine <= lineStarts.count else { return nil }
+            let start = lineStarts[position.startLine - 1] + max(0, position.startColumn - 1)
+            let end = min(bytes.count, lineStarts[position.endLine - 1] + position.endColumn)
+            return start..<max(start, end)
+        } ?? []
+        var prefix = "WHUBMATH"
+        while source.contains(prefix) { prefix += "X" }
+        var output: [UInt8] = []
+        var found: [(String, MarkdownFormula)] = []
+        var index = 0
+        while index < bytes.count {
+            if let range = protected.first(where: { $0.contains(index) }) {
+                output.append(contentsOf: bytes[index..<range.upperBound])
+                index = range.upperBound
+                continue
+            }
+            if bytes[index] == 92, index + 1 < bytes.count {
+                output.append(contentsOf: bytes[index...index + 1])
+                index += 2
+                continue
+            }
+            guard bytes[index] == 36 else { output.append(bytes[index]); index += 1; continue }
+            let display = index + 1 < bytes.count && bytes[index + 1] == 36
+            let delimiterCount = display ? 2 : 1
+            let start = index + delimiterCount
+            if !display, start == bytes.count || [9, 10, 13, 32].contains(bytes[start]) {
+                output.append(bytes[index]); index += 1; continue
+            }
+            var end = start
+            var closing: Int?
+            while end < bytes.count {
+                if protected.contains(where: { $0.contains(end) }) || (!display && [10, 13].contains(bytes[end])) { break }
+                if bytes[end] == 92, end + 1 < bytes.count { end += 2; continue }
+                if bytes[end] == 36 {
+                    let doubled = end + 1 < bytes.count && bytes[end + 1] == 36
+                    if display == doubled, end > start,
+                       display || (![9, 32].contains(bytes[end - 1]) && (end + 1 == bytes.count || !(48...57).contains(bytes[end + 1]))) {
+                        closing = end
+                        break
+                    }
+                    if doubled { end += 2; continue }
+                }
+                end += 1
+            }
+            let finish = closing.map { $0 + delimiterCount } ?? end
+            let original = String(decoding: bytes[index..<finish], as: UTF8.self)
+            let latex = closing.map { String(decoding: bytes[start..<$0], as: UTF8.self) }
+            let token = "\(prefix)\(found.count)END"
+            found.append((token, MarkdownFormula(source: original, latex: latex, display: display)))
+            output.append(contentsOf: token.utf8)
+            index = finish
+        }
+        markdown = String(decoding: output, as: UTF8.self)
+        formulas = found
+    }
+
+    func restoringFormulas(in markdown: AttributedString) -> AttributedString {
+        var result = markdown
+        for (token, formula) in formulas {
+            guard let range = result.range(of: token) else { continue }
+            var replacement = AttributedString(formula.source)
+            if let attributes = result[range].runs.first?.attributes { replacement.mergeAttributes(attributes) }
+            replacement[MarkdownFormulaAttribute.self] = formula
+            result.replaceSubrange(range, with: replacement)
+        }
+        return result
+    }
 }

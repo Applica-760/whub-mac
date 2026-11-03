@@ -96,3 +96,10 @@ private final class MarkdownCodeScrollView: NSScrollView {
         super.scrollWheel(with: event)
     }
 }
+
+final class MarkdownCodeCell: NSTextAttachmentCell {
+    nonisolated override func cellSize() -> NSSize { attachment?.bounds.size ?? .zero }
+
+    // The code view draws the content; TextKit reserves its space.
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {}
+}

@@ -5,14 +5,14 @@ struct MarkdownView: NSViewRepresentable {
     let source: String
     @Environment(\.colorScheme) private var colorScheme
 
-    func makeNSView(context: Context) -> NSScrollView { MarkdownScrollView() }
+    func makeNSView(context: Context) -> MarkdownScrollView { MarkdownScrollView() }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        (scrollView as? MarkdownScrollView)?.update(source: source, colorScheme: colorScheme)
+    func updateNSView(_ scrollView: MarkdownScrollView, context: Context) {
+        scrollView.update(source: source, colorScheme: colorScheme)
     }
 }
 
-private final class MarkdownScrollView: NSScrollView {
+final class MarkdownScrollView: NSScrollView {
     private let storage: NSTextStorage
     private let manager: MarkdownLayoutManager
     private let container: NSTextContainer
@@ -73,7 +73,7 @@ private final class MarkdownScrollView: NSScrollView {
         if source != renderedSource || width != renderedWidth || colorScheme != renderedScheme {
             let selection = text.selectedRanges
             let origin = contentView.bounds.origin
-            let document = MarkdownDocument(source: source, width: width, colorScheme: colorScheme)
+            let document = MarkdownBlockRenderer(document: MarkdownDocument(source: source), width: width, colorScheme: colorScheme)
             let output = NSMutableAttributedString(attributedString: document.text)
             for code in document.codes {
                 if let attachment = output.attribute(.attachment, at: code.range.location, effectiveRange: nil) as? NSTextAttachment {
@@ -122,33 +122,4 @@ private final class MarkdownScrollView: NSScrollView {
         text.frame.size = NSSize(width: contentSize.width,
                                  height: max(contentSize.height, ceil(manager.usedRect(for: container).maxY) + 2 * text.textContainerInset.height))
     }
-}
-
-private final class MarkdownTextView: NSTextView {
-    override func accessibilityChildren() -> [Any]? {
-        // NSTextView exposes attachment cells but omits the views overlaid on them.
-        (super.accessibilityChildren() ?? []) + subviews.filter { $0 is NSHostingView<MarkdownCodeBlock> }
-    }
-
-    override func writeSelection(to pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
-        guard type == .string, let storage = textStorage else {
-            return super.writeSelection(to: pasteboard, type: type)
-        }
-        var result = ""
-        for selection in selectedRanges {
-            storage.enumerateAttributes(in: selection.rangeValue) { attributes, range, _ in
-                result += attributes[.markdownFormulaSource] as? String
-                    ?? attributes[.markdownCodeSource] as? String
-                    ?? (storage.string as NSString).substring(with: range)
-            }
-        }
-        return pasteboard.setString(result, forType: .string)
-    }
-}
-
-private final class MarkdownCodeCell: NSTextAttachmentCell {
-    nonisolated override func cellSize() -> NSSize { attachment?.bounds.size ?? .zero }
-
-    // The code view draws the content; TextKit reserves its space.
-    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {}
 }

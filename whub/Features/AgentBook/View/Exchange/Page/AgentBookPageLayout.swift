@@ -458,16 +458,16 @@ extension NSAttributedString.Key {
 
 private struct AgentBookRenderedContent {
     let text: NSAttributedString
-    let codes: [MarkdownDocument.Code]
+    let codes: [MarkdownBlockRenderer.Code]
 
     init(content: AgentContent, width: CGFloat, colorScheme: ColorScheme) {
         switch content {
         case .markdown(let source):
-            let document = MarkdownDocument(source: source, width: width, colorScheme: colorScheme)
+            let document = MarkdownBlockRenderer(document: MarkdownDocument(source: source), width: width, colorScheme: colorScheme)
             text = document.text
             codes = document.codes
         case .code:
-            let document = MarkdownDocument(source: content.agentBookMarkdown, width: width, colorScheme: colorScheme)
+            let document = MarkdownBlockRenderer(document: MarkdownDocument(source: content.agentBookMarkdown), width: width, colorScheme: colorScheme)
             text = document.text
             codes = document.codes
         case .text(let source):

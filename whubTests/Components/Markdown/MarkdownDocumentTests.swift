@@ -66,7 +66,7 @@ struct MarkdownDocumentTests {
         let x = 1
         ```
         """
-        let blocks = MarkdownSource(source: source).blocks
+        let blocks = MarkdownDocument(source: source).blocks
         try #require(blocks.count == 3)
         #expect(blocks.first?.kind == .header(level: 1))
         if case .table(let columns) = blocks[1].kind {
