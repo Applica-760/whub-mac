@@ -17,14 +17,59 @@ final class EditorStore: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
+    func open(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
+        prepare(location, hosts: hosts, connections: connections, servers: servers, root: root)
+        open(.file(location))
+    }
+
+    func open(_ tab: EditorTab) {
+        guard isPrepared(tab) else { return }
+        if !tabs.contains(tab) {
+            tabs.append(tab)
+        }
+        selectedTab = tab
+        if temporaryTab == tab { temporaryTab = nil }
+    }
+
     func openTemporaryTab(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
         prepare(location, hosts: hosts, connections: connections, servers: servers, root: root)
         openTemporaryTab(.file(location))
     }
 
-    func open(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
-        prepare(location, hosts: hosts, connections: connections, servers: servers, root: root)
-        open(.file(location))
+    func openTemporaryTab(_ tab: EditorTab) {
+        guard isPrepared(tab) else { return }
+        if tabs.contains(tab) && temporaryTab != tab {
+            selectedTab = tab
+            return
+        }
+        if case let .file(previous) = temporaryTab,
+           file(for: previous)?.hasUnsavedChanges == true || file(for: previous)?.editorViews.hasMarkedText == true
+            || local.fileStores[previous]?.isSaving == true
+            || remote.fileStores[previous]?.needsCloseConfirmation == true {
+            temporaryTab = nil
+        }
+        if let temporaryTab, let index = tabs.firstIndex(of: temporaryTab) {
+            if temporaryTab != tab {
+                release(temporaryTab)
+            }
+            tabs[index] = tab
+        } else if !tabs.contains(tab) {
+            tabs.append(tab)
+        }
+        temporaryTab = tab
+        selectedTab = tab
+    }
+
+    func select(_ tab: EditorTab) {
+        guard tabs.contains(tab) else { return }
+        selectedTab = tab
+    }
+
+    func move(_ tab: EditorTab, before target: EditorTab?) {
+        guard let reordered = reorderedTabs(tabs, moving: tab, before: target, identifiedBy: \.self)
+        else { return }
+        tabs = reordered
+        if temporaryTab == tab { temporaryTab = nil }
     }
 
     func openDiff(_ location: FileLocation, temporary: Bool = false) {
@@ -47,6 +92,23 @@ final class EditorStore: ObservableObject {
         setMarkdownPreviewVisible(true, for: location)
     }
 
+    var markdownPreviews: Set<FileLocation> {
+        requestedMarkdownPreviews.filter { location in
+            guard let file = local.fileStores[location], !file.isLoading else { return true }
+            if case .text = file.document.content { return true }
+            return false
+        }
+    }
+
+    func setMarkdownPreviewVisible(_ visible: Bool, for location: FileLocation) {
+        if visible {
+            guard location.kind.isMarkdown, tabs.contains(.file(location)) else { return }
+            requestedMarkdownPreviews.insert(location)
+        } else {
+            requestedMarkdownPreviews.remove(location)
+        }
+    }
+
     private func prepare(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
         switch location {
         case .local:
@@ -60,26 +122,6 @@ final class EditorStore: ObservableObject {
     func file(for location: FileLocation) -> FileStore? {
         if let file = local.fileStores[location] { return file.isLoading ? nil : file.document }
         return remote.file(for: location)
-    }
-
-    var markdownPreviews: Set<FileLocation> {
-        requestedMarkdownPreviews.filter { location in
-            guard let file = local.fileStores[location], !file.isLoading else { return true }
-            if case .text = file.document.content { return true }
-            return false
-        }
-    }
-
-    func setMarkdownPreviewVisible(_ visible: Bool, for location: FileLocation) {
-        if visible {
-            guard location.kind.isMarkdown, tabs.contains(.file(location)) else { return }
-            if case .local = location, local.fileStores[location]?.isLoading != true {
-                guard case .text = file(for: location)?.content else { return }
-            }
-            requestedMarkdownPreviews.insert(location)
-        } else {
-            requestedMarkdownPreviews.remove(location)
-        }
     }
 
     func refresh() {
@@ -140,39 +182,6 @@ final class EditorStore: ObservableObject {
         }
     }
 
-    func open(_ tab: EditorTab) {
-        guard isPrepared(tab) else { return }
-        if !tabs.contains(tab) {
-            tabs.append(tab)
-        }
-        selectedTab = tab
-        if temporaryTab == tab { temporaryTab = nil }
-    }
-
-    func openTemporaryTab(_ tab: EditorTab) {
-        guard isPrepared(tab) else { return }
-        if tabs.contains(tab) && temporaryTab != tab {
-            selectedTab = tab
-            return
-        }
-        if case let .file(previous) = temporaryTab,
-           file(for: previous)?.hasUnsavedChanges == true || file(for: previous)?.editorViews.hasMarkedText == true
-            || local.fileStores[previous]?.isSaving == true
-            || remote.fileStores[previous]?.needsCloseConfirmation == true {
-            temporaryTab = nil
-        }
-        if let temporaryTab, let index = tabs.firstIndex(of: temporaryTab) {
-            if temporaryTab != tab {
-                release(temporaryTab)
-            }
-            tabs[index] = tab
-        } else if !tabs.contains(tab) {
-            tabs.append(tab)
-        }
-        temporaryTab = tab
-        selectedTab = tab
-    }
-
     func close(_ tab: EditorTab) {
         guard !isClosing, tabs.contains(tab) else { return }
         isClosing = true
@@ -210,13 +219,6 @@ final class EditorStore: ObservableObject {
         finishClose(tab)
     }
 
-    func move(_ tab: EditorTab, before target: EditorTab?) {
-        guard let reordered = reorderedTabs(tabs, moving: tab, before: target, identifiedBy: \.self)
-        else { return }
-        tabs = reordered
-        if temporaryTab == tab { temporaryTab = nil }
-    }
-
     private func isPrepared(_ tab: EditorTab) -> Bool {
         switch tab {
         case let .file(location): return local.fileStores[location] != nil || remote.states[location] != nil
@@ -237,8 +239,4 @@ final class EditorStore: ObservableObject {
         }
     }
 
-    func select(_ tab: EditorTab) {
-        guard tabs.contains(tab) else { return }
-        selectedTab = tab
-    }
 }
