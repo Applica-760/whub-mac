@@ -185,8 +185,8 @@ final class ExplorerFocusNavigation {
               let window = content.view?.window, editor.window === window,
               let previous = lastEditors.object(forKey: document), previous !== editor,
               let previousID = previous.editorID,
-              let position = document.editorPositions[previousID] else { return false }
-        document.editorPositions[editorID] = position
+              let position = document.editorViews.positions[previousID] else { return false }
+        document.editorViews.positions[editorID] = position
         lastEditors.setObject(editor, forKey: document)
         return true
     }

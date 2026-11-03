@@ -230,8 +230,8 @@ struct EditorViewTests {
         container.layoutSubtreeIfNeeded()
         let otherText = try #require(otherFile.editorViews.views["other"]?.documentView)
         #expect(window.makeFirstResponder(otherText))
-        #expect(file.editorPositions[editorID]?.selectedRanges == [selection])
-        #expect(file.editorPositions[editorID]?.scrollOrigin == origin)
+        #expect(file.editorViews.positions[editorID]?.selectedRanges == [selection])
+        #expect(file.editorViews.positions[editorID]?.scrollOrigin == origin)
         // Simulate AppKit losing native selection while the editor is hidden.
         text.setSelectedRange(NSRange(location: 0, length: 0))
         selectedPage = 1
@@ -300,8 +300,8 @@ struct EditorViewTests {
 
         files.explorer.selectedLocation = locations[1]
         let editorID = try #require(first.editorID)
-        #expect(firstFile.editorPositions[editorID]?.selectedRanges == [selection])
-        #expect(firstFile.editorPositions[editorID]?.scrollOrigin == origin)
+        #expect(firstFile.editorViews.positions[editorID]?.selectedRanges == [selection])
+        #expect(firstFile.editorViews.positions[editorID]?.scrollOrigin == origin)
         host.rootView = root()
         let secondFile = try #require(stores[1].file(for: locations[1]))
         try await waitForEditorTest {
@@ -370,9 +370,9 @@ struct EditorViewTests {
         #expect(window.makeFirstResponder(other))
         other.setSelectedRange(NSRange(location: 1, length: 2))
         other.savePosition()
-        #expect(first.editorPositions["one"]?.selectedRanges == [NSRange(location: 6, length: 4)])
-        #expect(first.editorPositions["two"]?.selectedRanges == [NSRange(location: 3, length: 0)])
-        #expect(second.editorPositions["one"]?.selectedRanges == [NSRange(location: 1, length: 2)])
+        #expect(first.editorViews.positions["one"]?.selectedRanges == [NSRange(location: 6, length: 4)])
+        #expect(first.editorViews.positions["two"]?.selectedRanges == [NSRange(location: 3, length: 0)])
+        #expect(second.editorViews.positions["one"]?.selectedRanges == [NSRange(location: 1, length: 2)])
         first.replace(source: "x")
         one.restorePosition()
         two.restorePosition()

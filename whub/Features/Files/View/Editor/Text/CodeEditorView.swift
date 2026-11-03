@@ -267,9 +267,9 @@ final class CodeTextView: NSTextView {
 
     func savePosition(includingUnfocused: Bool = false) {
         guard isEditable, !isHiddenOrHasHiddenAncestor, let editorID, let fileStore,
-              includingUnfocused || window?.firstResponder === self || fileStore.editorPositions[editorID] != nil,
+              includingUnfocused || window?.firstResponder === self || fileStore.editorViews.positions[editorID] != nil,
               let scrollView = enclosingScrollView else { return }
-        fileStore.editorPositions[editorID] = EditContentStore.EditorPosition(
+        fileStore.editorViews.positions[editorID] = CodeEditorViews.Position(
             selectedRanges: selectedRanges.map(\.rangeValue),
             scrollOrigin: scrollView.contentView.bounds.origin
         )
@@ -279,7 +279,7 @@ final class CodeTextView: NSTextView {
     func restorePosition() {
         guard !isHiddenOrHasHiddenAncestor, let editorID else { return }
         explorerFocus?.inheritEditorPosition(self)
-        guard let position = fileStore?.editorPositions[editorID] else { return }
+        guard let position = fileStore?.editorViews.positions[editorID] else { return }
         let length = (string as NSString).length
         let ranges = position.selectedRanges.map { range in
             let start = min(max(0, range.location), length)
@@ -344,11 +344,23 @@ final class CodeTextView: NSTextView {
 }
 
 final class CodeEditorViews {
+    struct Position {
+        var selectedRanges: [NSRange]
+        var scrollOrigin: NSPoint
+    }
+    var positions: [String: Position] = [:]
+
     // shortcut: retain editors until the file closes; evict closed scenes if window churn matters.
     var views: [String: NSScrollView] = [:]
 
     var hasMarkedText: Bool {
         views.values.contains { ($0.documentView as? NSTextView)?.hasMarkedText() == true }
+    }
+
+    func setEditable(_ isEditable: Bool) {
+        for scrollView in views.values {
+            (scrollView.documentView as? NSTextView)?.isEditable = isEditable
+        }
     }
 
     func breakUndoCoalescing() {
