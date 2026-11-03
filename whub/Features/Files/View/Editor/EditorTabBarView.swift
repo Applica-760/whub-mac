@@ -48,7 +48,7 @@ struct EditorTabBarView: View {
                     }
                     TabBar(
                         title: location.name,
-                        icon: IconList.image(for: fileURL),
+                        icon: Image(systemName: FileKind.resolve(path: fileURL.path).iconName),
                         isSelected: isSelected,
                         isPreview: tab == store.previewTab,
                         titleColor: titleColor,

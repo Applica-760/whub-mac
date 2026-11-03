@@ -186,7 +186,7 @@ struct DiffView: View {
             Text(title).font(.caption).frame(maxWidth: .infinity, alignment: .leading).padding(8)
             if let lines {
                 CodeEditorView(state: file, editorID: "diff", onEdit: {}, source: file.textStorage.string,
-                               language: codeLanguages[fileURL.pathExtension.lowercased()], hunks: [], diffLines: lines,
+                               language: FileKind.resolve(path: fileURL.path).highlightLanguage, hunks: [], diffLines: lines,
                                onScrollView: { scrolling.attach($0, before: before) }, onExpandDiff: expand)
                     .accessibilityLabel(title)
             } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }

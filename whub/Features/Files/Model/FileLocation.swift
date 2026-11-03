@@ -12,6 +12,8 @@ nonisolated enum FileLocation: Hashable, Sendable {
         }
     }
 
+    var kind: FileKind { FileKind.resolve(path: path) }
+
     var name: String { (path as NSString).lastPathComponent }
 
     func appending(_ name: String) -> FileLocation {

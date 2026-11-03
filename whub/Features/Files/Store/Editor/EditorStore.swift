@@ -12,14 +12,6 @@ final class EditorStore: ObservableObject {
     private var changes: AnyCancellable?
     private var isClosing = false
 
-    var markdownPreviews: Set<FileLocation> {
-        requestedMarkdownPreviews.filter { location in
-            guard let file = local.fileStores[location], !file.isLoading else { return true }
-            if case .text = file.document.content { return true }
-            return false
-        }
-    }
-
     init() {
         changes = Publishers.Merge(local.objectWillChange, remote.objectWillChange)
             .sink { [weak self] _ in self?.objectWillChange.send() }
@@ -49,7 +41,7 @@ final class EditorStore: ObservableObject {
     }
 
     func openMarkdownPreview(_ location: FileLocation) {
-        guard EditorStore.supportsMarkdownPreview(location) else { return }
+        guard location.kind.isMarkdown else { return }
         local.load(location)
         open(.file(location))
         setMarkdownPreviewVisible(true, for: location)
@@ -70,19 +62,23 @@ final class EditorStore: ObservableObject {
         return remote.file(for: location)
     }
 
-    static func supportsMarkdownPreview(_ location: FileLocation) -> Bool {
-        (location.path as NSString).pathExtension.lowercased() == "md"
+    var markdownPreviews: Set<FileLocation> {
+        requestedMarkdownPreviews.filter { location in
+            guard let file = local.fileStores[location], !file.isLoading else { return true }
+            if case .text = file.document.content { return true }
+            return false
+        }
     }
 
     var markdownPreviewLocation: FileLocation? {
-        guard case let .file(location) = selectedTab, Self.supportsMarkdownPreview(location),
+        guard case let .file(location) = selectedTab, location.kind.isMarkdown,
               case .text = file(for: location)?.content else { return nil }
         return location
     }
 
     func setMarkdownPreviewVisible(_ visible: Bool, for location: FileLocation) {
         if visible {
-            guard Self.supportsMarkdownPreview(location), tabs.contains(.file(location)) else { return }
+            guard location.kind.isMarkdown, tabs.contains(.file(location)) else { return }
             if case .local = location, local.fileStores[location]?.isLoading != true {
                 guard case .text = file(for: location)?.content else { return }
             }

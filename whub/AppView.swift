@@ -47,7 +47,7 @@ struct AppView: View {
                 return agentBookFocus.contains(window)
             }
         ))
-        .navigationTitle(selectedPage.label)
+        .navigationTitle("")
         .environment(\.explorerFocusNavigation, explorerFocus)
         .focusedSceneValue(\.toggleExplorerFocus, { explorerFocus.toggle(prefersEditor: selectedPage == .editor) })
         .navigationSplitViewStyle(.balanced)

@@ -10,7 +10,7 @@ struct BinaryView: View {
             if let image {
                 ImagePreviewView(image: image)
             } else {
-                IconList.image(for: fileURL)
+                Image(systemName: FileKind.resolve(path: fileURL.path).iconName)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)

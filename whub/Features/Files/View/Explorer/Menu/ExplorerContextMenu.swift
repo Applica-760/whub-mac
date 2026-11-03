@@ -83,7 +83,7 @@ final class ExplorerContextMenu: NSMenu {
             add(.trash)
         }
         if allowsActions {
-            if !isDirectory, EditorStore.supportsMarkdownPreview(location) {
+            if !isDirectory, location.kind.isMarkdown {
                 add(.showPreview)
                 if tabMenu && previewVisible { item(withTitle: "Show Preview")?.title = "Hide Preview" }
             }

@@ -25,7 +25,7 @@ struct LocalCodeEditorView: View {
                 editorID: editorID,
                 onEdit: onEdit,
                 source: source,
-                language: codeLanguages[fileURL.pathExtension.lowercased()],
+                language: FileKind.resolve(path: fileURL.path).highlightLanguage,
                 hunks: diffStore.hunks(for: .local(fileURL), source: source), location: .local(fileURL)
             )
         }

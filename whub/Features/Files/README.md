@@ -10,6 +10,7 @@ Files/
 ├── Model/
 │   ├── EditorTab.swift            // ファイルタブ・差分タブを表す
 │   ├── FileLocation.swift         // ローカル・リモートのファイル位置を表す
+│   ├── FileKind.swift             // 拡張子とアイコン・ハイライト言語・Markdown判定の対応を保持
 │   └── ExplorerItem.swift         // ツリーに表示する項目を表す
 ├── Store/
 │   ├── FilesStore.swift           // Explorer・Gitと、ワークスペース別のEditorを保持
@@ -87,6 +88,7 @@ EditorはWorkspaceの左ペインに表示する。他のFeatureへ切り替え�
 
 ## 変更時に守る境界
 
+- 拡張子とアイコン・ハイライト言語・Markdown判定の対応は `FileKind` に定義する。`FileLocation.kind` または `FileKind.resolve(path:)` から取得し、描画・読み書き・表示状態は各View・Storeで扱う。
 - Store追加前に、管理する状態がワークスペース・タブ・ファイルのどれに属するかを確認し、既存Storeと同じ状態を別に持たせない。
 - ファイルの新規作成・改名・移動・ゴミ箱移動は `FilesStore` を通し、`FileOperation` が実行する。FilesStoreは全ワークスペースの確認と操作後の更新を調整する。`EditorStore` は影響するタブの抽出と編集ロックを担当し、未保存・入力中・保存中の判定は `LocalFileStore`／`RemoteFileStore` に任せる。
 - 読み書き・競合確認は `LocalFileStore`／`RemoteFileStore`、共通の編集状態は `FileStore` に置く。
