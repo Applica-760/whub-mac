@@ -8,7 +8,7 @@ struct CodeEditorView: NSViewRepresentable {
     @Environment(\.retainedPageActivity) private var activity
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.explorerFocusNavigation) private var explorerFocus
-    let state: FileStore
+    let state: EditContentStore
     let editorID: String
     let onEdit: () -> Void
     let source: String
@@ -67,7 +67,7 @@ struct CodeEditorView: NSViewRepresentable {
             pending = nil
         }
 
-        func highlight(_ request: CodeHighlighter.Request, state: FileStore, textView: CodeTextView) {
+        func highlight(_ request: CodeHighlighter.Request, state: EditContentStore, textView: CodeTextView) {
             if highlighted == request {
                 cancelHighlight()
                 return
@@ -215,7 +215,7 @@ private final class CodeScrollView: NSScrollView {
 }
 
 final class CodeTextView: NSTextView {
-    weak var fileStore: FileStore?
+    weak var fileStore: EditContentStore?
     weak var explorerFocus: ExplorerFocusNavigation?
     var location: FileLocation?
     var editorID: String?
@@ -269,7 +269,7 @@ final class CodeTextView: NSTextView {
         guard isEditable, !isHiddenOrHasHiddenAncestor, let editorID, let fileStore,
               includingUnfocused || window?.firstResponder === self || fileStore.editorPositions[editorID] != nil,
               let scrollView = enclosingScrollView else { return }
-        fileStore.editorPositions[editorID] = FileStore.EditorPosition(
+        fileStore.editorPositions[editorID] = EditContentStore.EditorPosition(
             selectedRanges: selectedRanges.map(\.rangeValue),
             scrollOrigin: scrollView.contentView.bounds.origin
         )

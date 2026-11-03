@@ -119,7 +119,7 @@ final class EditorStore: ObservableObject {
         }
     }
 
-    func file(for location: FileLocation) -> FileStore? {
+    func file(for location: FileLocation) -> EditContentStore? {
         if let file = local.fileStores[location] { return file.isLoading ? nil : file.document }
         return remote.file(for: location)
     }

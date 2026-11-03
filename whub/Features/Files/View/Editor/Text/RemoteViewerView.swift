@@ -53,7 +53,7 @@ struct RemoteViewerView: View {
 private struct RemoteCodeEditorView: View {
     @ObservedObject var git: RemoteGitStore
     let location: FileLocation
-    let file: FileStore
+    let file: EditContentStore
     let source: String
     let editorID: String
     @StateObject private var diffStore = GitLineStore()

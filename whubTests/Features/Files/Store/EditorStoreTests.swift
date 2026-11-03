@@ -772,7 +772,7 @@ struct EditorStoreTests {
         #expect(editor.selectedTab == nil)
     }
 
-    private func edit(_ file: FileStore, _ source: String) {
+    private func edit(_ file: EditContentStore, _ source: String) {
         file.textStorage.replaceCharacters(in: NSRange(location: 0, length: file.textStorage.length), with: source)
         file.content = .text(source)
     }

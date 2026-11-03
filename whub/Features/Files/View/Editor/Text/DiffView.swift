@@ -138,8 +138,8 @@ struct DiffView: View {
     @State private var layout: DiffLayout?
     @State private var fullLayout: DiffLayout?
     @State private var expanded: Set<Int> = []
-    @State private var beforeFile = FileStore(source: "")
-    @State private var afterFile = FileStore(source: "")
+    @State private var beforeFile = EditContentStore(source: "")
+    @State private var afterFile = EditContentStore(source: "")
     @State private var scrolling = DiffScrollSync()
     @State private var calculation = DiffCalculation<DiffLayout>()
     @State private var loadedSource: Source?
@@ -181,7 +181,7 @@ struct DiffView: View {
         .onDisappear { calculation.cancel(); scrolling.disconnect() }
     }
 
-    private func pane(title: String, file: FileStore, lines: [DiffLine]?, before: Bool) -> some View {
+    private func pane(title: String, file: EditContentStore, lines: [DiffLine]?, before: Bool) -> some View {
         VStack(spacing: 4) {
             Text(title).font(.caption).frame(maxWidth: .infinity, alignment: .leading).padding(8)
             if let lines {

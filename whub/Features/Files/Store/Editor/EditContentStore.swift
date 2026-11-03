@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import Foundation
 
-final class FileStore: ObservableObject {
+final class EditContentStore: ObservableObject {
     enum Content {
         case text(String)
         case binary

@@ -18,7 +18,7 @@ final class RemoteEditorStore: ObservableObject {
 
     var states: [FileLocation: RemoteFileStore.State] { fileStores.mapValues(\.state) }
 
-    func file(for location: FileLocation) -> FileStore? {
+    func file(for location: FileLocation) -> EditContentStore? {
         fileStores[location]?.document
     }
 

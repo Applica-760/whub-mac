@@ -8,7 +8,7 @@ import WhubClient
 final class RemoteFileStore: ObservableObject {
     enum State {
         case loading
-        case loaded(FileStore)
+        case loaded(EditContentStore)
         case failed(String)
         case disconnected
     }
@@ -17,7 +17,7 @@ final class RemoteFileStore: ObservableObject {
     @Published private(set) var isSaving = false
     @Published private(set) var message: String?
     @Published private(set) var image: NSImage?
-    private(set) var document: FileStore?
+    private(set) var document: EditContentStore?
     let isImage: Bool
     private let name: String
     private struct Request {
@@ -125,7 +125,7 @@ final class RemoteFileStore: ObservableObject {
                     return
                 }
                 self.image = image
-                if self.document == nil { self.document = FileStore(content: .binary, isEditable: false) }
+                if self.document == nil { self.document = EditContentStore(content: .binary, isEditable: false) }
                 self.state = .loaded(self.document!)
             case let .success(.text(text)):
                 if let document = self.document {
@@ -147,7 +147,7 @@ final class RemoteFileStore: ObservableObject {
                         message = nil
                     }
                 } else {
-                    let document = FileStore(content: .text(text), isEditable: true)
+                    let document = EditContentStore(content: .text(text), isEditable: true)
                     document.isFileOperationLocked = isFileOperationLocked
                     self.document = document
                     savedText = text

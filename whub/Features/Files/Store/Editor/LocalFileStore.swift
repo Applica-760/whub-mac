@@ -3,7 +3,7 @@ import Foundation
 
 final class LocalFileStore: ObservableObject {
     let fileURL: URL
-    let document: FileStore
+    let document: EditContentStore
     @Published private(set) var diskMessage: String?
     @Published private(set) var diskRevision = 0
     @Published private(set) var isLoading = true
@@ -25,7 +25,7 @@ final class LocalFileStore: ObservableObject {
     init(fileURL: URL, io: LocalFileIO = LocalFileIO()) {
         self.fileURL = fileURL
         self.io = io
-        document = FileStore(content: .error(""), isEditable: true)
+        document = EditContentStore(content: .error(""), isEditable: true)
         document.isFileOperationLocked = true
         documentChanges = document.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         document.onContentChange = { [weak self] in

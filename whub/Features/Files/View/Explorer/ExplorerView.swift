@@ -169,7 +169,7 @@ final class ExplorerFocusNavigation {
     let content = TabPaneFocus()
     weak var list: NSTableView?
     private weak var previousContentResponder: NSView?
-    private let lastEditors = NSMapTable<FileStore, CodeTextView>(
+    private let lastEditors = NSMapTable<EditContentStore, CodeTextView>(
         keyOptions: [.weakMemory, .objectPointerPersonality], valueOptions: .weakMemory
     )
 

@@ -70,7 +70,7 @@ struct CodeHighlighterTests {
     }
 
     @Test func coordinatorKeepsLatestTextSelectionAndUndo() async throws {
-        let file = FileStore(content: .text("let value = 1\n"), isEditable: true)
+        let file = EditContentStore(content: .text("let value = 1\n"), isEditable: true)
         let layout = NSLayoutManager()
         let container = NSTextContainer(size: NSSize(width: 600, height: 600))
         layout.addTextContainer(container)

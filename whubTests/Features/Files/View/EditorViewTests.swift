@@ -198,7 +198,7 @@ struct EditorViewTests {
                               styleMask: [.titled], backing: .buffered, defer: false)
         let container = try #require(window.contentView)
         let coordinator = RetainedPageContainer<Int, AnyView>.Coordinator()
-        let otherFile = FileStore(source: "AgentBook substitute")
+        let otherFile = EditContentStore(source: "AgentBook substitute")
         var selectedPage = 1
         let root: (Int, RetainedPageActivity) -> AnyView = { page, activity in
             let content = page == 1
@@ -342,8 +342,8 @@ struct EditorViewTests {
     }
 
     @Test func editorPositionsAreSeparateAndClampAfterShorterContent() async throws {
-        let first = FileStore(content: .text("日本語😀 first file"), isEditable: true)
-        let second = FileStore(content: .text("second file"), isEditable: true)
+        let first = EditContentStore(content: .text("日本語😀 first file"), isEditable: true)
+        let second = EditContentStore(content: .text("second file"), isEditable: true)
         let firstHost = NSHostingView(rootView: CodeEditorView(state: first, editorID: "one", onEdit: {},
                                                              source: first.textStorage.string, language: nil, hunks: []))
         let secondHost = NSHostingView(rootView: CodeEditorView(state: first, editorID: "two", onEdit: {},
@@ -384,7 +384,7 @@ struct EditorViewTests {
     }
 
     @Test func findBarPreservesUnsavedText() async throws {
-        let file = FileStore(content: .text("saved"), isEditable: true)
+        let file = EditContentStore(content: .text("saved"), isEditable: true)
         let source = "日本語 target 😀 target unsaved"
         file.textStorage.replaceCharacters(in: NSRange(location: 0, length: file.textStorage.length), with: source)
         file.content = .text(source)
@@ -414,7 +414,7 @@ struct EditorViewTests {
 
     @Test func editorClipsTextOutsideRulerAfterScrollingAndResizing() async throws {
         let line = String(repeating: "content ", count: 30) + "\n"
-        let file = FileStore(source: String(repeating: line, count: 100))
+        let file = EditContentStore(source: String(repeating: line, count: 100))
         let host = NSHostingView(rootView: CodeEditorView(state: file, editorID: "clip", onEdit: {},
                                                          source: file.textStorage.string, language: nil, hunks: []))
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
