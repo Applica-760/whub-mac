@@ -16,7 +16,7 @@ struct ExplorerViewTests {
         let store = ExplorerStore()
         store.selectedLocation = .local(directory)
         store.localTree.setRoot(directory)
-        let coordinator = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in }, onFileOpen: { _ in })
+        let coordinator = ExplorerOutlineView.Coordinator(store: store, onOpenTemporaryTab: { _ in }, onFileOpen: { _ in })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -90,7 +90,7 @@ struct ExplorerViewTests {
         #expect(html.items.map { $0.isSeparatorItem ? "---" : $0.title } == ["Copy path", "Copy relative path", "---", "View Diffs"])
         #expect(!html.items[1].isEnabled)
     }
-    @Test func contextSelectionDoesNotPreviewClickedFile() throws {
+    @Test func contextSelectionDoesNotOpenTemporaryTabForClickedFile() throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/ExplorerStoreTests/" + UUID().uuidString)
         let folder = directory.appendingPathComponent("folder")
@@ -101,8 +101,8 @@ struct ExplorerViewTests {
         let store = ExplorerStore()
         store.selectedLocation = .local(directory)
         store.localTree.setRoot(directory)
-        var previews = 0
-        let coordinator = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in previews += 1 }, onFileOpen: { _ in })
+        var temporaryTabOpens = 0
+        let coordinator = ExplorerOutlineView.Coordinator(store: store, onOpenTemporaryTab: { _ in temporaryTabOpens += 1 }, onFileOpen: { _ in })
         let outline = NSOutlineView()
         let column = NSTableColumn(identifier: .init("name"))
         outline.addTableColumn(column)
@@ -119,18 +119,18 @@ struct ExplorerViewTests {
         let selectedFont = try #require(cell.nameField?.font)
         #expect(selectedFont == beforeFont)
         #expect(!NSFontManager.shared.traits(of: selectedFont).contains(.boldFontMask))
-        #expect(previews == 0)
+        #expect(temporaryTabOpens == 0)
         outline.expandItem(parent)
         let child = try #require(store.children(for: parent).first)
         let row = outline.row(forItem: child)
         coordinator.update(basePath: nil, gitChanges: [:], activeTab: .file(.local(file)))
         #expect(outline.selectedRow == row)
-        #expect(previews == 0)
+        #expect(temporaryTabOpens == 0)
         coordinator.selectContextRow(outline.row(forItem: parent), in: outline)
         coordinator.update(basePath: nil, gitChanges: [:], activeTab: .file(.local(file)))
         #expect(outline.selectedRow == outline.row(forItem: parent))
         coordinator.update(basePath: nil, gitChanges: [:], activeTab: nil)
-        #expect(previews == 0)
+        #expect(temporaryTabOpens == 0)
     }
     @Test func explorerColumnScrollsWholeRowsAndShrinksWithContent() throws {
         final class Rows: NSObject, NSTableViewDataSource, NSTableViewDelegate {
@@ -309,8 +309,8 @@ struct ExplorerViewTests {
         let store = ExplorerStore()
         store.selectedLocation = .local(directory)
         store.localTree.setRoot(directory)
-        let first = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in }, onFileOpen: { _ in })
-        let second = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in }, onFileOpen: { _ in })
+        let first = ExplorerOutlineView.Coordinator(store: store, onOpenTemporaryTab: { _ in }, onFileOpen: { _ in })
+        let second = ExplorerOutlineView.Coordinator(store: store, onOpenTemporaryTab: { _ in }, onFileOpen: { _ in })
         let outlines = [NSOutlineView(), NSOutlineView()]
         for (coordinator, outline) in zip([first, second], outlines) {
             outline.addTableColumn(NSTableColumn(identifier: .init("name")))
@@ -326,7 +326,7 @@ struct ExplorerViewTests {
         second.update(basePath: nil, gitChanges: [:])
         #expect(outlines.allSatisfy { $0.numberOfRows == 2 })
         // A recreated outline must render even when the shared data is already current.
-        let recreated = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in }, onFileOpen: { _ in })
+        let recreated = ExplorerOutlineView.Coordinator(store: store, onOpenTemporaryTab: { _ in }, onFileOpen: { _ in })
         let outline = NSOutlineView()
         outline.addTableColumn(NSTableColumn(identifier: .init("name")))
         outline.dataSource = recreated
@@ -373,7 +373,7 @@ struct ExplorerViewTests {
         let store = ExplorerStore()
         store.selectedLocation = .local(directory)
         store.localTree.setRoot(directory)
-        let coordinator = ExplorerOutlineView.Coordinator(store: store, onFilePreview: { _ in }, onFileOpen: { _ in })
+        let coordinator = ExplorerOutlineView.Coordinator(store: store, onOpenTemporaryTab: { _ in }, onFileOpen: { _ in })
         let outline = NSOutlineView()
         let column = NSTableColumn(identifier: .init("name"))
         outline.addTableColumn(column)

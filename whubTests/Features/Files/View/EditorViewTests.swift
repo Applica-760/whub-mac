@@ -64,7 +64,7 @@ struct EditorViewTests {
         let secondURL = directory.appendingPathComponent("second.txt")
         try Data("first file".utf8).write(to: firstURL)
         try Data("second file".utf8).write(to: secondURL)
-        files.preview(.local(firstURL), hosts: [], connections: connections, servers: servers)
+        files.openTemporaryTab(.local(firstURL), hosts: [], connections: connections, servers: servers)
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let first = try #require(files.activeEditor.file(for: .local(firstURL)))
         let leftFocus = TabPaneFocus()
@@ -83,7 +83,7 @@ struct EditorViewTests {
         }
         try #require(!first.editorViews.views.isEmpty, "Initial file editor is displayed")
         files.explorer.selectedLocation = .local(directory)
-        files.preview(.local(secondURL), hosts: [], connections: connections, servers: servers)
+        files.openTemporaryTab(.local(secondURL), hosts: [], connections: connections, servers: servers)
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(files.activeEditor.selectedTab == .file(.local(secondURL)))
         let second = try #require(files.activeEditor.file(for: .local(secondURL)))

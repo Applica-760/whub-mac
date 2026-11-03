@@ -54,9 +54,9 @@ final class FilesStore: ObservableObject {
         if let root = explorer.selectedLocation { git.remoteGitStores[root]?.refresh() }
     }
 
-    func preview(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore) {
+    func openTemporaryTab(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore) {
         guard !isInRemoteFileOperation(location) else { return }
-        activeEditor.preview(location, hosts: hosts, connections: connections, servers: servers, root: explorer.treeLocation)
+        activeEditor.openTemporaryTab(location, hosts: hosts, connections: connections, servers: servers, root: explorer.treeLocation)
     }
 
     func open(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
@@ -64,14 +64,16 @@ final class FilesStore: ObservableObject {
         activeEditor.open(location, hosts: hosts, connections: connections, servers: servers, root: root ?? explorer.treeLocation)
     }
 
-    func openDiff(_ location: FileLocation, preview: Bool = false) {
+    func openDiff(_ location: FileLocation, temporary: Bool = false) {
         guard !isInRemoteFileOperation(location) else { return }
-        activeEditor.openDiff(location, preview: preview)
+        activeEditor.openDiff(location, temporary: temporary)
     }
 
-    func openMarkdownPreview(_ location: FileLocation) {
+    func openMarkdownPreview(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore,
+                             servers: RemoteServerStore) {
         guard !isInRemoteFileOperation(location) else { return }
-        activeEditor.openMarkdownPreview(location)
+        activeEditor.openMarkdownPreview(location, hosts: hosts, connections: connections, servers: servers,
+                                         root: explorer.treeLocation)
     }
 
     enum OperationError: LocalizedError {

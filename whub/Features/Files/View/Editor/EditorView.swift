@@ -51,7 +51,7 @@ struct EditorView: View {
             } else if case let .file(location) = store.selectedTab, let state = store.local.fileStores[location] {
                 FileContent(state: state, editorID: editorID, refreshID: files.refreshID,
                             showsMarkdownPreview: store.markdownPreviews.contains(location)) { [weak store] in
-                    if store?.previewTab == .file(location) { store?.open(.file(location)) }
+                    if store?.temporaryTab == .file(location) { store?.open(.file(location)) }
                 }
                 .id(location)
             } else if case let .file(location) = store.selectedTab, case .remote = location {
@@ -73,8 +73,7 @@ struct EditorView: View {
                         window.makeFirstResponder(editor)
                     }
                 } else {
-                    files.open(location, hosts: hosts, connections: connections, servers: servers)
-                    store.setMarkdownPreviewVisible(true, for: location)
+                    files.openMarkdownPreview(location, hosts: hosts, connections: connections, servers: servers)
                 }
             }
             if let message = store.local.watchError {

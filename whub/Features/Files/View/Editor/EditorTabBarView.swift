@@ -36,7 +36,7 @@ struct EditorTabBarView: View {
             switch tab {
             case let .diff(location):
                 TabBar(title: location.name + " · Diff", icon: Image(systemName: "arrow.left.arrow.right"),
-                       isSelected: isSelected, isPreview: tab == store.previewTab,
+                       isSelected: isSelected, isTemporary: tab == store.temporaryTab,
                        openAction: { store.open(tab) }, action: actions.select, closeAction: actions.close)
                     .help(location.path + " — HEAD ↔ 保存済み")
             case let .file(location):
@@ -50,7 +50,7 @@ struct EditorTabBarView: View {
                         title: location.name,
                         icon: Image(systemName: FileKind.resolve(path: fileURL.path).iconName),
                         isSelected: isSelected,
-                        isPreview: tab == store.previewTab,
+                        isTemporary: tab == store.temporaryTab,
                         titleColor: titleColor,
                         status: fileStore.diskMessage != nil ? (.orange, "外部変更・読み込みエラー")
                             : fileStore.document.hasUnsavedChanges ? (.primary, "未保存") : nil,
@@ -60,7 +60,7 @@ struct EditorTabBarView: View {
                     )
                 } else if case .remote = location {
                     TabBar(title: location.name, icon: Image(systemName: "network"),
-                           isSelected: isSelected, isPreview: tab == store.previewTab,
+                           isSelected: isSelected, isTemporary: tab == store.temporaryTab,
                            status: store.remote.fileStores[location]?.message != nil ? (.orange, "保存・外部変更の確認が必要")
                                : store.remote.fileStores[location]?.isSaving == true ? (.secondary, "保存中")
                                : store.remote.fileStores[location]?.hasUnsavedChanges == true ? (.primary, "未保存") : nil,

@@ -5,7 +5,7 @@ import WhubCore
 final class EditorStore: ObservableObject {
     @Published private(set) var tabs: [EditorTab] = []
     @Published private(set) var selectedTab: EditorTab?
-    @Published private(set) var previewTab: EditorTab?
+    @Published private(set) var temporaryTab: EditorTab?
     @Published private var requestedMarkdownPreviews: Set<FileLocation> = []
     let local = LocalEditorStore()
     let remote = RemoteEditorStore()
@@ -17,9 +17,9 @@ final class EditorStore: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
-    func preview(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
+    func openTemporaryTab(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
         prepare(location, hosts: hosts, connections: connections, servers: servers, root: root)
-        preview(.file(location))
+        openTemporaryTab(.file(location))
     }
 
     func open(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
@@ -27,23 +27,23 @@ final class EditorStore: ObservableObject {
         open(.file(location))
     }
 
-    func openDiff(_ location: FileLocation, preview: Bool = false) {
+    func openDiff(_ location: FileLocation, temporary: Bool = false) {
         if case .remote = location {
-            if preview { self.preview(.diff(location)) }
+            if temporary { self.openTemporaryTab(.diff(location)) }
             else { open(.diff(location)) }
             return
         }
         guard let url = location.localURL else { return }
         let fileURL = url.standardizedFileURL
         local.loadDiff(at: fileURL)
-        if preview { self.preview(.diff(.local(fileURL))) }
+        if temporary { self.openTemporaryTab(.diff(.local(fileURL))) }
         else { open(.diff(.local(fileURL))) }
     }
 
-    func openMarkdownPreview(_ location: FileLocation) {
+    func openMarkdownPreview(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore,
+                             servers: RemoteServerStore, root: FileLocation? = nil) {
         guard location.kind.isMarkdown else { return }
-        local.load(location)
-        open(.file(location))
+        open(location, hosts: hosts, connections: connections, servers: servers, root: root)
         setMarkdownPreviewVisible(true, for: location)
     }
 
@@ -68,12 +68,6 @@ final class EditorStore: ObservableObject {
             if case .text = file.document.content { return true }
             return false
         }
-    }
-
-    var markdownPreviewLocation: FileLocation? {
-        guard case let .file(location) = selectedTab, location.kind.isMarkdown,
-              case .text = file(for: location)?.content else { return nil }
-        return location
     }
 
     func setMarkdownPreviewVisible(_ visible: Bool, for location: FileLocation) {
@@ -152,30 +146,30 @@ final class EditorStore: ObservableObject {
             tabs.append(tab)
         }
         selectedTab = tab
-        if previewTab == tab { previewTab = nil }
+        if temporaryTab == tab { temporaryTab = nil }
     }
 
-    func preview(_ tab: EditorTab) {
+    func openTemporaryTab(_ tab: EditorTab) {
         guard isPrepared(tab) else { return }
-        if tabs.contains(tab) && previewTab != tab {
+        if tabs.contains(tab) && temporaryTab != tab {
             selectedTab = tab
             return
         }
-        if case let .file(previous) = previewTab,
+        if case let .file(previous) = temporaryTab,
            file(for: previous)?.hasUnsavedChanges == true || file(for: previous)?.editorViews.hasMarkedText == true
             || local.fileStores[previous]?.isSaving == true
             || remote.fileStores[previous]?.needsCloseConfirmation == true {
-            previewTab = nil
+            temporaryTab = nil
         }
-        if let previewTab, let index = tabs.firstIndex(of: previewTab) {
-            if previewTab != tab {
-                release(previewTab)
+        if let temporaryTab, let index = tabs.firstIndex(of: temporaryTab) {
+            if temporaryTab != tab {
+                release(temporaryTab)
             }
             tabs[index] = tab
         } else if !tabs.contains(tab) {
             tabs.append(tab)
         }
-        previewTab = tab
+        temporaryTab = tab
         selectedTab = tab
     }
 
@@ -207,7 +201,7 @@ final class EditorStore: ObservableObject {
         guard let index = tabs.firstIndex(of: tab) else { return }
         tabs.remove(at: index)
         release(tab)
-        if previewTab == tab { previewTab = nil }
+        if temporaryTab == tab { temporaryTab = nil }
         guard selectedTab == tab else { return }
         selectedTab = index < tabs.count ? tabs[index] : tabs.last
     }
@@ -220,7 +214,7 @@ final class EditorStore: ObservableObject {
         guard let reordered = reorderedTabs(tabs, moving: tab, before: target, identifiedBy: \.self)
         else { return }
         tabs = reordered
-        if previewTab == tab { previewTab = nil }
+        if temporaryTab == tab { temporaryTab = nil }
     }
 
     private func isPrepared(_ tab: EditorTab) -> Bool {

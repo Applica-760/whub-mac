@@ -8,7 +8,7 @@ struct RemoteExplorerDiffView: View {
     @ObservedObject var git: RemoteGitStore
     @ObservedObject var editor: EditorStore
     let focus: ExplorerFocusNavigation
-    let onPreview: (FileLocation) -> Void
+    let onOpenTemporaryTab: (FileLocation) -> Void
     let onOpen: (FileLocation) -> Void
     let onShowMarkdownPreview: (FileLocation) -> Void
     @State private var usageID = UUID()
@@ -34,7 +34,7 @@ struct RemoteExplorerDiffView: View {
                 Text("未コミットの差分はありません").foregroundStyle(.secondary)
             } else {
                 DiffFileList(changes: git.fileChanges, root: git.root, selectedTab: editor.selectedTab, focus: focus,
-                onPreview: onPreview, onOpen: onOpen, onShowMarkdownPreview: onShowMarkdownPreview)
+                onOpenTemporaryTab: onOpenTemporaryTab, onOpen: onOpen, onShowMarkdownPreview: onShowMarkdownPreview)
             }
         }
         .padding(.horizontal)
@@ -50,7 +50,7 @@ struct ExplorerDiffView: View {
     @ObservedObject var git: GitStore
     @ObservedObject var editor: EditorStore
     let focus: ExplorerFocusNavigation
-    let onPreview: (FileLocation) -> Void
+    let onOpenTemporaryTab: (FileLocation) -> Void
     let onOpen: (FileLocation) -> Void
     let onShowMarkdownPreview: (FileLocation) -> Void
 
@@ -74,7 +74,7 @@ struct ExplorerDiffView: View {
                 Text("未コミットの差分はありません").foregroundStyle(.secondary)
             } else if let root = git.rootURL {
                 DiffFileList(changes: Dictionary(uniqueKeysWithValues: git.diffChanges.map { (.local($0.key), $0.value) }), root: .local(root), selectedTab: editor.selectedTab, focus: focus,
-                             onPreview: onPreview, onOpen: onOpen, onShowMarkdownPreview: onShowMarkdownPreview)
+                             onOpenTemporaryTab: onOpenTemporaryTab, onOpen: onOpen, onShowMarkdownPreview: onShowMarkdownPreview)
             }
         }
         .padding(.horizontal)
@@ -87,7 +87,7 @@ private struct DiffFileList: NSViewRepresentable {
     let root: FileLocation
     let selectedTab: EditorTab?
     let focus: ExplorerFocusNavigation
-    let onPreview: (FileLocation) -> Void
+    let onOpenTemporaryTab: (FileLocation) -> Void
     let onOpen: (FileLocation) -> Void
     let onShowMarkdownPreview: (FileLocation) -> Void
 
@@ -198,7 +198,7 @@ private struct DiffFileList: NSViewRepresentable {
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !updating, let table = notification.object as? NSTableView,
                   locations.indices.contains(table.selectedRow) else { return }
-            parent.onPreview(locations[table.selectedRow])
+            parent.onOpenTemporaryTab(locations[table.selectedRow])
         }
 
         @objc func openFile(_ table: NSTableView) {

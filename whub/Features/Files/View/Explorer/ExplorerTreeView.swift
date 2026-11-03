@@ -33,7 +33,7 @@ struct ExplorerTreeView: View {
     @ObservedObject var editor: EditorStore
     var remoteChanges: [FileLocation: GitChange] = [:]
     let focus: ExplorerFocusNavigation
-    let onFilePreview: (FileLocation) -> Void
+    let onOpenTemporaryTab: (FileLocation) -> Void
     let onFileOpen: (FileLocation) -> Void
     let onShowDiff: (FileLocation) -> Void
     var onAction: (ExplorerContextMenu.Action, FileLocation) -> Void = { _, _ in }
@@ -63,7 +63,7 @@ struct ExplorerTreeView: View {
                 ExplorerOutlineView(
                     store: store, basePath: store.treeBasePath, gitChanges: gitStore.changes, remoteChanges: remoteChanges,
                     activeTab: editor.selectedTab, focus: focus,
-                    onFilePreview: onFilePreview, onFileOpen: onFileOpen, onShowDiff: onShowDiff, onAction: onAction, onCommitName: onCommitName, onMove: onMove
+                    onOpenTemporaryTab: onOpenTemporaryTab, onFileOpen: onFileOpen, onShowDiff: onShowDiff, onAction: onAction, onCommitName: onCommitName, onMove: onMove
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -79,7 +79,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
     let remoteChanges: [FileLocation: GitChange]
     let activeTab: EditorTab?
     let focus: ExplorerFocusNavigation
-    let onFilePreview: (FileLocation) -> Void
+    let onOpenTemporaryTab: (FileLocation) -> Void
     let onFileOpen: (FileLocation) -> Void
     let onShowDiff: (FileLocation) -> Void
     var onAction: (ExplorerContextMenu.Action, FileLocation) -> Void = { _, _ in }
@@ -87,7 +87,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
     var onMove: ([FileLocation], FileLocation) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(store: store, onFilePreview: onFilePreview, onFileOpen: onFileOpen)
+        Coordinator(store: store, onOpenTemporaryTab: onOpenTemporaryTab, onFileOpen: onFileOpen)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -146,7 +146,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
         (scrollView.documentView as? FileOutlineControl)?.onAction = onAction
         context.coordinator.onCommitName = onCommitName
         context.coordinator.onMove = onMove
-        context.coordinator.onFilePreview = onFilePreview
+        context.coordinator.onOpenTemporaryTab = onOpenTemporaryTab
         context.coordinator.onFileOpen = onFileOpen
         context.coordinator.update(basePath: basePath, gitChanges: gitChanges, remoteChanges: remoteChanges, activeTab: activeTab)
     }
@@ -154,7 +154,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
         static let dragType = NSPasteboard.PasteboardType("com.whub.explorer-item")
         weak var outlineView: NSOutlineView?
-        var onFilePreview: (FileLocation) -> Void
+        var onOpenTemporaryTab: (FileLocation) -> Void
         var onFileOpen: (FileLocation) -> Void
         private let store: ExplorerStore
         private var renderedRevision: Int?
@@ -284,9 +284,9 @@ struct ExplorerOutlineView: NSViewRepresentable {
             return true
         }
 
-        init(store: ExplorerStore, onFilePreview: @escaping (FileLocation) -> Void, onFileOpen: @escaping (FileLocation) -> Void) {
+        init(store: ExplorerStore, onOpenTemporaryTab: @escaping (FileLocation) -> Void, onFileOpen: @escaping (FileLocation) -> Void) {
             self.store = store
-            self.onFilePreview = onFilePreview
+            self.onOpenTemporaryTab = onOpenTemporaryTab
             self.onFileOpen = onFileOpen
         }
 
@@ -450,7 +450,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
             else {
                 return
             }
-            onFilePreview(item.location)
+            onOpenTemporaryTab(item.location)
         }
 
         @objc func openSelectedFile(_ sender: NSOutlineView) {

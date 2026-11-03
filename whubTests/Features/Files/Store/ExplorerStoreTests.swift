@@ -93,7 +93,7 @@ struct ExplorerStoreTests {
         #expect(files.git.rootURL == nil)
     }
 
-    @Test func remoteFileIsPreparedBeforePreviewAndOpen() async throws {
+    @Test func remoteFileIsPreparedBeforeTemporaryTabAndOpen() async throws {
         let container = try explorerTestModelContainer()
         let host = try HostStore(context: container.mainContext).addRemote(
             name: "server", basePath: "/workspace", hostname: "unused", user: "test", identityFile: ""
@@ -111,16 +111,28 @@ struct ExplorerStoreTests {
         defer { store.stopWatching() }
         let file = root.appending("file.swift")
         defer { editor.close(.file(file)) }
-        files.preview(file, hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections))
+        files.openTemporaryTab(file, hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections))
         #expect(editor.local.fileStores.isEmpty)
-        #expect(editor.previewTab == .file(file))
+        #expect(editor.temporaryTab == .file(file))
         #expect(editor.selectedTab == .file(file))
         if case .disconnected = editor.remote.states[file] {} else {
             Issue.record("正しい閲覧ルートでRemote取得を準備できていません")
         }
         files.open(file, hosts: [host], connections: connections, servers: RemoteServerStore(connections: connections))
-        #expect(editor.previewTab == nil)
+        #expect(editor.temporaryTab == nil)
         #expect(editor.tabs == [.file(file)])
+
+        let markdown = root.appending("README.md")
+        files.openMarkdownPreview(markdown, hosts: [host], connections: connections,
+                                  servers: RemoteServerStore(connections: connections))
+        #expect(editor.local.fileStores.isEmpty)
+        #expect(editor.selectedTab == .file(markdown))
+        #expect(editor.markdownPreviews.contains(markdown))
+        if case .disconnected = editor.remote.states[markdown] {} else {
+            Issue.record("Markdownも選択ルートでリモート読み込みを準備する必要があります")
+        }
+        editor.close(.file(markdown))
+        #expect(!editor.markdownPreviews.contains(markdown))
     }
 
     @Test func storesOwnNameEditingAndCommitLifecycle() throws {

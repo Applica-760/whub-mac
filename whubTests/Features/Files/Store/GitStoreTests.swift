@@ -59,31 +59,31 @@ struct GitStoreTests {
         files.explorer.localTree.reset()
     }
 
-    @Test func diffTabsPreserveUnsavedEditorAndPreviewLifecycle() async throws {
+    @Test func diffTabsPreserveUnsavedEditorAndTemporaryTabLifecycle() async throws {
         let fixture = try GitTestFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let files = FilesStore()
         files.explorer.localTree.setRoot(fixture.first)
         let location = FileLocation.local(fixture.firstFile)
-        files.preview(location, hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
+        files.openTemporaryTab(location, hosts: [], connections: RemoteConnectionStore(), servers: RemoteServerStore(connections: RemoteConnectionStore()))
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let document = try #require(files.activeEditor.file(for: location))
         document.content = .text("unsaved")
-        files.openDiff(location, preview: true)
+        files.openDiff(location, temporary: true)
         let diff = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
         diff.setUsage(id: usageID, active: true)
         try await waitForGitTest { !diff.isLoading }
         #expect(diff.diff?.content == .text(before: "", after: "original\n"))
         #expect(files.activeEditor.tabs == [.file(location), .diff(.local(fixture.firstFile))])
-        #expect(files.activeEditor.previewTab == .diff(.local(fixture.firstFile)))
+        #expect(files.activeEditor.temporaryTab == .diff(.local(fixture.firstFile)))
         #expect(document.hasUnsavedChanges)
         files.openDiff(location)
-        #expect(files.activeEditor.previewTab == nil)
-        files.openDiff(.local(fixture.secondFile), preview: true)
-        #expect(files.activeEditor.previewTab == .diff(.local(fixture.secondFile)))
-        files.openDiff(location, preview: true)
+        #expect(files.activeEditor.temporaryTab == nil)
+        files.openDiff(.local(fixture.secondFile), temporary: true)
+        #expect(files.activeEditor.temporaryTab == .diff(.local(fixture.secondFile)))
+        files.openDiff(location, temporary: true)
         #expect(files.activeEditor.selectedTab == .diff(.local(fixture.firstFile)))
-        #expect(files.activeEditor.previewTab == .diff(.local(fixture.secondFile)))
+        #expect(files.activeEditor.temporaryTab == .diff(.local(fixture.secondFile)))
         files.activeEditor.close(.diff(.local(fixture.firstFile)))
         #expect(files.activeEditor.file(for: location) === document)
         #expect(files.activeEditor.local.diffStores[fixture.firstFile] == nil)
@@ -171,10 +171,10 @@ struct GitStoreTests {
         let fixture = try GitTestFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
         let files = FilesStore()
-        files.openDiff(.local(fixture.firstFile), preview: true)
+        files.openDiff(.local(fixture.firstFile), temporary: true)
         let first = try #require(files.activeEditor.local.diffStores[fixture.firstFile])
         first.setUsage(id: usageID, active: true)
-        files.openDiff(.local(fixture.secondFile), preview: true)
+        files.openDiff(.local(fixture.secondFile), temporary: true)
         #expect(files.activeEditor.local.diffStores[fixture.firstFile] == nil)
         let second = try #require(files.activeEditor.local.diffStores[fixture.secondFile])
         second.setUsage(id: usageID, active: true)

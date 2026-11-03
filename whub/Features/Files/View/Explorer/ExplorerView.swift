@@ -23,14 +23,14 @@ struct ExplorerView: View {
                let remoteGit = files.git.remoteGit(for: root, hosts: hosts.compactMap { $0 as? RemoteHost },
                                                connections: connections, servers: servers) {
                 RemoteExplorerDiffView(git: remoteGit, editor: files.activeEditor, focus: focus,
-                                       onPreview: { openDiff($0, preview: true) },
-                                       onOpen: { openDiff($0, preview: false) }, onShowMarkdownPreview: showMarkdownPreview)
+                                       onOpenTemporaryTab: { openDiff($0, temporary: true) },
+                                       onOpen: { openDiff($0, temporary: false) }, onShowMarkdownPreview: showMarkdownPreview)
                     .id(root)
             } else if store.showsDiff, store.selectedLocation?.localURL != nil {
                 ExplorerDiffView(git: gitStore, editor: files.activeEditor,
                                  focus: focus,
-                                 onPreview: { openDiff($0, preview: true) },
-                                 onOpen: { openDiff($0, preview: false) },
+                                 onOpenTemporaryTab: { openDiff($0, temporary: true) },
+                                 onOpen: { openDiff($0, temporary: false) },
                                  onShowMarkdownPreview: showMarkdownPreview)
             } else if let root = store.selectedLocation, case .remote = root,
                       let remoteGit = files.git.remoteGit(for: root, hosts: hosts.compactMap { $0 as? RemoteHost },
@@ -60,15 +60,15 @@ struct ExplorerView: View {
     private func explorerTree(remoteChanges: [FileLocation: GitChange]) -> some View {
         ExplorerTreeView(
             store: store, gitStore: gitStore, editor: files.activeEditor, remoteChanges: remoteChanges, focus: focus,
-            onFilePreview: { location in
-                files.preview(location, hosts: hosts, connections: connections, servers: servers)
+            onOpenTemporaryTab: { location in
+                files.openTemporaryTab(location, hosts: hosts, connections: connections, servers: servers)
                 onFileSelect()
             },
             onFileOpen: { location in
                 files.open(location, hosts: hosts, connections: connections, servers: servers)
                 onFileSelect()
             },
-            onShowDiff: { openDiff($0, preview: false) }, onAction: performAction, onCommitName: commitName,
+            onShowDiff: { openDiff($0, temporary: false) }, onAction: performAction, onCommitName: commitName,
             onMove: move
         )
     }
@@ -123,10 +123,7 @@ struct ExplorerView: View {
     }
 
     private func showMarkdownPreview(_ location: FileLocation) {
-        if case .remote = location {
-            files.open(location, hosts: hosts, connections: connections, servers: servers)
-            files.activeEditor.setMarkdownPreviewVisible(true, for: location)
-        } else { files.openMarkdownPreview(location) }
+        files.openMarkdownPreview(location, hosts: hosts, connections: connections, servers: servers)
         onFileSelect()
     }
 
@@ -137,8 +134,8 @@ struct ExplorerView: View {
         store.showsDiff = value
     }
 
-    private func openDiff(_ location: FileLocation, preview: Bool) {
-        files.openDiff(location, preview: preview)
+    private func openDiff(_ location: FileLocation, temporary: Bool) {
+        files.openDiff(location, temporary: temporary)
         onFileSelect()
     }
 }

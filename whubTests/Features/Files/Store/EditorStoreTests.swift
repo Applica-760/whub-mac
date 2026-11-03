@@ -8,11 +8,11 @@
 // - remoteConflictAndFailedClosePreserveDraft(): リモート競合と閉鎖失敗時の下書き保持。
 // - remoteLostSaveResponseIsReconciledBeforeRetry(): 応答不明の保存結果を再試行前に照合する。
 // - remoteUndoAfterUnconfirmedSaveStillProtectsTab(): 保存結果不明のままUndoしてもタブを保護する。
-// - remoteDirtyPreviewAndReconnectKeepDraft(): 未保存プレビューと再接続時の下書き保持。
+// - remoteDirtyTemporaryTabAndReconnectKeepDraft(): 未保存の一時タブと再接続時の下書き保持。
 // - remoteTracksByteChangesInCanonicallyEquivalentText(): 正規化で同値の文字列でもバイト差を検出する。
 // - remoteSavePreservesBOMLineEndingsAndCloseWaitsForSuccess(): リモート保存のBOM・改行保持と成功後の閉鎖。
 // - remoteReadsAndEdits(): リモート読込・編集・タブ操作。
-// - lateResultAfterPreviewReplacement(): プレビュー置換後の遅い読込結果を無視する。
+// - lateResultAfterTemporaryTabReplacement(): 一時タブ置換後の遅い読込結果を無視する。
 // - failureAndInvalidRoot(): 読込失敗と不正なルートの扱い。
 // - refreshAndFailureRetainEditableFile(): 再読込と失敗時に編集可能な文書を保持する。
 // - reconnectDiscardsOldSessionResult(): 再接続後に旧セッションの結果を無視する。
@@ -21,7 +21,7 @@
 // - workspaceSwitchPreservesLocalTabsAndUnsavedContents(): Workspace切替でローカルタブと未保存内容を保持する。
 // - remoteWorkspacesKeepSeparateTabsAndPendingReads(): Workspace別にリモートタブと保留読込を分離する。
 // - localEditingAndTabs(): [TAB-F-008]
-// - remoteDiffPreviewCanBeOpenedAndClosed(): リモート差分タブの操作。
+// - remoteDiffTemporaryTabCanBeOpenedAndClosed(): リモート差分タブの操作。
 
 import AppKit
 import SwiftData
@@ -110,15 +110,15 @@ struct EditorStoreTests {
         #expect(remote.image == nil && remote.document == nil)
     }
 
-    @Test func remoteDiffPreviewCanBeOpenedAndClosed() throws {
+    @Test func remoteDiffTemporaryTabCanBeOpenedAndClosed() throws {
         let fixture = try ViewerFixture()
         let location = fixture.root().appending("file.txt")
         let files = FilesStore()
-        files.openDiff(location, preview: true)
+        files.openDiff(location, temporary: true)
         #expect(files.activeEditor.selectedTab == .diff(location))
-        #expect(files.activeEditor.previewTab == .diff(location))
+        #expect(files.activeEditor.temporaryTab == .diff(location))
         files.openDiff(location)
-        #expect(files.activeEditor.previewTab == nil)
+        #expect(files.activeEditor.temporaryTab == nil)
         files.activeEditor.close(.diff(location))
         #expect(files.activeEditor.tabs.isEmpty)
     }
@@ -136,31 +136,33 @@ struct EditorStoreTests {
         try Data([0, 255]).write(to: #require(binary.localURL))
         let files = FilesStore()
         let editor = files.activeEditor
-        files.openMarkdownPreview(first)
+        let connections = RemoteConnectionStore()
+        let servers = RemoteServerStore(connections: connections)
+        files.openMarkdownPreview(first, hosts: [], connections: connections, servers: servers)
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let document = try #require(editor.file(for: first))
-        #expect(editor.selectedTab == .file(first) && editor.previewTab == nil)
-        #expect(editor.markdownPreviewLocation == first && editor.markdownPreviews == [first])
+        #expect(editor.selectedTab == .file(first) && editor.temporaryTab == nil)
+        #expect(editor.markdownPreviews == [first])
         document.content = .text("# Unsaved")
         editor.setMarkdownPreviewVisible(false, for: first)
-        files.openMarkdownPreview(first)
+        files.openMarkdownPreview(first, hosts: [], connections: connections, servers: servers)
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(editor.file(for: first) === document && document.hasUnsavedChanges)
         if case let .text(source) = document.content { #expect(source == "# Unsaved") }
         else { Issue.record("Markdown source must remain editable text") }
-        files.openMarkdownPreview(second)
+        files.openMarkdownPreview(second, hosts: [], connections: connections, servers: servers)
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(editor.markdownPreviews == [first, second])
         editor.setMarkdownPreviewVisible(false, for: first)
         #expect(editor.markdownPreviews == [second])
         editor.close(.file(second))
         #expect(editor.markdownPreviews.isEmpty)
-        files.openMarkdownPreview(plain)
+        files.openMarkdownPreview(plain, hosts: [], connections: connections, servers: servers)
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(!editor.tabs.contains(.file(plain)))
-        files.openMarkdownPreview(binary)
+        files.openMarkdownPreview(binary, hosts: [], connections: connections, servers: servers)
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
-        #expect(editor.markdownPreviewLocation == nil && !editor.markdownPreviews.contains(binary))
+        #expect(!editor.markdownPreviews.contains(binary))
     }
 
     @Test(arguments: ["\n", "\r\n", "\r", "\r\nwith mixed\n"], [false, true])
@@ -292,7 +294,7 @@ struct EditorStoreTests {
             return reads == 1 ? "original" : latest
         }
         editor.remote.load(other, root: root, write: { _, _, _, text in text }) { _, _, _ in "other" }
-        editor.preview(.file(location))
+        editor.openTemporaryTab(.file(location))
         try await waitForEditorTest { editor.remote.file(for: location) != nil }
         let remote = try #require(editor.remote.fileStores[location])
         let file = try #require(remote.document)
@@ -301,7 +303,7 @@ struct EditorStoreTests {
         edit(file, "original")
         #expect(remote.needsCloseConfirmation)
         #expect(await remote.confirmClose(choice: .cancel) == false)
-        editor.preview(.file(other))
+        editor.openTemporaryTab(.file(other))
         #expect(editor.tabs == [.file(location), .file(other)])
         remote.refresh()
         try await waitForEditorTest { if case .loaded = remote.state { return true }; return false }
@@ -310,7 +312,7 @@ struct EditorStoreTests {
         if latest == "external" { #expect(!remote.canSave && remote.message != nil) }
     }
 
-    @Test func remoteDirtyPreviewAndReconnectKeepDraft() async throws {
+    @Test func remoteDirtyTemporaryTabAndReconnectKeepDraft() async throws {
         let fixture = try ViewerFixture()
         let root = fixture.root()
         let location = root.appending("file")
@@ -322,14 +324,14 @@ struct EditorStoreTests {
         let editor = EditorStore()
         editor.remote.load(location, root: root, connection: { connection }, write: { _, _, _, text in text }) { _, _, _ in disk as String }
         editor.remote.load(other, root: root, write: { _, _, _, text in text }) { _, _, _ in "other" }
-        editor.preview(.file(location))
+        editor.openTemporaryTab(.file(location))
         try await waitForEditorTest { editor.remote.file(for: location) != nil }
         let remote = try #require(editor.remote.fileStores[location])
         let file = try #require(remote.document)
         edit(file, "draft")
-        editor.preview(.file(other))
+        editor.openTemporaryTab(.file(other))
         #expect(editor.tabs == [.file(location), .file(other)])
-        #expect(editor.previewTab == .file(other))
+        #expect(editor.temporaryTab == .file(other))
         connection = nil
         editor.remote.synchronizeConnections()
         #expect(!remote.canSave && file.textStorage.string == "draft")
@@ -396,7 +398,7 @@ struct EditorStoreTests {
             requests += 1
             return "let 日本語 = 1\n"
         }
-        editor.preview(.file(location))
+        editor.openTemporaryTab(.file(location))
         editor.remote.load(location, root: root, write: { _, _, _, text in text }) { _, _, _ in
             Issue.record("重複取得")
             return "wrong"
@@ -420,7 +422,7 @@ struct EditorStoreTests {
         #expect(text.isSelectable)
         #expect(text.validateMenuItem(NSMenuItem(title: "Save", action: #selector(CodeTextView.saveDocument(_:)), keyEquivalent: "s")))
         editor.open(.file(location))
-        #expect(editor.previewTab == nil)
+        #expect(editor.temporaryTab == nil)
         let otherRoot = fixture.root(second: true)
         let other = otherRoot.appending("src/a.swift")
         editor.remote.load(other, root: otherRoot, write: { _, _, _, text in text }) { _, _, _ in "other" }
@@ -436,7 +438,7 @@ struct EditorStoreTests {
     }
 
     @Test(arguments: [true, false])
-    func lateResultAfterPreviewReplacement(succeeds: Bool) async throws {
+    func lateResultAfterTemporaryTabReplacement(succeeds: Bool) async throws {
         let fixture = try ViewerFixture()
         let editor = EditorStore()
         let root = fixture.root()
@@ -450,10 +452,10 @@ struct EditorStoreTests {
             if succeeds { return "old" }
             throw SSHError.disconnected
         }
-        editor.preview(.file(old))
+        editor.openTemporaryTab(.file(old))
         try await waitForEditorTest { gate.waiting }
         editor.remote.load(next, root: root, write: { _, _, _, text in text }) { _, _, _ in "next" }
-        editor.preview(.file(next))
+        editor.openTemporaryTab(.file(next))
         #expect(editor.remote.states[old] == nil)
         editor.remote.load(old, root: root, write: { _, _, _, text in text }) { _, _, _ in "new" }
         editor.open(.file(old))
@@ -653,7 +655,7 @@ struct EditorStoreTests {
         let second = FileLocation.local(roots[0].appendingPathComponent("second.txt"))
         files.open(first, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
-        files.preview(second, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
+        files.openTemporaryTab(second, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         projectEditor.move(.file(second), before: .file(first))
         projectEditor.select(.file(first))
@@ -665,7 +667,7 @@ struct EditorStoreTests {
         #expect(worktreeEditor !== projectEditor)
         #expect(worktreeEditor.tabs.isEmpty)
         let worktreeFile = FileLocation.local(roots[1].appendingPathComponent("first.txt"))
-        files.preview(worktreeFile, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
+        files.openTemporaryTab(worktreeFile, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         let worktreeDocument = try #require(worktreeEditor.local.fileStores[worktreeFile])
         #expect(worktreeDocument.document.savedSource == roots[1].path)
@@ -677,7 +679,7 @@ struct EditorStoreTests {
         #expect(files.activeEditor === projectEditor)
         #expect(projectEditor.tabs == [.file(second), .file(first)])
         #expect(projectEditor.selectedTab == .file(first))
-        #expect(projectEditor.previewTab == nil)
+        #expect(projectEditor.temporaryTab == nil)
         #expect(document.document.hasUnsavedChanges)
         try await document.save()
         #expect(try String(contentsOf: roots[0].appendingPathComponent("first.txt"), encoding: .utf8) == "unsaved project edit")
@@ -688,7 +690,7 @@ struct EditorStoreTests {
         #expect(files.activeEditor === worktreeEditor)
         #expect(worktreeEditor.tabs == [.file(worktreeFile)])
         #expect(worktreeEditor.selectedTab == .file(worktreeFile))
-        #expect(worktreeEditor.previewTab == .file(worktreeFile))
+        #expect(worktreeEditor.temporaryTab == .file(worktreeFile))
         #expect(worktreeDocument.document.hasUnsavedChanges)
         try await worktreeDocument.save()
         #expect(try String(contentsOf: roots[1].appendingPathComponent("first.txt"), encoding: .utf8) == "unsaved worktree edit")
@@ -708,7 +710,7 @@ struct EditorStoreTests {
             await gate.wait()
             return "first host project"
         }
-        firstEditor.preview(.file(firstFile))
+        firstEditor.openTemporaryTab(.file(firstFile))
         try await waitForEditorTest { gate.waiting }
         for root in roots.dropFirst() {
             files.explorer.selectedLocation = root
@@ -730,7 +732,7 @@ struct EditorStoreTests {
             #expect(files.activeEditor.selectedTab == .file(location))
             if root == roots[0] {
                 #expect(files.activeEditor === firstEditor)
-                #expect(firstEditor.previewTab == .file(firstFile))
+                #expect(firstEditor.temporaryTab == .file(firstFile))
                 #expect(firstEditor.file(for: firstFile)?.savedSource == "first host project")
             }
             files.activeEditor.close(.file(location))
@@ -748,7 +750,7 @@ struct EditorStoreTests {
         let editor = files.activeEditor
         let connections = RemoteConnectionStore()
         let location = FileLocation.local(url)
-        files.preview(location, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
+        files.openTemporaryTab(location, hosts: [], connections: connections, servers: RemoteServerStore(connections: connections))
         try await waitForEditorTest { files.activeEditor.local.fileStores.values.allSatisfy { !$0.isLoading } }
         #expect(editor.remote.states.isEmpty)
         let localFile = try #require(editor.local.fileStores[location])
@@ -764,7 +766,7 @@ struct EditorStoreTests {
         try await localFile.save()
         #expect(try String(contentsOf: url, encoding: .utf8) == "edited")
         #expect(!file.hasUnsavedChanges)
-        #expect(editor.previewTab == nil)
+        #expect(editor.temporaryTab == nil)
         editor.close(.file(location))
         #expect(editor.tabs.isEmpty)
         #expect(editor.selectedTab == nil)

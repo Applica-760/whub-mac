@@ -5,7 +5,7 @@ struct TabBar: View {
     let icon: Image
     let isSelected: Bool
     var width: CGFloat?
-    var isPreview = false
+    var isTemporary = false
     var titleColor: Color?
     var isCloseDisabled = false
     var status: (color: Color, label: String)?
@@ -27,7 +27,7 @@ struct TabBar: View {
                     Text(title)
                         .lineLimit(width == nil ? nil : 1)
                         .truncationMode(.tail)
-                        .italic(isPreview)
+                        .italic(isTemporary)
                         .fontWeight(isSelected ? .medium : .regular)
                         .foregroundStyle(titleColor ?? .primary)
                 }

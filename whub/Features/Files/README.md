@@ -26,7 +26,7 @@ Files/
 │   │   ├── LocalTreeStore.swift   // ローカルのツリー・取得結果を保持し、変更を監視
 │   │   └── RemoteTreeStore.swift  // リモートのツリー・ディレクトリ別の取得状態を保持
 │   ├── Editor/
-│   │   ├── EditorStore.swift      // タブ・選択・プレビュー、開く準備・編集ロックと、Local／RemoteEditorを管理
+│   │   ├── EditorStore.swift      // タブ・選択・一時タブ、開く準備・編集ロックと、Local／RemoteEditorを管理
 │   │   ├── LocalEditorStore.swift // ファイル別のLocalFileStore・LocalDiffStoreを保持
 │   │   ├── RemoteEditorStore.swift
 │   │   │                          // ファイル別のRemoteFileStoreを保持
@@ -72,13 +72,13 @@ EditorはWorkspaceの左ペインに表示する。他のFeatureへ切り替え�
 
 リモート画像は拡張子から画像形式を判定し、Serverから最大8 MiBを取得して表示する。⌘⇧Rと再接続時に再取得し、取得失敗・切断時は前回の画像を保持する。画像は編集できない。
 
-ローカル・リモートの `.md` は、ファイルタブまたはExplorerの右クリックから「Show Preview」を選ぶと、左にソース・右に描画結果を表示できる。ファイルタブの「Hide Preview」で閉じる。境界はドラッグで調整でき、未保存の編集内容も反映する。開閉状態は `EditorStore.markdownPreviews` がファイルごとに保持し、タブを閉じると破棄する。一時タブを表す既存の `previewTab` とは別の状態で、アプリ再起動後には復元しない。
+ローカル・リモートの `.md` は、ファイルタブまたはExplorerの右クリックから「Show Preview」を選ぶと、左にソース・右に描画結果を表示できる。ファイルタブの「Hide Preview」で閉じる。境界はドラッグで調整でき、未保存の編集内容も反映する。開閉状態は `EditorStore.markdownPreviews` がファイルごとに保持し、タブを閉じると破棄する。一時タブを表す既存の `temporaryTab` とは別の状態で、アプリ再起動後には復元しない。
 
 プレビューは共通の [`MarkdownView`](../../Components/Markdown/MarkdownView.swift) を使う。表・コード・数式は既存の描画部品で表示し、コードは横スクロール・コピーできる。Mermaidはコードとして表示する。画像・相対リンクの解決は未対応。
 
 ⌘DはEditorの現在のファイルと差分を切り替える。
 
-`ExplorerView.swift` の `ExplorerFocusNavigation` は、ウィンドウ内のExplorer一覧とFeature領域への参照を保持する。⌘⇧Eでフォーカスを往復し、FileEditorでは表示中の本文を優先する。⌘⇧Dは通常／Diff Explorerを切り替える。一覧のJ/Kは自動プレビューを伴う行移動、Enterはファイルの確定オープンまたはディレクトリの開閉で、一覧にフォーカスを残す。名前入力中はこれらの一覧操作を処理しない。
+`ExplorerView.swift` の `ExplorerFocusNavigation` は、ウィンドウ内のExplorer一覧とFeature領域への参照を保持する。⌘⇧Eでフォーカスを往復し、FileEditorでは表示中の本文を優先する。⌘⇧Dは通常／Diff Explorerを切り替える。一覧のJ/Kは一時タブ表示を伴う行移動、Enterはファイルの確定オープンまたはディレクトリの開閉で、一覧にフォーカスを残す。名前入力中はこれらの一覧操作を処理しない。
 
 ## 共通部品の参照先
 
