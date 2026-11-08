@@ -31,6 +31,10 @@ final class EditorStore: ObservableObject {
         if temporaryTab == tab { temporaryTab = nil }
     }
 
+    func didEdit(_ location: FileLocation) {
+        if temporaryTab == .file(location) { open(.file(location)) }
+    }
+
     func openTemporaryTab(_ location: FileLocation, hosts: [WhubCore.Host], connections: RemoteConnectionStore, servers: RemoteServerStore, root: FileLocation? = nil) {
         prepare(location, hosts: hosts, connections: connections, servers: servers, root: root)
         openTemporaryTab(.file(location))

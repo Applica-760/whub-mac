@@ -185,7 +185,7 @@ struct DiffView: View {
         VStack(spacing: 4) {
             Text(title).font(.caption).frame(maxWidth: .infinity, alignment: .leading).padding(8)
             if let lines {
-                CodeEditorView(state: file, editorID: "diff", onEdit: {}, source: file.textStorage.string,
+                TextView(state: file, editorID: "diff", onEdit: {}, source: file.textStorage.string,
                                language: FileKind.resolve(path: fileURL.path).highlightLanguage, hunks: [], diffLines: lines,
                                onScrollView: { scrolling.attach($0, before: before) }, onExpandDiff: expand)
                     .accessibilityLabel(title)

@@ -1,14 +1,22 @@
 import AppKit
 import Combine
 import SwiftUI
+import SwiftData
 import WhubClient
 
-struct RemoteViewerView: View {
-    @ObservedObject var store: RemoteEditorStore
-    let git: RemoteGitStore?
-    let location: FileLocation
+struct RemoteFileView: View {
+    @EnvironmentObject private var editor: EditorStore
+    @EnvironmentObject private var files: FilesStore
+    let hostID: PersistentIdentifier
+    let path: String
     let editorID: String
-    let showsMarkdownPreview: Bool
+
+    private var store: RemoteEditorStore { editor.remote }
+    private var location: FileLocation { .remote(hostID: hostID, path: path) }
+    private var git: RemoteGitStore? {
+        files.explorer.selectedLocation.flatMap { files.git.remoteGitStores[$0] }
+    }
+    private var showsMarkdownPreview: Bool { editor.markdownPreviews.contains(location) }
 
     private var isImage: Bool { store.fileStores[location]?.isImage == true }
     private var hasImage: Bool { store.fileStores[location]?.image != nil }
@@ -37,7 +45,7 @@ struct RemoteViewerView: View {
                     if let git {
                         RemoteCodeEditorView(git: git, location: location, file: file, source: source, editorID: editorID)
                     } else {
-                        CodeEditorView(state: file, editorID: editorID, onEdit: {}, source: source,
+                        TextView(state: file, editorID: editorID, onEdit: {}, source: source,
                                        language: location.kind.highlightLanguage, hunks: [], location: location)
                             .background(Color(nsColor: .textBackgroundColor))
                     }
@@ -47,6 +55,7 @@ struct RemoteViewerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .id(location)
     }
 }
 
@@ -75,7 +84,7 @@ private struct RemoteCodeEditorView: View {
     }
 
     var body: some View {
-        CodeEditorView(state: file, editorID: editorID, onEdit: {}, source: source,
+        TextView(state: file, editorID: editorID, onEdit: {}, source: source,
                        language: location.kind.highlightLanguage,
                        hunks: diffStore.hunks(for: location, source: source), location: location)
             .background(Color(nsColor: .textBackgroundColor))

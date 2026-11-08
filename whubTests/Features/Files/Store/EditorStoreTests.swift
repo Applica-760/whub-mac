@@ -411,7 +411,7 @@ struct EditorStoreTests {
         #expect(!file.hasUnsavedChanges)
         #expect(file.saveAction != nil)
         #expect(file.canSave?() == true)
-        let content = CodeEditorView(state: file, editorID: "remote", onEdit: {}, source: file.textStorage.string,
+        let content = TextView(state: file, editorID: "remote", onEdit: {}, source: file.textStorage.string,
                                       language: "swift", hunks: [])
         let renderer = NSHostingView(rootView: content)
         renderer.frame = NSRect(x: 0, y: 0, width: 400, height: 300)

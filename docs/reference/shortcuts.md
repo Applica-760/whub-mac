@@ -81,7 +81,7 @@ H・J・K・L・Space・Escは修飾キーなし。先頭・末尾で循環し�
 
 Editorの表示中は、⌘Dで選択中のファイルと差分を切り替える。Explorerでの名前入力中は無効。
 
-実装：[EditorView.swift](../../whub/Features/Files/View/Editor/EditorView.swift)、[CodeEditorView.swift](../../whub/Features/Files/View/Editor/Text/CodeEditorView.swift)、[whubApp.swift](../../whub/whubApp.swift)。
+実装：[EditorView.swift](../../whub/Features/Files/View/Editor/EditorView.swift)、[TextView.swift](../../whub/Features/Files/View/Editor/Text/TextView.swift)、[whubApp.swift](../../whub/whubApp.swift)。
 
 ## 左ナビゲーション
 

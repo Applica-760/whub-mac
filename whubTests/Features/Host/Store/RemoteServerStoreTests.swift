@@ -178,6 +178,75 @@ struct RemoteServerStoreTests {
         await fixture.connections.shutdown()
     }
 
+    @Test func remoteFileIOPassesArgumentsAndRejectsChangedConnections() async throws {
+        for change in ["none", "connection", "url"] {
+            for operation in ["read", "read-image", "write"] {
+                let fixture = try Fixture()
+                await fixture.connections.connect(fixture.host)
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [FileIOProtocol.self]
+                let session = URLSession(configuration: configuration)
+                let servers = RemoteServerStore(connections: fixture.connections, session: session,
+                                                forward: { _, _, _ in 31001 }, cancel: { _, _, _, _ in })
+                let io = RemoteFileIO(host: fixture.host, connections: fixture.connections, servers: servers)
+                let originalConnection = try #require(io.connectionID)
+                FileIOProtocol.respond = { request in
+                    let url = try #require(request.url)
+                    #expect(url.path == "/api/files/" + operation)
+                    let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                    #expect(query.first { $0.name == "root" }?.value == "/workspace")
+                    #expect(query.first { $0.name == "path" }?.value == "sample.txt")
+                    #expect(request.httpMethod == (operation == "write" ? "PUT" : "GET"))
+                    if operation == "write" {
+                        var data = request.httpBody ?? Data()
+                        if let stream = request.httpBodyStream {
+                            stream.open()
+                            defer { stream.close() }
+                            var buffer = [UInt8](repeating: 0, count: 1024)
+                            while true {
+                                let count = stream.read(&buffer, maxLength: buffer.count)
+                                guard count >= 0 else { throw URLError(.cannotDecodeContentData) }
+                                if count == 0 { break }
+                                data.append(contentsOf: buffer.prefix(count))
+                            }
+                        }
+                        let body = try JSONDecoder().decode([String: String].self, from: data)
+                        #expect(body == ["expectedText": "before", "text": "after"])
+                    }
+                    if change == "connection" {
+                        await fixture.connections.disconnect(fixture.host)
+                        await fixture.connections.connect(fixture.host)
+                        #expect(io.connectionID != originalConnection)
+                    } else if change == "url" {
+                        fixture.host.devServerURL = "http://remote.test:8082/api/"
+                        fixture.host.prodServerURL = "http://remote.test:8082/api/"
+                    }
+                    return operation == "read-image" ? Data([1, 2, 3]) : Data(#"{"text":"after"}"#.utf8)
+                }
+                do {
+                    switch operation {
+                    case "read":
+                        #expect(try await io.readText(root: "/workspace", path: "sample.txt") == "after")
+                    case "read-image":
+                        #expect(try await io.readImage(root: "/workspace", path: "sample.txt") == Data([1, 2, 3]))
+                    default:
+                        #expect(try await io.writeText(root: "/workspace", path: "sample.txt",
+                                                      expectedText: "before", text: "after") == "after")
+                    }
+                    #expect(change == "none", "Accepted a response after changing \(change) during \(operation)")
+                } catch SSHError.disconnected {
+                    #expect(change != "none")
+                } catch {
+                    Issue.record("Unexpected error for \(operation), \(change): \(error)")
+                }
+                FileIOProtocol.respond = nil
+                await servers.close()
+                await fixture.connections.shutdown()
+                session.invalidateAndCancel()
+            }
+        }
+    }
+
     private func fixtureSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PingProtocol.self]
@@ -265,6 +334,29 @@ private final class PingProtocol: URLProtocol, @unchecked Sendable {
         }
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private final class FileIOProtocol: URLProtocol, @unchecked Sendable {
+    @MainActor static var respond: ((URLRequest) async throws -> Data)?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Task { @MainActor in
+            do {
+                let handler = try #require(Self.respond)
+                let data = try await handler(request)
+                let url = try #require(request.url)
+                client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200,
+                                    httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: data)
+                client?.urlProtocolDidFinishLoading(self)
+            } catch {
+                client?.urlProtocol(self, didFailWithError: error)
+            }
+        }
     }
     override func stopLoading() {}
 }

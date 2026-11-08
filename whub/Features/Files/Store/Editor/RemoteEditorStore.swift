@@ -2,7 +2,6 @@ import Combine
 import Foundation
 import SwiftData
 import WhubCore
-import WhubClient
 
 @MainActor
 final class RemoteEditorStore: ObservableObject {
@@ -30,31 +29,10 @@ final class RemoteEditorStore: ObservableObject {
         }
         guard case let .remote(hostID, _) = location else { return }
         let host = hosts.first { $0.persistentModelID == hostID }
-        load(location, root: root, connection: {
-            host.flatMap { connections.connection(for: $0) }.map(ObjectIdentifier.init)
-        }, write: { rootPath, path, expected, text in
-            guard let host, let connection = connections.connection(for: host) else { throw SSHError.disconnected }
-            let serverURL = servers.configuredURL(for: host)
-            let client = try await servers.client(for: host)
-            let saved = try await client.files.writeText(root: rootPath, path: path, expectedText: expected, text: text)
-            guard connections.connection(for: host) === connection, servers.configuredURL(for: host) == serverURL else { throw SSHError.disconnected }
-            return saved
-        }, readImage: { rootPath, path in
-            guard let host, let connection = connections.connection(for: host) else { throw SSHError.disconnected }
-            let serverURL = servers.configuredURL(for: host)
-            let client = try await servers.client(for: host)
-            let data = try await client.files.readImage(root: rootPath, path: path)
-            guard connections.connection(for: host) === connection, servers.configuredURL(for: host) == serverURL else { throw SSHError.disconnected }
-            return data
-        }) { _, rootPath, path in
-            guard let host, let connection = connections.connection(for: host) else {
-                throw SSHError.disconnected
-            }
-            let serverURL = servers.configuredURL(for: host)
-            let client = try await servers.client(for: host)
-            let text = try await client.files.readText(root: rootPath, path: path)
-            guard connections.connection(for: host) === connection, servers.configuredURL(for: host) == serverURL else { throw SSHError.disconnected }
-            return text
+        let io = RemoteFileIO(host: host, connections: connections, servers: servers)
+        load(location, root: root, connection: { io.connectionID },
+             write: io.writeText, readImage: io.readImage) { _, rootPath, path in
+            try await io.readText(root: rootPath, path: path)
         }
     }
 

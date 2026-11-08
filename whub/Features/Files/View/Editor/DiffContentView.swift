@@ -1,9 +1,27 @@
 import Combine
 import SwiftUI
+import SwiftData
 import WhubClient
 import WhubGit
 
-struct DiffContent: View {
+struct LocalDiffView: View {
+    @EnvironmentObject private var editor: EditorStore
+    let fileURL: URL
+
+    var body: some View {
+        Group {
+            if let state = editor.local.diffStores[fileURL] {
+                LocalDiffContentView(state: state)
+            } else {
+                Text("Select a file")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .id(FileLocation.local(fileURL))
+    }
+}
+
+private struct LocalDiffContentView: View {
     @ObservedObject var state: LocalDiffStore
     @State private var usageID = UUID()
     @Environment(\.isRetainedPageActive) private var isActive
@@ -36,7 +54,27 @@ struct DiffContent: View {
     }
 }
 
-struct RemoteDiffContent: View {
+struct RemoteDiffView: View {
+    @EnvironmentObject private var files: FilesStore
+    let hostID: PersistentIdentifier
+    let path: String
+
+    private var location: FileLocation { .remote(hostID: hostID, path: path) }
+
+    var body: some View {
+        Group {
+            if let root = files.explorer.selectedLocation, let git = files.git.remoteGitStores[root] {
+                RemoteDiffContentView(git: git, location: location)
+            } else {
+                Text("Select a file")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .id(location)
+    }
+}
+
+private struct RemoteDiffContentView: View {
     @ObservedObject var git: RemoteGitStore
     let location: FileLocation
     @State private var usageID = UUID()

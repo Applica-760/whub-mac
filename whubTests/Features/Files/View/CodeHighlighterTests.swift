@@ -82,7 +82,7 @@ struct CodeHighlighterTests {
         let scroll = NSScrollView()
         scroll.documentView = view
         file.editorViews.views["test"] = scroll
-        let coordinator = CodeEditorView.Coordinator()
+        let coordinator = TextView.Coordinator()
         coordinator.observe(file.textStorage)
         func request() -> CodeHighlighter.Request {
             .init(source: file.textStorage.string, language: "swift", dark: false, diffLines: nil)

@@ -42,25 +42,17 @@ struct EditorView: View {
 
     var body: some View {
         WidgetFrame {
-            if case let .diff(location) = store.selectedTab, let url = location.localURL,
-               let state = store.local.diffStores[url] {
-                DiffContent(state: state).id(location)
-            } else if case let .diff(location) = store.selectedTab, case .remote = location,
-                      let root = files.explorer.selectedLocation, let git = files.git.remoteGitStores[root] {
-                RemoteDiffContent(git: git, location: location).id(location)
-            } else if case let .file(location) = store.selectedTab, let state = store.local.fileStores[location] {
-                FileContent(state: state, editorID: editorID, refreshID: files.refreshID,
-                            showsMarkdownPreview: store.markdownPreviews.contains(location)) { [weak store] in
-                    if store?.temporaryTab == .file(location) { store?.open(.file(location)) }
-                }
-                .id(location)
-            } else if case let .file(location) = store.selectedTab, case .remote = location {
-                RemoteViewerView(store: store.remote, git: files.explorer.selectedLocation.flatMap { files.git.remoteGitStores[$0] },
-                                 location: location, editorID: editorID, showsMarkdownPreview: store.markdownPreviews.contains(location))
-                    .id(location)
-            } else {
-                Text("Select a file")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            switch store.selectedTab {
+            case let .file(.local(url)):
+                LocalFileView(fileURL: url, editorID: editorID)
+            case let .file(.remote(hostID, path)):
+                RemoteFileView(hostID: hostID, path: path, editorID: editorID)
+            case let .diff(.local(url)):
+                LocalDiffView(fileURL: url)
+            case let .diff(.remote(hostID, path)):
+                RemoteDiffView(hostID: hostID, path: path)
+            case nil:
+                emptyContent
             }
         } header: {
             EditorTabBarView(tabFocus: tabFocus, editorID: editorID) { location in
@@ -105,6 +97,11 @@ struct EditorView: View {
             guard let window = tabFocus.view?.window, tabFocus.contains(window) else { return }
             restoreEditorFocus()
         }
+    }
+
+    private var emptyContent: some View {
+        Text("Select a file")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var currentDocumentID: ObjectIdentifier? {
@@ -160,43 +157,6 @@ struct EditorView: View {
             } else {
                 tabFocus.activate()
             }
-        }
-    }
-}
-
-private struct FileContent: View {
-    @ObservedObject var state: LocalFileStore
-    let editorID: String
-    let refreshID: Int
-    let showsMarkdownPreview: Bool
-    let onEdit: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if let message = state.diskMessage {
-                Text(message)
-                    .foregroundStyle(.orange)
-                    .padding(8)
-            }
-            if state.isLoading {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                fileContent
-            }
-        }
-    }
-
-    @ViewBuilder private var fileContent: some View {
-        switch state.document.content {
-        case let .text(source):
-            MarkdownSplitView(source: source, showsPreview: showsMarkdownPreview) {
-                LocalCodeEditorView(fileURL: state.fileURL, source: source, refreshID: refreshID,
-                                    state: state, editorID: editorID, onEdit: onEdit)
-            }
-        case .binary:
-            BinaryView(fileURL: state.fileURL)
-        case let .error(message):
-            Text(message).foregroundStyle(.secondary)
         }
     }
 }

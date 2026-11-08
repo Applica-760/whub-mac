@@ -33,6 +33,7 @@ Files/
 │   │   ├── LocalFileStore.swift   // EditContentStore・保存時のデータを保持し、読み書き・外部変更を管理
 │   │   ├── LocalFileIO.swift      // ファイル別の直列キューで読み書き・比較・文字列変換を実行
 │   │   ├── RemoteFileStore.swift  // EditContentStore・通信状態を保持し、読み書き・競合・切断を管理
+│   │   ├── RemoteFileIO.swift     // 接続・Clientの取得、読み書きの通信、通信前後の接続・設定URLの確認
 │   │   ├── EditContentStore.swift // 本文・保存済み本文・UndoとCodeEditorViewsを保持
 │   │   └── FileEncoding.swift     // UTF-8の読み書きと、保存時の改行・BOMの保持を担当
 │   ├── Git/
@@ -51,11 +52,11 @@ Files/
         ├── DiffContentView.swift  // ローカル・リモートの差分取得状態と比較結果を表示
         ├── EditorTabBarView.swift // 共通タブ部品に、ファイル名・変更状態・操作を接続
         ├── Text/
-        │   ├── CodeEditorView.swift
+        │   ├── TextView.swift
         │   │                      // AppKitのテキスト編集UIを接続。CodeEditorViewsがView・表示位置を保持し、編集可否を反映
-        │   ├── LocalCodeEditorView.swift
-        │   │                      // ローカル本文と行単位のGit差分を表示
-        │   ├── RemoteViewerView.swift
+        │   ├── LocalFileView.swift
+        │   │                      // ローカルファイルの読込状態・内容と行単位のGit差分を表示
+        │   ├── RemoteFileView.swift
         │   │                      // リモート本文・画像・通信状態・行単位のGit差分を表示
         │   ├── DiffView.swift     // ファイルの差分を表示
         │   └── …

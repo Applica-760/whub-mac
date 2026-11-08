@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 import WhubGit
 
-struct CodeEditorView: NSViewRepresentable {
+struct TextView: NSViewRepresentable {
     @Environment(\.isRetainedPageActive) private var isActive
     @Environment(\.retainedPageActivity) private var activity
     @Environment(\.colorScheme) private var colorScheme

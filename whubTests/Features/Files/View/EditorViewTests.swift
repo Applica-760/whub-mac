@@ -203,7 +203,7 @@ struct EditorViewTests {
         let root: (Int, RetainedPageActivity) -> AnyView = { page, activity in
             let content = page == 1
                 ? AnyView(EditorView().environmentObject(store).environmentObject(files).environmentObject(files.git))
-                : AnyView(CodeEditorView(state: otherFile, editorID: "other", onEdit: {},
+                : AnyView(TextView(state: otherFile, editorID: "other", onEdit: {},
                                          source: otherFile.textStorage.string, language: nil, hunks: []))
             return AnyView(content.environment(\.isRetainedPageActive, page == selectedPage)
                 .environment(\.retainedPageActivity, activity))
@@ -344,11 +344,11 @@ struct EditorViewTests {
     @Test func editorPositionsAreSeparateAndClampAfterShorterContent() async throws {
         let first = EditContentStore(content: .text("日本語😀 first file"), isEditable: true)
         let second = EditContentStore(content: .text("second file"), isEditable: true)
-        let firstHost = NSHostingView(rootView: CodeEditorView(state: first, editorID: "one", onEdit: {},
+        let firstHost = NSHostingView(rootView: TextView(state: first, editorID: "one", onEdit: {},
                                                              source: first.textStorage.string, language: nil, hunks: []))
-        let secondHost = NSHostingView(rootView: CodeEditorView(state: first, editorID: "two", onEdit: {},
+        let secondHost = NSHostingView(rootView: TextView(state: first, editorID: "two", onEdit: {},
                                                               source: first.textStorage.string, language: nil, hunks: []))
-        let otherHost = NSHostingView(rootView: CodeEditorView(state: second, editorID: "one", onEdit: {},
+        let otherHost = NSHostingView(rootView: TextView(state: second, editorID: "one", onEdit: {},
                                                              source: second.textStorage.string, language: nil, hunks: []))
         let window = EditorFocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 1800, height: 300),
                                           styleMask: [.titled], backing: .buffered, defer: false)
@@ -388,7 +388,7 @@ struct EditorViewTests {
         let source = "日本語 target 😀 target unsaved"
         file.textStorage.replaceCharacters(in: NSRange(location: 0, length: file.textStorage.length), with: source)
         file.content = .text(source)
-        let host = NSHostingView(rootView: CodeEditorView(state: file, editorID: "find", onEdit: {},
+        let host = NSHostingView(rootView: TextView(state: file, editorID: "find", onEdit: {},
                                                          source: source, language: nil, hunks: []))
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
         try await waitForEditorTest {
@@ -415,7 +415,7 @@ struct EditorViewTests {
     @Test func editorClipsTextOutsideRulerAfterScrollingAndResizing() async throws {
         let line = String(repeating: "content ", count: 30) + "\n"
         let file = EditContentStore(source: String(repeating: line, count: 100))
-        let host = NSHostingView(rootView: CodeEditorView(state: file, editorID: "clip", onEdit: {},
+        let host = NSHostingView(rootView: TextView(state: file, editorID: "clip", onEdit: {},
                                                          source: file.textStorage.string, language: nil, hunks: []))
         host.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
         try await waitForEditorTest {
@@ -442,7 +442,7 @@ struct EditorViewTests {
         #expect(scroll.contentView.bounds.minX == 100)
         let oldThickness = ruler.ruleThickness
         file.updateReadOnly(source: String(repeating: line, count: 1000))
-        host.rootView = CodeEditorView(state: file, editorID: "clip", onEdit: {},
+        host.rootView = TextView(state: file, editorID: "clip", onEdit: {},
                                       source: file.textStorage.string, language: nil, hunks: [])
         try await waitForEditorTest {
             host.layoutSubtreeIfNeeded()
