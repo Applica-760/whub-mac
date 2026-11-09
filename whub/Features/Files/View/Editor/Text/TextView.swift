@@ -88,12 +88,8 @@ struct TextView: NSViewRepresentable {
                       !textView.isHiddenOrHasHiddenAncestor,
                       !state.editorViews.hasMarkedText,
                       state.textStorage.string == request.source else { return }
-                CodeHighlighter.apply(result, to: state.textStorage)
+                textView.applyHighlight(result)
                 self.needsHighlightDelay = false
-                textView.typingAttributes = [
-                    .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-                    .foregroundColor: NSColor.labelColor,
-                ]
                 self.highlighted = request
             }
         }
@@ -140,8 +136,8 @@ struct TextView: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat(Float.greatestFiniteMagnitude), height: CGFloat(Float.greatestFiniteMagnitude))
         textView.textContainer?.size = textView.maxSize
         textView.textContainer?.widthTracksTextView = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.textContainerInset = NSSize(width: 12, height: 12)
+        textView.configureTextLayout()
+        textView.updateTextLayout()
         let ruler = LineNumberRulerView(scrollView: scrollView, orientation: .verticalRuler)
         ruler.reservedThicknessForMarkers = 0
         ruler.clientView = textView
@@ -167,6 +163,7 @@ struct TextView: NSViewRepresentable {
             context.coordinator.cancelHighlight()
             return
         }
+        textView.updateTextLayout()
         if !context.coordinator.didRestorePosition {
             textView.restorePosition()
             context.coordinator.didRestorePosition = true
@@ -181,11 +178,6 @@ struct TextView: NSViewRepresentable {
             context.coordinator.cancelHighlight()
             return
         }
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-            .foregroundColor: NSColor.labelColor,
-        ]
-        textView.typingAttributes = attributes
         context.coordinator.highlight(
             CodeHighlighter.Request(source: source, language: language, dark: colorScheme == .dark, diffLines: diffLines),
             state: state, textView: textView
@@ -215,6 +207,13 @@ private final class CodeScrollView: NSScrollView {
 }
 
 final class CodeTextView: NSTextView {
+    private static let bodyFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting flag: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: flag)
+        enclosingScrollView?.verticalRulerView?.needsDisplay = true
+    }
+
     weak var fileStore: EditContentStore?
     weak var explorerFocus: ExplorerFocusNavigation?
     var location: FileLocation?
@@ -222,6 +221,53 @@ final class CodeTextView: NSTextView {
     var onEdit: (() -> Void)?
     var diffLines: [DiffLine]?
     var onExpandDiff: ((Range<Int>) -> Void)?
+
+    private var plainTextAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: Self.bodyFont,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: defaultParagraphStyle ?? NSParagraphStyle.default,
+        ]
+    }
+
+    func configureTextLayout() {
+        font = Self.bodyFont
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 4
+        if diffLines != nil {
+            paragraph.minimumLineHeight = 20
+            paragraph.maximumLineHeight = 20
+        }
+        defaultParagraphStyle = paragraph
+        textContainer?.lineFragmentPadding = 2.5
+        textContainerInset = NSSize(width: 6, height: 12)
+    }
+
+    func updateTextLayout() {
+        guard fileStore?.editorViews.hasMarkedText != true, !hasMarkedText(), let textStorage else { return }
+        let paragraph = defaultParagraphStyle ?? NSParagraphStyle.default
+        var changes: [NSRange] = []
+        textStorage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: textStorage.length)) { value, range, _ in
+            if (value as? NSParagraphStyle) != paragraph { changes.append(range) }
+        }
+        if !changes.isEmpty {
+            textStorage.beginEditing()
+            for range in changes { textStorage.addAttribute(.paragraphStyle, value: paragraph, range: range) }
+            textStorage.endEditing()
+            fileStore?.editorViews.invalidateRulers()
+        }
+        typingAttributes = plainTextAttributes
+    }
+
+    func applyHighlight(_ result: CodeHighlighter.Result) {
+        guard let textStorage else { return }
+        let text = NSMutableAttributedString(attributedString: result.text)
+        text.addAttribute(.paragraphStyle, value: defaultParagraphStyle ?? NSParagraphStyle.default,
+                          range: NSRange(location: 0, length: text.length))
+        CodeHighlighter.apply(.init(text: text), to: textStorage)
+        typingAttributes = plainTextAttributes
+        fileStore?.editorViews.invalidateRulers()
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let diffLines, let layoutManager else { super.draw(dirtyRect); return }
@@ -295,11 +341,14 @@ final class CodeTextView: NSTextView {
 
     override func resignFirstResponder() -> Bool {
         savePosition()
-        return super.resignFirstResponder()
+        let accepted = super.resignFirstResponder()
+        if accepted { enclosingScrollView?.verticalRulerView?.needsDisplay = true }
+        return accepted
     }
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
+        if accepted { enclosingScrollView?.verticalRulerView?.needsDisplay = true }
         if accepted, let location { explorerFocus?.onEditorFocus?(location) }
         return accepted
     }
@@ -355,6 +404,13 @@ final class CodeEditorViews {
 
     var hasMarkedText: Bool {
         views.values.contains { ($0.documentView as? NSTextView)?.hasMarkedText() == true }
+    }
+
+    func invalidateRulers() {
+        for scrollView in views.values {
+            scrollView.verticalRulerView?.invalidateHashMarks()
+            scrollView.verticalRulerView?.needsDisplay = true
+        }
     }
 
     func setEditable(_ isEditable: Bool) {

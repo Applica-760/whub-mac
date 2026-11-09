@@ -15,7 +15,7 @@ final class LineNumberRulerView: NSRulerView {
                 lineStarts.append(offset + 1)
             }
             let lineCount = source.isEmpty ? 0 : lineStarts.count - (source.hasSuffix("\n") ? 1 : 0)
-            let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+            let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
             let numberWidth = (String(max(999, lineStarts.count)) as NSString).size(withAttributes: [.font: font]).width + 16
             let thickness = numberWidth + 5
             if ruleThickness != thickness {
@@ -33,8 +33,9 @@ final class LineNumberRulerView: NSRulerView {
     override var isOpaque: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.secondaryLabelColor.withAlphaComponent(0.5).setFill()
-        NSRect(x: bounds.maxX - 2, y: bounds.minY, width: 2, height: bounds.height)
+        let separatorWidth = 1 / (window?.backingScaleFactor ?? 1)
+        NSColor.secondaryLabelColor.withAlphaComponent(0.2).setFill()
+        NSRect(x: bounds.maxX - separatorWidth, y: bounds.minY, width: separatorWidth, height: bounds.height)
             .intersection(dirtyRect).fill()
         drawHashMarksAndLabels(in: dirtyRect)
     }
@@ -53,13 +54,19 @@ final class LineNumberRulerView: NSRulerView {
         let characters = layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
         let first = lineIndex(at: characters.location)
         let last = min(lineIndex(at: characters.upperBound) + 1, lineStarts.count - 1)
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        let attributes: [NSAttributedString.Key: Any] = [
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let source = textView.string as NSString
+        let cursorLine = textView.window?.firstResponder === textView
+            ? lineIndex(at: textView.selectedRange().location) : nil
+        let activeColor = NSColor.labelColor
+        let inactiveColor = NSColor.secondaryLabelColor.withAlphaComponent(NSColor.secondaryLabelColor.alphaComponent * 0.5)
+        var attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
         for line in first...last {
             guard let lineRect = lineRect(line, textView: textView, layoutManager: layoutManager) else { continue }
+            attributes[.foregroundColor] = line == cursorLine ? activeColor : inactiveColor
             let rulerRect = convert(lineRect, from: textView)
             let numberValue: Int
             if let diffLines {
@@ -78,8 +85,15 @@ final class LineNumberRulerView: NSRulerView {
             } else { numberValue = line + 1 }
             let number = String(numberValue) as NSString
             let size = number.size(withAttributes: attributes)
+            let start = lineStarts[line]
+            var baseline = layoutManager.defaultBaselineOffset(for: textView.font ?? font)
+            if start < source.length, source.character(at: start) != 10, source.character(at: start) != 13 {
+                let glyph = layoutManager.glyphIndexForCharacter(at: start)
+                baseline = layoutManager.location(forGlyphAt: glyph).y
+            }
+            let numberY = rulerRect.minY + baseline - layoutManager.defaultBaselineOffset(for: font)
             number.draw(
-                at: NSPoint(x: bounds.maxX - 13 - size.width, y: rulerRect.midY - size.height / 2),
+                at: NSPoint(x: bounds.maxX - 13 - size.width, y: numberY),
                 withAttributes: attributes
             )
         }

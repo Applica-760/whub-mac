@@ -60,6 +60,7 @@ actor CodeHighlighter {
             if let highlighted, highlighted.string == request.source {
                 highlighted.enumerateAttributes(in: NSRange(location: 0, length: highlighted.length)) { attributes, range, _ in
                     var attributes = attributes
+                    attributes.removeValue(forKey: .paragraphStyle)
                     if request.language == "markdown" { attributes.removeValue(forKey: .font) }
                     text.addAttributes(attributes, range: range)
                 }
@@ -67,10 +68,6 @@ actor CodeHighlighter {
             if request.language == "markdown" { MarkdownEditorStyle.apply(to: text, source: request.source) }
             guard !Task.isCancelled else { return nil }
             if let diffLines = request.diffLines {
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.minimumLineHeight = 20
-                paragraph.maximumLineHeight = 20
-                text.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: text.length))
                 var offset = 0
                 for line in diffLines {
                     let length = line.displayText.utf16.count
