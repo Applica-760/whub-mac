@@ -429,16 +429,26 @@ struct ExplorerOutlineView: NSViewRepresentable {
         }
 
         func outlineViewItemDidExpand(_ notification: Notification) {
+            updateDisclosure(notification)
             guard !isRestoring else { return }
             updateColumnWidth()
             if let outlineView { selectActiveFile(in: outlineView) }
         }
 
         func outlineViewItemDidCollapse(_ notification: Notification) {
+            updateDisclosure(notification)
             guard !isRestoring, let root = store.treeLocation,
                   let item = notification.userInfo?["NSObject"] as? ExplorerItem else { return }
             store.expandedLocations[root]?.remove(item.location)
             updateColumnWidth()
+        }
+
+        private func updateDisclosure(_ notification: Notification) {
+            guard let outlineView, let item = notification.userInfo?["NSObject"] as? ExplorerItem else { return }
+            let row = outlineView.row(forItem: item)
+            guard row >= 0, let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? ExplorerItemView else { return }
+            cell.updateDisclosure(expandable: self.outlineView(outlineView, isItemExpandable: item),
+                                  expanded: outlineView.isItemExpanded(item))
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -481,6 +491,8 @@ struct ExplorerOutlineView: NSViewRepresentable {
             let location = item.location.localURL.map { FileLocation.local($0.standardizedFileURL) } ?? item.location
             cell.update(item: item, change: store.decorations[location],
                         unavailable: store.isUnavailable(item), editingName: edit?.name, editingOperation: edit?.operation)
+            cell.updateDisclosure(expandable: self.outlineView(outlineView, isItemExpandable: item),
+                                  expanded: outlineView.isItemExpanded(item))
             cell.nameField?.delegate = edit == nil ? nil : self
             return cell
         }
@@ -488,7 +500,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
     }
 }
 
-private final class FileOutlineControl: NSOutlineView {
+final class FileOutlineControl: NSOutlineView {
     var dragStarted = false
     var basePath: String?
     weak var store: ExplorerStore?
@@ -498,6 +510,11 @@ private final class FileOutlineControl: NSOutlineView {
     var onEdit: (ExplorerStore.NameEdit.Operation, ExplorerItem) -> Void = { _, _ in }
     var onOpenSelection: () -> Void = {}
     var onSelectContextRow: (Int) -> Void = { _ in }
+
+    override func frameOfOutlineCell(atRow row: Int) -> NSRect {
+        // Avoid retained AppKit disclosure cells without disabling native outline navigation.
+        .zero
+    }
 
     override func keyDown(with event: NSEvent) {
         if store?.nameEdit == nil,

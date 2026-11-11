@@ -4,12 +4,19 @@ import WhubGit
 
 final class ExplorerItemView: NSTableCellView {
     private(set) var nameField: NSTextField?
+    let disclosureImage = NSImageView()
+    private static let disclosureWidth: CGFloat = 16
     private static let iconSize: CGFloat = 16
     private static let nameSpacing: CGFloat = 4
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
         self.identifier = identifier
+
+        disclosureImage.translatesAutoresizingMaskIntoConstraints = false
+        disclosureImage.contentTintColor = .secondaryLabelColor
+        disclosureImage.setAccessibilityElement(false)
+        addSubview(disclosureImage)
 
         let icon = NSImageView()
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -27,7 +34,11 @@ final class ExplorerItemView: NSTableCellView {
         nameField = name
 
         NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor),
+            disclosureImage.leadingAnchor.constraint(equalTo: leadingAnchor),
+            disclosureImage.centerYAnchor.constraint(equalTo: centerYAnchor),
+            disclosureImage.widthAnchor.constraint(equalToConstant: Self.disclosureWidth),
+            disclosureImage.heightAnchor.constraint(equalToConstant: Self.iconSize),
+            icon.leadingAnchor.constraint(equalTo: disclosureImage.trailingAnchor),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: Self.iconSize),
             icon.heightAnchor.constraint(equalToConstant: Self.iconSize),
@@ -38,10 +49,16 @@ final class ExplorerItemView: NSTableCellView {
     }
 
     var requiredWidth: CGFloat {
-        Self.iconSize + Self.nameSpacing + (nameField?.intrinsicContentSize.width ?? 0)
+        Self.disclosureWidth + Self.iconSize + Self.nameSpacing + (nameField?.intrinsicContentSize.width ?? 0)
     }
 
     required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func updateDisclosure(expandable: Bool, expanded: Bool) {
+        disclosureImage.image = expandable
+            ? NSImage(systemSymbolName: expanded ? "chevron.down" : "chevron.right", accessibilityDescription: nil)
+            : nil
+    }
 
     func update(item: ExplorerItem, change: GitChange?, unavailable: Bool,
                 editingName: String?, editingOperation: ExplorerStore.NameEdit.Operation?) {

@@ -7,6 +7,92 @@ import WhubCore
 
 @Suite @MainActor
 struct ExplorerViewTests {
+    @Test func disclosureTracksOpeningRestorationAndNameEditing() throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DerivedData/ExplorerStoreTests/" + UUID().uuidString)
+        let folder = directory.appendingPathComponent("folder")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data().write(to: folder.appendingPathComponent("file.txt"))
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ExplorerStore()
+        store.selectedLocation = .local(directory)
+        store.localTree.setRoot(directory)
+        var opened = 0
+        let coordinator = ExplorerOutlineView.Coordinator(store: store, onOpenTemporaryTab: { _ in opened += 1 }, onFileOpen: { _ in opened += 1 })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let outline = FileOutlineControl(frame: window.contentView!.bounds)
+        outline.store = store
+        outline.style = .sourceList
+        let column = NSTableColumn(identifier: .init("name"))
+        outline.addTableColumn(column)
+        outline.outlineTableColumn = column
+        outline.dataSource = coordinator
+        outline.delegate = coordinator
+        window.contentView?.addSubview(outline)
+        coordinator.outlineView = outline
+        coordinator.update(basePath: nil, gitChanges: [:])
+        let parent = try #require(store.rootItems.first)
+        func cell(_ item: ExplorerItem) throws -> ExplorerItemView {
+            try #require(outline.view(atColumn: 0, row: outline.row(forItem: item), makeIfNecessary: true) as? ExplorerItemView)
+        }
+        func expectDisclosure(_ symbol: String) throws {
+            let image = try #require(try cell(parent).disclosureImage.image)
+            let expected = try #require(NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.tiffRepresentation)
+            #expect(image.tiffRepresentation == expected)
+        }
+        #expect(outline.frameOfOutlineCell(atRow: 0) == .zero)
+        try expectDisclosure("chevron.right")
+        outline.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        coordinator.openSelection()
+        #expect(outline.isItemExpanded(parent))
+        try expectDisclosure("chevron.down")
+        let child = try #require(store.children(for: parent).first)
+        #expect(try cell(child).disclosureImage.image == nil)
+        #expect(try !cell(parent).disclosureImage.isAccessibilityElement())
+        #expect(opened == 0)
+        #expect(outline.selectedRow == outline.row(forItem: parent))
+        coordinator.openSelection()
+        #expect(!outline.isItemExpanded(parent))
+        try expectDisclosure("chevron.right")
+        #expect(window.makeFirstResponder(outline))
+        func sendArrow(_ character: String, code: UInt16) throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, characters: character, charactersIgnoringModifiers: character,
+                isARepeat: false, keyCode: code))
+            outline.keyDown(with: event)
+        }
+        try sendArrow("\u{F703}", code: 124)
+        #expect(outline.isItemExpanded(parent))
+        try expectDisclosure("chevron.down")
+        try sendArrow("\u{F702}", code: 123)
+        #expect(!outline.isItemExpanded(parent))
+        try expectDisclosure("chevron.right")
+        outline.expandItem(parent)
+        store.refresh()
+        coordinator.update(basePath: nil, gitChanges: [:])
+        #expect(outline.isItemExpanded(parent))
+        try expectDisclosure("chevron.down")
+        coordinator.beginEditing(.rename, item: parent)
+        #expect(try cell(parent).disclosureImage.image == nil)
+        coordinator.cancelEditing()
+        coordinator.update(basePath: nil, gitChanges: [:])
+        try expectDisclosure("chevron.down")
+        for _ in 0..<20 {
+            outline.reloadData()
+            window.layoutIfNeeded()
+        }
+        func containsStandardDisclosure(_ view: NSView) -> Bool {
+            if let button = view as? NSButton, let buttonCell = button.cell,
+               String(describing: type(of: buttonCell)).contains("OutlineButtonCell") { return true }
+            return view.subviews.contains(where: containsStandardDisclosure)
+        }
+        #expect(!containsStandardDisclosure(outline))
+    }
+
     @Test func explorerSelectionKeepsRenderedFont() throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("DerivedData/ExplorerStoreTests/" + UUID().uuidString)
