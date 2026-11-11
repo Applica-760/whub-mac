@@ -376,7 +376,7 @@ struct ExplorerOutlineView: NSViewRepresentable {
                 let edit = nameEdit?.item === item ? nameEdit : nil
                 cell.nameField?.stringValue = edit?.name ?? item.location.name
                 cell.nameField?.isBezeled = edit != nil
-                let indentation = CGFloat(outlineView.level(forItem: item) + 1) * outlineView.indentationPerLevel
+                let indentation = outlineView.frameOfCell(atColumn: 0, row: row).minX
                 width = max(width, indentation + cell.requiredWidth)
             }
             outlineView.fitExplorerColumn(to: width)
@@ -514,6 +514,15 @@ final class FileOutlineControl: NSOutlineView {
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
         // Avoid retained AppKit disclosure cells without disabling native outline navigation.
         .zero
+    }
+
+    override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
+        var frame = super.frameOfCell(atColumn: column, row: row)
+        guard column == 0, row >= 0 else { return frame }
+        let leading = 16 + CGFloat(level(forRow: row)) * indentationPerLevel
+        frame.size.width = max(0, frame.maxX - leading)
+        frame.origin.x = leading
+        return frame
     }
 
     override func keyDown(with event: NSEvent) {

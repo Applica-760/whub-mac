@@ -14,6 +14,9 @@ final class ExplorerItemView: NSTableCellView {
         self.identifier = identifier
 
         disclosureImage.translatesAutoresizingMaskIntoConstraints = false
+        disclosureImage.imageScaling = .scaleProportionallyDown
+        disclosureImage.imageAlignment = .alignLeft
+        disclosureImage.symbolConfiguration = .init(pointSize: 8, weight: .regular)
         disclosureImage.contentTintColor = .secondaryLabelColor
         disclosureImage.setAccessibilityElement(false)
         addSubview(disclosureImage)
@@ -37,7 +40,7 @@ final class ExplorerItemView: NSTableCellView {
             disclosureImage.leadingAnchor.constraint(equalTo: leadingAnchor),
             disclosureImage.centerYAnchor.constraint(equalTo: centerYAnchor),
             disclosureImage.widthAnchor.constraint(equalToConstant: Self.disclosureWidth),
-            disclosureImage.heightAnchor.constraint(equalToConstant: Self.iconSize),
+            disclosureImage.heightAnchor.constraint(equalToConstant: 8),
             icon.leadingAnchor.constraint(equalTo: disclosureImage.trailingAnchor),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: Self.iconSize),

@@ -1,21 +1,23 @@
+import AppKit
 import SwiftData
 import SwiftUI
 import WhubCore
 
 struct ExplorerPulldownView: View {
     @ObservedObject var store: ExplorerStore
+    @State private var scrollSelection: FileLocation?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 picker
                 ExplorerLoadingView(store: store.remoteWorkspace, sources: store.remoteSources,
                                     treeLoading: store.remoteTree.states.values.contains(.loading))
             }
             .padding(.horizontal)
-            .padding(.top)
+            .padding(.top, 8)
 
-            Divider().padding(.horizontal)
+            Divider().padding(.horizontal, 16)
             RemoteWorkspaceStatusView(store: store.remoteWorkspace, sources: store.remoteSources)
         }
         .focusedSceneValue(
@@ -25,27 +27,56 @@ struct ExplorerPulldownView: View {
     }
 
     private var picker: some View {
-        Picker("Project or Worktree", selection: $store.selectedLocation) {
-            if store.locations.isEmpty {
-                Text("---").tag(FileLocation?.none)
+        ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                ForEach(store.locations, id: \.self) { location in
+                    Button {
+                        store.selectedLocation = location
+                    } label: {
+                        Text(title(for: location))
+                            .font(Font(NSFont.systemFont(
+                                ofSize: NSFont.systemFontSize + (location == store.selectedLocation ? 1 : -2),
+                                weight: location == store.selectedLocation
+                                    ? .init((NSFont.Weight.regular.rawValue + NSFont.Weight.medium.rawValue) / 2)
+                                    : .regular
+                            )))
+                            .opacity(location == store.selectedLocation ? 1 : 0.6)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .padding(.horizontal, 6)
+                            .frame(maxWidth: .infinity, minHeight: 24, maxHeight: 24, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(title(for: location))
+                    .accessibilityAddTraits(location == store.selectedLocation ? .isSelected : [])
+                    .id(location)
+                }
             }
-            if let basePath = store.localBasePath {
-                Text("BasePath").tag(Optional(FileLocation.local(URL(fileURLWithPath: basePath))))
-                Divider()
-            }
-            ForEach(store.projects) { project in
-                Text(project.name).tag(Optional(FileLocation.local(URL(fileURLWithPath: project.path))))
-            }
-            ForEach(store.worktreeURLs, id: \.self) { url in
-                Text(url.lastPathComponent).tag(Optional(FileLocation.local(url)))
-            }
-            RemoteWorkspaceMenuItems(store: store.remoteWorkspace, sources: store.remoteSources)
+            .scrollTargetLayout()
         }
-        .pickerStyle(.menu)
-        .labelsHidden()
-        .lineLimit(1)
-        .truncationMode(.tail)
-        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .safeAreaPadding(.vertical, 24)
+        .scrollIndicators(.hidden)
+        .scrollEdgeEffectHidden()
+        .scrollTargetBehavior(.viewAligned(limitBehavior: .always, anchor: .center))
+        .scrollPosition(id: $scrollSelection, anchor: .center)
+        .frame(width: 130, height: 72)
+        .onAppear { scrollSelection = store.selectedLocation }
+        .onChange(of: store.selectedLocation) { _, location in scrollSelection = location }
+        .onScrollPhaseChange { _, phase in
+            if phase == .idle, let scrollSelection { store.selectedLocation = scrollSelection }
+        }
+    }
+
+    private func title(for location: FileLocation) -> String {
+        switch location {
+        case let .local(url):
+            if url.path == store.localBasePath { return "BasePath" }
+            return store.projects.first { $0.path == url.path }?.name ?? location.name
+        case let .remote(hostID, _):
+            guard let source = store.remoteSources.first(where: { $0.hostID == hostID }) else { return location.name }
+            return "\(location == source.baseLocation ? "BasePath" : location.name) · \(source.hostName)"
+        }
     }
 }
 
@@ -68,29 +99,6 @@ extension FocusedValues {
     var explorerPulldownSelection: ExplorerPulldownSelection? {
         get { self[ExplorerPulldownSelectionKey.self] }
         set { self[ExplorerPulldownSelectionKey.self] = newValue }
-    }
-}
-
-struct RemoteWorkspaceMenuItems: View {
-    @ObservedObject var store: RemoteWorkspaceStore
-    let sources: [RemoteWorkspaceStore.Source]
-
-    var body: some View {
-        ForEach(sources, id: \.hostID) { source in
-            let entries = store.entries(for: [source])
-            if !entries.isEmpty {
-                Divider()
-                Section {
-                    ForEach(entries, id: \.self) { entry in
-                        Text(entry == source.baseLocation ? "BasePath" : entry.name).tag(Optional(entry))
-                    }
-                } header: {
-                    Text(source.hostName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
     }
 }
 

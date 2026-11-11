@@ -17,7 +17,7 @@ struct ExplorerView: View {
     let focus: ExplorerFocusNavigation
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 8) {
             ExplorerPulldownView(store: store)
             if store.showsDiff, let root = store.selectedLocation, case .remote = root,
                let remoteGit = files.git.remoteGit(for: root, hosts: hosts.compactMap { $0 as? RemoteHost },
