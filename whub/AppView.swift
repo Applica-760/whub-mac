@@ -15,6 +15,8 @@ struct AppView: View {
     @State private var explorerFocus = ExplorerFocusNavigation()
     @State private var contentFocus = TabPaneFocus()
     @State private var agentBookFocus = TabPaneFocus()
+    @State private var terminal: TerminalStore?
+    @State private var showsTerminal = false
     @State private var showsAgentBook = true
 
     var body: some View {
@@ -29,9 +31,18 @@ struct AppView: View {
             }, store: files.explorer, focus: explorerFocus)
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 640)
         } detail: {
-            RetainedPageContainer(selection: selectedPage, focus: explorerFocus.content) { page in
-                page.content(context: context).environmentObject(files.activeEditor)
+            VSplitView {
+                RetainedPageContainer(selection: selectedPage, focus: explorerFocus.content) { page in
+                    page.content(context: context)
+                }
+                .frame(minHeight: 100)
+                if showsTerminal, let store = terminal {
+                    TerminalView(store: store)
+                        .frame(minHeight: 150)
+                        .background(TabPaneFocusView(focus: store.panelFocus, activatesOnClick: false))
+                }
             }
+            .environmentObject(files.activeEditor)
             .background(TabPaneFocusView(focus: contentFocus, activatesOnClick: false))
             .inspector(isPresented: $showsAgentBook) {
                 AgentBookView(store: agentBook)
@@ -45,6 +56,10 @@ struct AppView: View {
         }
         .focusedSceneValue(\.featureActions, FeatureActions(
             selection: selection,
+            toggleTerminal: {
+                if terminal == nil { terminal = TerminalStore(context: context) }
+                if let terminal { showsTerminal = terminal.togglePanel(isVisible: showsTerminal) }
+            },
             toggleAgentBook: { showsAgentBook.toggle() },
             targetsAgentBook: {
                 guard let window = NSApp.keyWindow else { return false }
@@ -66,13 +81,12 @@ struct AppView: View {
 }
 
 enum FeaturePage: CaseIterable, Hashable {
-    case editor, browser, terminal, overview
+    case editor, browser, overview
 
     @ViewBuilder func content(context: ModelContext) -> some View {
         switch self {
         case .editor: EditorView()
         case .browser: BrowserView()
-        case .terminal: TerminalView(context: context)
         case .overview: OverviewView()
         }
     }
@@ -81,7 +95,6 @@ enum FeaturePage: CaseIterable, Hashable {
         switch self {
         case .editor: "Editor"
         case .browser: "Browser"
-        case .terminal: "Terminal"
         case .overview: "Overview"
         }
     }
@@ -90,7 +103,6 @@ enum FeaturePage: CaseIterable, Hashable {
         switch self {
         case .editor: "doc.text"
         case .browser: "globe"
-        case .terminal: "terminal"
         case .overview: "rectangle.3.group"
         }
     }

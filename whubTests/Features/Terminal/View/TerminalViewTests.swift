@@ -17,6 +17,37 @@ import WhubCore
 
 @Suite @MainActor
 struct TerminalViewTests {
+    @Test func panelToggleRetainsSessionAndRestoresFocus() throws {
+        let database = try ModelContainer(for: Host.self, LocalHost.self, RemoteHost.self, Project.self,
+                                          configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let store = TerminalStore(context: database.mainContext, makeSession: { _ in
+            TerminalSession(terminal: TerminalInputProbe(frame: .zero))
+        })
+        let session = store.selectedSession
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        let editor = NSTextView(frame: NSRect(x: 0, y: 200, width: 500, height: 200))
+        let terminal = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 200))
+        content.addSubview(editor)
+        content.addSubview(terminal)
+        window.contentView = content
+        window.makeKeyAndOrderFront(nil)
+        store.panelFocus.view = terminal
+        #expect(window.makeFirstResponder(editor))
+        var visible = store.togglePanel(isVisible: false, window: window)
+        #expect(visible)
+        #expect(window.makeFirstResponder(terminal))
+        visible = store.togglePanel(isVisible: visible, window: window)
+        #expect(!visible)
+        #expect(window.firstResponder === editor)
+        visible = store.togglePanel(isVisible: visible, window: window)
+        #expect(visible)
+        #expect(store.selectedSession === session)
+    }
+
     @Test func windowActivityPausesRenderingWithoutReplacingTerminal() async throws {
         let terminal = TerminalInputProbe(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
         try terminal.setUseMetal(true)

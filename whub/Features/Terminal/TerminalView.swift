@@ -10,10 +10,6 @@ struct TerminalView: View {
     @StateObject private var store: TerminalStore
     @State private var pendingCloseID: TerminalSession.ID?
 
-    init(context: ModelContext) {
-        _store = StateObject(wrappedValue: TerminalStore(context: context))
-    }
-
     init(store: @autoclosure @escaping () -> TerminalStore) {
         _store = StateObject(wrappedValue: store())
     }
@@ -22,7 +18,7 @@ struct TerminalView: View {
         WidgetFrame {
             LocalTerminalView(terminal: store.selectedSession.terminal)
                 .id(store.selectedSession.id)
-                .frame(maxWidth: .infinity, minHeight: 240)
+                .frame(maxWidth: .infinity, minHeight: 100)
                 .padding(6)
                 .background(Color(nsColor: .textBackgroundColor))
         } header: {

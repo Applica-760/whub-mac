@@ -8,11 +8,12 @@
 | --- | --- |
 | ⌃⌘F | フルスクリーン切り替え |
 | ⇧⌘A | AgentBookを開閉 |
+| ⌘I | 中央領域下部のTerminalを開閉 |
 | ⇧⌘H | 左ペインの前の機能へ移動（末尾へ循環） |
 | ⇧⌘L | 左ペインの次の機能へ移動（先頭へ循環） |
 | ⌘Q | 確認後、「終了」でアプリ終了 |
 
-左ペインの順序は Editor → Terminal → Overview。ToolbarとNavigateメニューも左ペインを切り替える。Motionへの画面導線はない。
+中央のページ順は Editor → Browser → Overview。ToolbarとNavigateメニューもページを切り替える。Terminalは中央領域の下部で開閉する。
 
 終了確認のEnterはキャンセル。アプリメニュー・Dockからの通常終了も同じ確認を使う。
 
@@ -23,8 +24,8 @@
 | ショートカット | 操作 | 作用対象 |
 | --- | --- | --- |
 | ⌘T | フォーカス中のFeatureに新規タブを作成（Fileメニューでも可） | Terminal / AgentBook |
-| ⌘W | 選択タブを閉じる | File / Terminal / AgentBook |
-| ⌘1〜⌘9 | 番号のタブへ移動 | フォーカス中の File・Terminal・AgentBook（表示順） |
+| ⌘W | 選択タブを閉じる | File / Browser / Terminal / AgentBook |
+| ⌘1〜⌘9 | 番号のタブへ移動 | フォーカス中の File・Browser・Terminal・AgentBook（表示順） |
 
 Terminalは最後の1タブを閉じると新しいタブに置き換える。Terminalはコマンド実行中、AgentBookは常に閉じる前に確認する。Fileの未保存タブは保存・破棄・キャンセルを選べる。
 

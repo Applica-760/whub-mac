@@ -101,6 +101,8 @@ final class TerminalSession: Identifiable {
 final class TerminalStore: ObservableObject {
     @Published private(set) var sessions: [TerminalSession]
     @Published private(set) var selectedSessionID: TerminalSession.ID
+    let panelFocus = TabPaneFocus()
+    private let previousFocus = TabPaneFocus()
     private let context: ModelContext
     private let makeSession: @MainActor (String) -> TerminalSession
 
@@ -114,6 +116,18 @@ final class TerminalStore: ObservableObject {
 
     var selectedSession: TerminalSession {
         sessions.first { $0.id == selectedSessionID } ?? sessions[0]
+    }
+
+    func togglePanel(isVisible: Bool, window: NSWindow? = nil) -> Bool {
+        if let window = window ?? NSApp.keyWindow {
+            if isVisible {
+                if panelFocus.contains(window) { previousFocus.activate() }
+                previousFocus.view = nil
+            } else {
+                previousFocus.view = window.firstResponder as? NSView
+            }
+        }
+        return !isVisible
     }
 
     func add() {

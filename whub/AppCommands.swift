@@ -5,6 +5,7 @@ struct FeatureActions: FocusedValueKey {
     typealias Value = Self
 
     let selection: Binding<FeaturePage>
+    let toggleTerminal: () -> Void
     let toggleAgentBook: () -> Void
     let targetsAgentBook: () -> Bool
 
@@ -50,6 +51,9 @@ struct AppCommands: Commands {
                 Button(destination.label) { featureActions?.selection.wrappedValue = destination }
             }
             Divider()
+            Button("Toggle Terminal") { featureActions?.toggleTerminal() }
+                .keyboardShortcut("i", modifiers: .command)
+                .disabled(featureActions == nil)
             AgentBookTabMenu(store: agentBook, isActive: featureActions != nil,
                              isShortcutTarget: { featureActions?.targetsAgentBook() == true })
             Divider()

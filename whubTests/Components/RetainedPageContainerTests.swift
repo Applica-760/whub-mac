@@ -117,7 +117,7 @@ struct RetainedPageContainerTests {
     }
 
     @Test func workspaceSectionsCycleAndRetainEachPage() throws {
-        let sections: [FeaturePage] = [.editor, .terminal, .overview]
+        let sections: [FeaturePage] = [.editor, .browser, .overview]
         #expect(FeaturePage.allCases == sections)
         #expect(FeaturePage.editor.moved(by: -1) == .overview)
         #expect(FeaturePage.overview.moved(by: 1) == .editor)
