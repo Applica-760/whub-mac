@@ -5,7 +5,6 @@ struct FeatureActions: FocusedValueKey {
     typealias Value = Self
 
     let selection: Binding<FeaturePage>
-    let toggleTerminal: () -> Void
     let toggleAgentBook: () -> Void
     let targetsAgentBook: () -> Bool
 
@@ -23,6 +22,7 @@ extension FocusedValues {
 
 struct AppCommands: Commands {
     @FocusedValue(\.featureActions) private var featureActions
+    @FocusedValue(\.toggleTerminal) private var toggleTerminal
     let files: FilesStore
     let agentBook: AgentBookStore
 
@@ -51,9 +51,9 @@ struct AppCommands: Commands {
                 Button(destination.label) { featureActions?.selection.wrappedValue = destination }
             }
             Divider()
-            Button("Toggle Terminal") { featureActions?.toggleTerminal() }
+            Button("Toggle Terminal") { toggleTerminal?() }
                 .keyboardShortcut("i", modifiers: .command)
-                .disabled(featureActions == nil)
+                .disabled(toggleTerminal == nil)
             AgentBookTabMenu(store: agentBook, isActive: featureActions != nil,
                              isShortcutTarget: { featureActions?.targetsAgentBook() == true })
             Divider()

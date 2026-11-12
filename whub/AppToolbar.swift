@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AppToolbar: ToolbarContent {
+    @FocusedValue(\.toggleTerminal) private var toggleTerminal
     @Binding var selection: FeaturePage
     @Binding var showsAgentBook: Bool
 
@@ -13,6 +14,14 @@ struct AppToolbar: ToolbarContent {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+        }
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItem(placement: .primaryAction) {
+            Button("Term", systemImage: "terminal") {
+                toggleTerminal?()
+            }
+            .disabled(toggleTerminal == nil)
+            .help("Toggle Terminal (⌘I)")
         }
         ToolbarSpacer(.fixed, placement: .primaryAction)
         RemoteConnectionToolbar()

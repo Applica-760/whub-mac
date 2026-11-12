@@ -4,6 +4,39 @@ import SwiftUI
 import SwiftData
 import MetalKit
 
+private struct ToggleTerminalKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+extension FocusedValues {
+    var toggleTerminal: (() -> Void)? {
+        get { self[ToggleTerminalKey.self] }
+        set { self[ToggleTerminalKey.self] = newValue }
+    }
+}
+
+struct TerminalSplitView<Content: View>: View {
+    @Environment(\.modelContext) private var context
+    @State private var terminal: TerminalStore?
+    @State private var showsTerminal = false
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VSplitView {
+            content
+            if showsTerminal, let store = terminal {
+                TerminalView(store: store)
+                    .frame(minHeight: 150)
+                    .background(TabPaneFocusView(focus: store.panelFocus, activatesOnClick: false))
+            }
+        }
+        .focusedSceneValue(\.toggleTerminal, {
+            if terminal == nil { terminal = TerminalStore(context: context) }
+            if let terminal { showsTerminal = terminal.togglePanel(isVisible: showsTerminal) }
+        })
+    }
+}
+
 struct TerminalView: View {
     @Environment(\.isRetainedPageActive) private var isActive
     @State private var tabFocus = TabPaneFocus()
