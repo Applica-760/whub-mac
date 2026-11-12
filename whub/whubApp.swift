@@ -7,6 +7,7 @@ import WhubCore
 struct WhubApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var files = FilesStore()
+    @StateObject private var browser = BrowserStore()
     @StateObject private var agentBook: AgentBookStore
     @StateObject private var remoteConnections: RemoteConnectionStore
     @StateObject private var remoteServers: RemoteServerStore
@@ -32,6 +33,7 @@ struct WhubApp: App {
                 AppView()
                     .containerBackground(Color(nsColor: .windowBackgroundColor), for: .window)
                     .environmentObject(files)
+                    .environmentObject(browser)
                     .environmentObject(files.git)
                     .environmentObject(agentBook)
                     .environmentObject(remoteConnections)

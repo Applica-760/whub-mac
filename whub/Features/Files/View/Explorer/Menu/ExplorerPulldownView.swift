@@ -5,12 +5,20 @@ import WhubCore
 
 struct ExplorerPulldownView: View {
     @ObservedObject var store: ExplorerStore
+    var projects: [Project] = []
+    var onOpenIssues: (URL) -> Void = { _ in }
     @State private var scrollSelection: FileLocation?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 picker
+                if let url = issueURL {
+                    Button("Issues", systemImage: "dot.circle") { onOpenIssues(url) }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.plain)
+                        .help("Open GitHub Issues")
+                }
                 ExplorerLoadingView(store: store.remoteWorkspace, sources: store.remoteSources,
                                     treeLoading: store.remoteTree.states.values.contains(.loading))
             }
@@ -77,6 +85,20 @@ struct ExplorerPulldownView: View {
             guard let source = store.remoteSources.first(where: { $0.hostID == hostID }) else { return location.name }
             return "\(location == source.baseLocation ? "BasePath" : location.name) · \(source.hostName)"
         }
+    }
+
+    private var issueURL: URL? {
+        guard let location = store.selectedLocation,
+              let project = projects.first(where: { project in
+                  let matchesHost: Bool
+                  switch location {
+                  case .local: matchesHost = project.host is LocalHost
+                  case let .remote(hostID, _): matchesHost = project.host.persistentModelID == hostID
+                  }
+                  return matchesHost && (location.path == project.path
+                      || project.worktreeIssueNumber(for: location.path) != nil)
+              }), let gitURL = project.gitURL else { return nil }
+        return BrowserStore.githubIssuesURL(gitURL)
     }
 }
 

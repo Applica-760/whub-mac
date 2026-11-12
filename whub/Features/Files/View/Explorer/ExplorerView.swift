@@ -6,6 +6,7 @@ import WhubGit
 
 struct ExplorerView: View {
     let onFileSelect: () -> Void
+    var onOpenIssues: (URL) -> Void = { _ in }
     @Query(sort: \Project.name) private var projects: [Project]
     @Query(sort: \WhubCore.Host.name) private var hosts: [WhubCore.Host]
     @Environment(\.modelContext) private var context
@@ -18,7 +19,7 @@ struct ExplorerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ExplorerPulldownView(store: store)
+            ExplorerPulldownView(store: store, projects: projects, onOpenIssues: onOpenIssues)
             if store.showsDiff, let root = store.selectedLocation, case .remote = root,
                let remoteGit = files.git.remoteGit(for: root, hosts: hosts.compactMap { $0 as? RemoteHost },
                                                connections: connections, servers: servers) {

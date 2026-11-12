@@ -5,6 +5,10 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
+            BookmarkSettingsView()
+                .padding()
+                .tabItem { Label("Bookmarks", systemImage: "bookmark") }
+
             ProjectSettingsView()
                 .padding()
                 .tabItem { Label("Projects", systemImage: "folder") }

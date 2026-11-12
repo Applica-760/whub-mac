@@ -8,6 +8,7 @@ extension EnvironmentValues {
 
 struct AppView: View {
     @EnvironmentObject private var files: FilesStore
+    @EnvironmentObject private var browser: BrowserStore
     @EnvironmentObject private var agentBook: AgentBookStore
     @Environment(\.modelContext) private var context
     @State private var selectedPage = FeaturePage.editor
@@ -22,6 +23,9 @@ struct AppView: View {
         NavigationSplitView {
             ExplorerView(onFileSelect: {
                 selectedPage = .editor
+            }, onOpenIssues: { url in
+                browser.openIssues(url)
+                selectPage(.browser)
             }, store: files.explorer, focus: explorerFocus)
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 640)
         } detail: {
@@ -62,11 +66,12 @@ struct AppView: View {
 }
 
 enum FeaturePage: CaseIterable, Hashable {
-    case editor, terminal, overview
+    case editor, browser, terminal, overview
 
     @ViewBuilder func content(context: ModelContext) -> some View {
         switch self {
         case .editor: EditorView()
+        case .browser: BrowserView()
         case .terminal: TerminalView(context: context)
         case .overview: OverviewView()
         }
@@ -75,6 +80,7 @@ enum FeaturePage: CaseIterable, Hashable {
     var label: String {
         switch self {
         case .editor: "Editor"
+        case .browser: "Browser"
         case .terminal: "Terminal"
         case .overview: "Overview"
         }
@@ -83,6 +89,7 @@ enum FeaturePage: CaseIterable, Hashable {
     var systemImage: String {
         switch self {
         case .editor: "doc.text"
+        case .browser: "globe"
         case .terminal: "terminal"
         case .overview: "rectangle.3.group"
         }
