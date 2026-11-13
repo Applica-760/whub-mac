@@ -72,7 +72,7 @@ enum ClaudeCodeHistory {
         data.split(separator: 10).compactMap { try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any] }
     }
 
-    private static func conversation(_ records: [[String: Any]]) -> [[String: Any]] {
+    static func conversation(_ records: [[String: Any]]) -> [[String: Any]] {
         let types: Set = ["user", "assistant", "progress", "system", "attachment"]
         let entries = records.filter { $0["uuid"] is String && types.contains($0["type"] as? String ?? "") }
         func id(_ index: Int) -> String { entries[index]["uuid"] as? String ?? "" }
