@@ -81,10 +81,6 @@ struct AgentBookTabView: View {
             }
             .background(Color(nsColor: .textBackgroundColor))
             .frame(maxWidth: .infinity)
-            if !pendingQuestions.isEmpty {
-                AgentBookResponsesView(requests: pendingQuestions, respondingRequestIDs: store.respondingRequestIDs,
-                                       isActive: store.isConnected && isActive, respond: respond)
-            }
         }
         .task(id: isActive) {
             if isActive {
@@ -119,16 +115,6 @@ struct AgentBookTabView: View {
 
     private func newConversation() {
         bookStore.newConversation(in: tab.id)
-    }
-
-    private var pendingQuestions: [AgentRequest] {
-        store.exchanges.last(where: { $0.status == .running })?.pendingRequests.filter { !$0.isApproval } ?? []
-    }
-
-    private func respond(_ request: AgentRequest, _ response: AgentResponse) {
-        guard isActive, store.isConnected, activity?.isActive.value != false,
-              featureActivity?.isActive.value != false else { return }
-        Task { await store.respond(to: request.id, with: response) }
     }
 
 }

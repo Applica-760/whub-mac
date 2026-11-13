@@ -119,7 +119,21 @@ final class ClaudeCodeAdapter: AgentAdapter {
         return loaded
     }
 
-    func loadStatus() async throws -> [AgentContent] { throw unsupported("状態の表示") }
+    func loadStatus() async throws -> [AgentContent] {
+        try await connectClient()
+        let activeSettings = settings
+        let permissionMode = client.initialization["current_permission_mode"] as? String
+        var status: [String: Any]?
+        var context: [String: Any]?
+        var usage: [String: Any]?
+        var failures: [ClaudeCodeStatusFailure] = []
+        do { status = try await client.request("get_status") } catch { failures.append(.status) }
+        do { context = try await client.request("get_context_usage") } catch { failures.append(.context) }
+        do { usage = try await client.request("get_usage") } catch { failures.append(.usage) }
+        guard !isClosed, !Task.isCancelled else { throw CancellationError() }
+        return [.code(ClaudeCodeMapping.statusText(ClaudeCodeStatusSnapshot(status: status, settings: activeSettings,
+            permissionMode: permissionMode, context: context, usage: usage, failures: failures)))]
+    }
 
     func changeModel(_ option: AgentModelOption) async throws {
         guard turn == nil, let selected = models.flatMap(\.options).first(where: { $0.id == option.id }) else {

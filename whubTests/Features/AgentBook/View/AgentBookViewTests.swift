@@ -526,8 +526,10 @@ struct AgentBookViewTests {
         featureActivity.setActive(true)
         let request = try CodexMapping.request(method: "item/commandExecution/requestApproval", params: ["command": "ls"], rpcID: 1)
         var decisions: [Bool] = []
-        let host = NSHostingView(rootView: AgentBookApprovalEntryView(request: request, pageSize: CGSize(width: 700, height: 500),
-            contentBottom: 60, scale: 1, sessionActivity: sessionActivity, featureActivity: featureActivity) { _, allow in decisions.append(allow) })
+        let host = NSHostingView(rootView: AgentBookRequestEntryView(request: request, pageSize: CGSize(width: 700, height: 500),
+            contentBottom: 60, scale: 1, sessionActivity: sessionActivity, featureActivity: featureActivity) { _, response in
+                if case .approval(let allow) = response { decisions.append(allow) }
+            })
         let content = try #require(window.contentView)
         host.frame = content.bounds
         content.addSubview(host)

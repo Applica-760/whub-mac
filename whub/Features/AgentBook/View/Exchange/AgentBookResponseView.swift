@@ -3,27 +3,6 @@ import Combine
 import SwiftUI
 import WhubAgent
 
-struct AgentBookResponsesView: View {
-    let requests: [AgentRequest]
-    let respondingRequestIDs: Set<String>
-    let isActive: Bool
-    let respond: (AgentRequest, AgentResponse) -> Void
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                ForEach(requests) { request in
-                    AgentBookResponseView(request: request, isActive: isActive,
-                                          isResponding: respondingRequestIDs.contains(request.id)) { respond(request, $0) }
-                        .id(request.id)
-                }
-            }.padding(12)
-        }
-        .frame(maxHeight: 260)
-        .background(.orange.opacity(0.08))
-    }
-}
-
 struct AgentBookResponseView: View {
     let request: AgentRequest
     var detailsExpanded = false
@@ -56,32 +35,10 @@ struct AgentBookResponseView: View {
             Label(!request.isApproval ? "回答が必要です" : (request.outcome == nil ? "承認が必要です" : "実行リクエスト"), systemImage: "hand.raised.fill")
                 .font(.headline)
             if !request.isApproval {
-                ForEach(questions.indices, id: \.self) { index in
-                    let question = questions[index]
-                    let id = question.id
-                    Text(question.prompt)
-                    ForEach(question.options.indices, id: \.self) { optionIndex in
-                        let option = question.options[optionIndex]
-                        Button {
-                            answers[id] = question.isMultiSelect ? toggle(option.label, in: answers[id] ?? "") : option.label
-                        } label: {
-                            VStack(alignment: .leading) {
-                                Text(option.label)
-                                Text(option.description).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    let binding = Binding(get: { answers[id] ?? "" }, set: { answers[id] = $0 })
-                    if question.isSecret {
-                        SecureField("回答", text: binding)
-                    } else {
-                        TextField("回答を入力", text: binding)
-                    }
+                ViewThatFits(in: .vertical) {
+                    questionFields().fixedSize(horizontal: false, vertical: true)
+                    ScrollView { questionFields() }
                 }
-                Button("回答を送信") {
-                    respond(.answers(answers))
-                }
-                .disabled(questions.contains { (answers[$0.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
             } else {
                 ViewThatFits(in: .vertical) {
                     approvalDetails().fixedSize(horizontal: false, vertical: true)
@@ -103,7 +60,7 @@ struct AgentBookResponseView: View {
             }
         }
         .disabled(isResponding)
-        .frame(maxWidth: 820, alignment: .leading)
+        .frame(maxWidth: Self.width(for: request), alignment: .leading)
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .task(id: request.id) {
@@ -112,6 +69,51 @@ struct AgentBookResponseView: View {
         .onChange(of: isActive) { _, active in
             approvalFocused = active && request.isApproval && request.outcome == nil
         }
+    }
+
+    static func width(for request: AgentRequest) -> CGFloat { request.isApproval ? 820 : 560 }
+
+    private func questionFields() -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(questions.indices, id: \.self) { index in
+                let question = questions[index]
+                let id = question.id
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(question.prompt)
+                        if !question.options.isEmpty {
+                            Text(question.isMultiSelect ? "複数選択" : "単一選択").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    ForEach(question.options.indices, id: \.self) { optionIndex in
+                        let option = question.options[optionIndex]
+                        let selected = (answers[id] ?? "").components(separatedBy: ", ").contains(option.label)
+                        Button(option.label) {
+                            answers[id] = question.isMultiSelect ? toggle(option.label, in: answers[id] ?? "") : option.label
+                        }
+                        .buttonStyle(AgentBookOptionButtonStyle(isSelected: selected))
+                        .help(option.description)
+                    }
+                    let binding = Binding(get: { answers[id] ?? "" }, set: { answers[id] = $0 })
+                    Group {
+                        if question.isSecret {
+                            SecureField("回答", text: binding)
+                        } else {
+                            TextField("回答を入力", text: binding)
+                        }
+                    }
+                    .textFieldStyle(.plain)
+                    .padding(.vertical, 4)
+                    .overlay(alignment: .bottom) { Rectangle().fill(.separator).frame(height: 1) }
+                }
+            }
+            Button("回答を送信") {
+                respond(.answers(answers))
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(questions.contains { (answers[$0.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func toggle(_ label: String, in answer: String) -> String {
@@ -144,7 +146,33 @@ struct AgentBookResponseView: View {
 
 }
 
-struct AgentBookApprovalEntryView: View {
+private struct AgentBookOptionButtonStyle: ButtonStyle {
+    let isSelected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        AgentBookOptionButton(configuration: configuration, isSelected: isSelected)
+    }
+
+    private struct AgentBookOptionButton: View {
+        let configuration: Configuration
+        let isSelected: Bool
+        @State private var isHovered = false
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: 6)
+            configuration.label
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(isSelected ? AnyShapeStyle(.tint.opacity(configuration.isPressed ? 0.25 : 0.15))
+                            : AnyShapeStyle(configuration.isPressed || isHovered ? .quaternary : .quinary), in: shape)
+                .contentShape(shape)
+                .onHover { isHovered = $0 }
+        }
+    }
+}
+
+struct AgentBookRequestEntryView: View {
     let request: AgentRequest?
     let pageSize: CGSize
     let contentBottom: CGFloat
@@ -153,16 +181,16 @@ struct AgentBookApprovalEntryView: View {
     var sessionActivity: RetainedPageActivity? = nil
     var featureActivity: RetainedPageActivity? = nil
     var isResponding = false
-    let decide: (AgentRequest, Bool) -> Void
+    let respond: (AgentRequest, AgentResponse) -> Void
     @State private var showsDetails = false
 
     private var canRespond: Bool {
         !isResponding && isActive && sessionActivity?.isActive.value != false && featureActivity?.isActive.value != false
     }
 
-    private func respond(_ request: AgentRequest, allow: Bool) {
+    private func respond(_ request: AgentRequest, with response: AgentResponse) {
         guard canRespond else { return }
-        decide(request, allow)
+        respond(request, response)
     }
 
     var body: some View {
@@ -173,12 +201,13 @@ struct AgentBookApprovalEntryView: View {
             if let request {
                 AgentBookResponseView(request: request, detailsExpanded: showsDetails,
                     toggleDetails: { showsDetails.toggle() },
-                    approvalDecision: { respond(request, allow: $0) },
-                    isActive: canRespond, isResponding: isResponding, usesNativeKeyEquivalents: false) { _ in }
-                    .frame(width: max(1, min(820 + 32, (pageSize.width - 32) * scale)))
+                    approvalDecision: { respond(request, with: .approval(allow: $0)) },
+                    isActive: canRespond, isResponding: isResponding, usesNativeKeyEquivalents: false) { respond(request, with: $0) }
+                    .frame(width: max(1, min(AgentBookResponseView.width(for: request) + 32, (pageSize.width - 32) * scale)))
                     .frame(maxHeight: max(1, availableHeight))
-                    .background(AgentBookApprovalKeys(isActive: { canRespond }) { respond(request, allow: $0) })
-                    .shadow(radius: 8, y: 3)
+                    .background(AgentBookApprovalKeys(isActive: { canRespond && request.isApproval }) {
+                        respond(request, with: .approval(allow: $0))
+                    })
                     .padding(.top, above ? 0 : anchorY + 12)
                     .padding(.bottom, above ? pageSize.height - anchorY + 12 : 0)
             }
