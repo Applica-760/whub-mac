@@ -17,7 +17,7 @@ struct CodexAgentReceivingTests {
             bytes.append(contentsOf: [10, 10])
         }
         for size in [1, 127, bytes.count] {
-            var buffer = CodexClient.LineBuffer()
+            var buffer = AgentProcess.LineBuffer()
             var received: [[String: Any]] = []
             for start in stride(from: 0, to: bytes.count, by: size) {
                 try buffer.append(Data(bytes[start..<min(start + size, bytes.count)])) {
@@ -33,7 +33,7 @@ struct CodexAgentReceivingTests {
     }
 
     @Test func unterminatedLineWaitsAndMalformedJSONThrows() throws {
-        var buffer = CodexClient.LineBuffer()
+        var buffer = AgentProcess.LineBuffer()
         var received: [Data] = []
         buffer.append(Data("{\"id\":1}".utf8)) { received.append($0) }
         #expect(received.isEmpty)
