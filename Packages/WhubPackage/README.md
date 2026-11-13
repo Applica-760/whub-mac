@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | WhubCore | GUI／CLIの保存モデル、SSHの共通処理 | なし |
 | WhubGit | Git状態・ファイル差分・行差分の取得と差分ツリーの構築。Foundationのみを利用 | なし |
-| WhubAgent | Local／Remote共通のAgent実行・会話状態・モデル | なし |
+| WhubAgent | Local／Remote共通のAgent実行・会話状態・モデル、Codex・Claude Codeとの接続 | なし |
 | WhubClient | Files／Git／Agent／ManagerのHTTP通信とRemote Agentの状態同期 | WhubAgent |
 | WhubCLI | Project一覧の出力、登録HostへのSSH接続。実行ファイルは`whub-mac` | WhubCore |
 | WhubServer | Files／Git／Agent／Manager APIとServer更新。実行ファイルは`whub-server` | WhubAgent、WhubGit、Hummingbird |
