@@ -44,20 +44,20 @@ enum CodexMapping {
             result = .code(changePreview(item.data["changes"] as? [[String: Any]] ?? []))
         case "webSearch":
             name = "Web検索 · " + (item.data["query"] as? String ?? "")
-            result = .code(CodexAgentJSON.pretty(item.data))
+            result = .code(AgentJSON.pretty(item.data))
         case "plan":
             name = "計画"
-            result = .markdown(item.text == nil && item.delta.isEmpty ? CodexAgentJSON.pretty(item.data) : text)
+            result = .markdown(item.text == nil && item.delta.isEmpty ? AgentJSON.pretty(item.data) : text)
         case "contextCompaction":
             name = "会話を圧縮"
-            result = .code(CodexAgentJSON.pretty(item.data))
+            result = .code(AgentJSON.pretty(item.data))
         default:
             name = item.data["tool"] as? String ?? item.type
-            result = .code(CodexAgentJSON.pretty(item.data))
+            result = .code(AgentJSON.pretty(item.data))
         }
         return .toolUse(AgentToolUse(id: item.id,
             tool: AgentTool(name: name, source: item.data["server"] as? String),
-            arguments: item.data["arguments"].map { .code(CodexAgentJSON.pretty($0)) },
+            arguments: item.data["arguments"].map { .code(AgentJSON.pretty($0)) },
             result: [result], status: status(item.status)))
     }
 
@@ -66,7 +66,7 @@ enum CodexMapping {
             .joined(separator: "\n\n")
     }
 
-    static func requestID(_ rpcID: Any) -> String { "request:" + CodexAgentJSON.pretty(rpcID) }
+    static func requestID(_ rpcID: Any) -> String { "request:" + AgentJSON.pretty(rpcID) }
 
     static func request(method: String, params: [String: Any], rpcID: Any) throws -> AgentRequest {
         let id = requestID(rpcID)
@@ -98,7 +98,7 @@ enum CodexMapping {
             reason: params["reason"] as? String, command: params["command"] as? String,
             directory: params["cwd"] as? String,
             changePreview: (params["changes"] as? [[String: Any]]).map { changePreview($0) } ?? params["changePreview"] as? String,
-            permissionsDescription: params["permissions"].map(CodexAgentJSON.pretty), details: CodexAgentJSON.pretty(params))))
+            permissionsDescription: params["permissions"].map(AgentJSON.pretty), details: AgentJSON.pretty(params))))
     }
 
     static func response(_ response: AgentResponse, to request: AgentRequest,

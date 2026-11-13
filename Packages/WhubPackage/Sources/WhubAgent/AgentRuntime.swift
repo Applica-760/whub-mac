@@ -11,7 +11,7 @@ public final class AgentRuntime {
         makeAdapter = { kind in
             switch kind {
             case .codex: CodexAdapter(client: CodexClient(executable: codexExecutable))
-            case .claudeCode: throw AgentError(.unsupported, "Claude Codeの接続は未実装です。")
+            case .claudeCode: ClaudeCodeAdapter(client: ClaudeCodeClient())
             }
         }
     }

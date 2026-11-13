@@ -28,7 +28,7 @@ struct CodexAgentModelTests {
         #expect(parsed.options.map(\.modelID) == ["new-model", "new-model"])
         #expect(parsed.options.map(\.description) == ["Model description", "More reasoning"])
         #expect(parsed.options.map(\.isDefaultEffort) == [true, false])
-        #expect(parsed.options[1].id == CodexAgentJSON.pretty(["catalog-new-model", "high"]))
+        #expect(parsed.options[1].id == AgentJSON.pretty(["catalog-new-model", "high"]))
         #expect(try CodexAgentModel(model()).supportsImages)
     }
 
