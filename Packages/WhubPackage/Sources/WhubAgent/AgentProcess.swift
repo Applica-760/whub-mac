@@ -39,7 +39,7 @@ final class AgentProcess {
         self.command = command
     }
 
-    func start(directory: URL) async throws {
+    func start(directory: URL, arguments: [String] = []) async throws {
         let connection = generation
         let (executable, path): (String, String)
         if let configured = command.executable {
@@ -55,7 +55,7 @@ final class AgentProcess {
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         child.executableURL = URL(fileURLWithPath: executable)
         child.currentDirectoryURL = directory
-        child.arguments = command.arguments
+        child.arguments = command.arguments + arguments
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = path
         child.environment = environment

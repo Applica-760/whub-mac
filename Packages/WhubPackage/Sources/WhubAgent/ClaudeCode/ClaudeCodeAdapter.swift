@@ -55,7 +55,6 @@ final class ClaudeCodeAdapter: AgentAdapter {
         turn = active
         stopRequested = false
         do {
-            try prepareSession()
             try await connectClient()
             guard turn?.id == active.id else { throw CancellationError() }
             if stopRequested { finish(.interrupted); return }
@@ -156,9 +155,29 @@ final class ClaudeCodeAdapter: AgentAdapter {
         resolve(requestID, outcome: mapped.outcome)
     }
 
-    func loadHistory(cursor: String?) async throws -> AgentHistoryPage { throw unsupported("履歴の一覧") }
+    func loadHistory(cursor: String?) async throws -> AgentHistoryPage {
+        guard !isClosed, let directory else { throw CancellationError() }
+        return try await Task.detached { try ClaudeCodeHistory.page(directory: directory, cursor: cursor) }.value
+    }
 
-    func resume(_ entry: AgentHistoryEntry) async throws -> AgentHistorySnapshot { throw unsupported("会話の再開") }
+    func resume(_ entry: AgentHistoryEntry) async throws -> AgentHistorySnapshot {
+        guard sessionID == nil, turn == nil, let directory, directory == entry.directory else {
+            throw AgentError(.adapterFailed, "履歴は空のSessionで元の作業ディレクトリから再開してください。")
+        }
+        let exchanges = try await Task.detached {
+            try ClaudeCodeHistory.exchanges(sessionID: entry.id, directory: directory)
+        }.value
+        sessionID = entry.id
+        needsResume = true
+        do { try await connectClient() }
+        catch {
+            sessionID = nil
+            needsResume = false
+            throw error
+        }
+        emitter.yield(.conversationIDChanged(entry.id))
+        return AgentHistorySnapshot(entry: entry, exchanges: exchanges, selectedModelOption: selectedOption)
+    }
 
     func close() {
         guard !isClosed else { return }
@@ -171,8 +190,13 @@ final class ClaudeCodeAdapter: AgentAdapter {
 
     private func connectClient() async throws {
         guard !isClosed, !Task.isCancelled, let directory else { throw CancellationError() }
-        try await client.connect(directory: directory)
+        let resuming = needsResume ? sessionID : nil
+        try await client.connect(directory: directory, resuming: resuming)
         guard !isClosed, !Task.isCancelled else { throw CancellationError() }
+        guard resuming != nil else { return }
+        needsResume = false
+        settings = [:]
+        _ = try await loadModelOptions()
     }
 
     private func validateDirectory(_ directory: String) throws {
@@ -186,10 +210,6 @@ final class ClaudeCodeAdapter: AgentAdapter {
         guard !input.isEmpty, let directory else { throw AgentError(.adapterFailed, "入力または接続先を確認できませんでした。") }
         try validateDirectory(directory)
         return try ClaudeCodeMapping.input(input, skills: skills)
-    }
-
-    private func prepareSession() throws {
-        if needsResume { throw unsupported("接続が終了した会話の再開") }
     }
 
     private var selectedOption: AgentModelOption? {

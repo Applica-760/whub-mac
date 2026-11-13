@@ -24,21 +24,24 @@ final class ClaudeCodeClient {
     private var pending: [String: CheckedContinuation<Data, Error>] = [:]
     private var timeouts: [String: Task<Void, Never>] = [:]
     private(set) var initialization: [String: Any] = [:]
+    private var resumedSessionID: String?
     var isConnected: Bool { process.isRunning }
 
-    func connect(directory: String) async throws {
+    func connect(directory: String, resuming sessionID: String? = nil) async throws {
         if let connecting { try await connecting.value }
         let cwd = URL(fileURLWithPath: directory).standardizedFileURL
-        guard !isConnected || process.directory?.standardizedFileURL != cwd else { return }
+        guard !isConnected || process.directory?.standardizedFileURL != cwd
+                || (sessionID != nil && sessionID != resumedSessionID) else { return }
         disconnect()
-        let task = Task { try await startConnection(directory: cwd) }
+        let task = Task { try await startConnection(directory: cwd, resuming: sessionID) }
         connecting = task
         defer { connecting = nil }
         try await task.value
     }
 
-    private func startConnection(directory: URL) async throws {
-        try await process.start(directory: directory)
+    private func startConnection(directory: URL, resuming sessionID: String?) async throws {
+        try await process.start(directory: directory, arguments: sessionID.map { ["--resume", $0] } ?? [])
+        resumedSessionID = sessionID
         do {
             initialization = try await request("initialize")
         } catch {
@@ -109,6 +112,7 @@ final class ClaudeCodeClient {
     func disconnect(reason: String = "Claude Code接続を終了しました。") {
         process.stop()
         initialization = [:]
+        resumedSessionID = nil
         for task in timeouts.values { task.cancel() }
         timeouts.removeAll()
         let waiting = pending.values

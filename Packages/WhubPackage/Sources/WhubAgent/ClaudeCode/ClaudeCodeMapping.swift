@@ -103,4 +103,95 @@ enum ClaudeCodeMapping {
         if let text = content as? String { return text }
         return (content as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
     }
+
+    static func historyEntry(id: String, directory: String, updatedAt: Date,
+                             head: [[String: Any]], tail: [[String: Any]]) -> AgentHistoryEntry? {
+        func last(_ type: String, _ key: String) -> String? {
+            for records in [tail, head] {
+                if let value = records.last(where: { $0["type"] as? String == type })?[key] as? String,
+                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return value }
+            }
+            return nil
+        }
+        let name = last("custom-title", "customTitle") ?? last("ai-title", "aiTitle")
+        let preview = last("last-prompt", "lastPrompt")
+        guard name != nil || preview != nil else { return nil }
+        return AgentHistoryEntry(id: id, name: name, preview: preview, directory: directory, updatedAt: updatedAt)
+    }
+
+    static func exchanges(_ records: [[String: Any]]) throws -> [AgentExchange] {
+        var exchanges: [AgentExchange] = []
+        var current: (exchange: AgentExchange, turn: ClaudeCodeTurn)?
+        func finish() {
+            guard var (exchange, turn) = current else { return }
+            let status: AgentExecutionStatus = exchange.status == .interrupted ? .interrupted : .completed
+            for index in turn.items.indices where turn.items[index].status == .running { turn.items[index].status = status }
+            turn.inferFinalAnswerIfNeeded()
+            exchange.outputs = turn.items.map(output)
+            exchange.status = status
+            exchanges.append(exchange)
+            current = nil
+        }
+        for (index, record) in records.enumerated() where record["isSidechain"] as? Bool != true {
+            let message = record["message"] as? [String: Any] ?? [:]
+            switch record["type"] as? String {
+            case "assistant":
+                _ = current?.turn.complete(message)
+            case "user" where record["isMeta"] as? Bool != true:
+                let content = message["content"]
+                let results = (content as? [[String: Any]] ?? []).filter { $0["type"] as? String == "tool_result" }
+                if !results.isEmpty {
+                    for result in results { _ = current?.turn.completeTool(result) }
+                    continue
+                }
+                let body = text(content)
+                if body.hasPrefix("[Request interrupted by user") {
+                    current?.exchange.status = .interrupted
+                    continue
+                }
+                if body.hasPrefix("<local-command-") { continue }
+                let input: [AgentInput]
+                if body.hasPrefix("<command-"), let command = tag("command-name", in: body) {
+                    guard records[(index + 1)...].first(where: { $0["type"] as? String == "user" })?["isMeta"] as? Bool == true else {
+                        continue
+                    }
+                    let name = command.hasPrefix("/") ? String(command.dropFirst()) : command
+                    let arguments = tag("command-args", in: body) ?? ""
+                    input = [.skill(AgentSkill(id: name, name: name, description: ""))] + (arguments.isEmpty ? [] : [.text(arguments)])
+                } else {
+                    input = try historyInput(content)
+                }
+                finish()
+                current = (AgentExchange(input: input), ClaudeCodeTurn())
+            default: break
+            }
+        }
+        finish()
+        return exchanges
+    }
+
+    private static func tag(_ name: String, in text: String) -> String? {
+        guard let start = text.range(of: "<\(name)>"),
+              let end = text.range(of: "</\(name)>", range: start.upperBound..<text.endIndex) else { return nil }
+        return String(text[start.upperBound..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func historyInput(_ content: Any?) throws -> [AgentInput] {
+        if let text = content as? String { return [.text(text)] }
+        guard let blocks = content as? [[String: Any]] else { throw AgentError(.adapterFailed, "会話の入力履歴が不正です。") }
+        return try blocks.map { block in
+            switch block["type"] as? String {
+            case "text":
+                if let text = block["text"] as? String { return .text(text) }
+            case "image":
+                if let source = block["source"] as? [String: Any], source["type"] as? String == "base64",
+                   let mediaType = source["media_type"] as? String,
+                   let data = (source["data"] as? String).flatMap({ Data(base64Encoded: $0) }) {
+                    return .image(try AgentImageAttachment(data: data, mediaType: mediaType))
+                }
+            default: break
+            }
+            throw AgentError(.adapterFailed, "共通入力への変換が未対応の履歴です: \(block["type"] as? String ?? "不明")")
+        }
+    }
 }
