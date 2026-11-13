@@ -45,6 +45,8 @@ Local／RemoteともWhubAgentの`AgentRuntime`が実行を所有する。Local�
 | SSH切断 | - | 実行を終了しない。Mac側は再接続後に状態を取得する |
 | 実行を所有するプロセスの終了 | Macアプリ終了でsessionを失う | Server終了・再起動でsessionを失う |
 
+Remote AgentでのClaude Codeの実行は未検証。
+
 
 ## 4. dev／prodの選択
 

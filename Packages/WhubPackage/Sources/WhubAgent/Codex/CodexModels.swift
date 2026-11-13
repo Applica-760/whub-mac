@@ -1,14 +1,5 @@
 import Foundation
 
-nonisolated enum CodexAgentJSON {
-    static func pretty(_ value: Any) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed]),
-              let string = String(data: data, encoding: .utf8) else { return String(describing: value) }
-        return string
-    }
-}
-
-
 struct CodexAgentModel: Identifiable {
     let id: String
     let options: [AgentModelOption]
@@ -29,12 +20,12 @@ struct CodexAgentModel: Identifiable {
                 throw CodexAgentError(message: "推論設定の形式が不正です。")
             }
             let detail = effort["description"] as? String ?? ""
-            return AgentModelOption(id: CodexAgentJSON.pretty([id, value]), modelID: model,
+            return AgentModelOption(id: AgentJSON.pretty([id, value]), modelID: model,
                 displayName: displayName, description: detail.isEmpty ? description : detail,
                 effort: value, isDefaultEffort: value == defaultEffort)
         }
         if parsed.isEmpty {
-            parsed = [AgentModelOption(id: CodexAgentJSON.pretty([id, defaultEffort]), modelID: model,
+            parsed = [AgentModelOption(id: AgentJSON.pretty([id, defaultEffort]), modelID: model,
                 displayName: displayName, description: description,
                 effort: defaultEffort, isDefaultEffort: true)]
         }

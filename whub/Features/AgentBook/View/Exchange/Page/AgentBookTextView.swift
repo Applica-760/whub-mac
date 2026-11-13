@@ -420,6 +420,20 @@ private final class AgentBookPageScrollView: NSScrollView {
 private final class AgentBookNativeTextView: NSTextView {
     weak var readingSurface: AgentBookTextSurface?
 
+    override func cursorUpdate(with event: NSEvent) {
+        if isCovered(event) { NSCursor.arrow.set() } else { super.cursorUpdate(with: event) }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        if isCovered(event) { NSCursor.arrow.set() } else { super.mouseMoved(with: event) }
+    }
+
+    private func isCovered(_ event: NSEvent) -> Bool {
+        guard let content = window?.contentView,
+              let hit = content.hitTest(content.convert(event.locationInWindow, from: nil)) else { return false }
+        return hit !== self && !hit.isDescendant(of: self)
+    }
+
     override func selectAll(_ sender: Any?) {
         if let readingSurface { readingSurface.selectAll(sender) } else { super.selectAll(sender) }
     }

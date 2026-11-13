@@ -145,7 +145,7 @@ final class CodexAdapter: AgentAdapter {
             throw CodexAgentError(message: "Skill一覧の形式が不正です。")
         }
         let errors = entries.flatMap { $0["errors"] as? [[String: Any]] ?? [] }
-        guard errors.isEmpty else { throw CodexAgentError(message: CodexAgentJSON.pretty(errors)) }
+        guard errors.isEmpty else { throw CodexAgentError(message: AgentJSON.pretty(errors)) }
         var seen = Set<String>()
         let loaded = try entries.flatMap { entry -> [AgentSkill] in
             guard let values = entry["skills"] as? [[String: Any]] else {
@@ -340,7 +340,7 @@ final class CodexAdapter: AgentAdapter {
         if let option = models.flatMap(\.options).first(where: { $0.modelID == model && $0.effort == effort }) {
             return option
         }
-        return AgentModelOption(id: CodexAgentJSON.pretty([model, effort as Any? ?? NSNull()]), modelID: model,
+        return AgentModelOption(id: AgentJSON.pretty([model, effort as Any? ?? NSNull()]), modelID: model,
             displayName: model, description: "", effort: effort, isDefaultEffort: false)
     }
 

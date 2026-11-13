@@ -16,7 +16,7 @@ GUI側の会話・下書き・接続状態を管理する。実行は[WhubPackag
 
 `AgentBookTabStore`はAgentStoreを作り、History／Skill Storeへ渡す。補助StoreはAgentStore経由で取得し、接続を別に作らない。
 
-AgentStoreは接続時の状態を取得し、revisionに基づいて更新を反映する。実行先のRuntimeがSessionを所有し、Codex固有の通信はWhubAgent内で扱う。
+AgentStoreは接続時の状態を取得し、revisionに基づいて更新を反映する。実行先のRuntimeがSessionを所有し、Codex・Claude Code固有の通信はWhubAgent内で扱う。
 
 `disconnect()`は状態取得を停止する。LocalはSessionも終了し、Remoteは取得用データだけを解放して実行を継続する。終了済みStoreは使い回さない。
 

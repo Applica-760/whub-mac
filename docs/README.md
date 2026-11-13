@@ -19,6 +19,7 @@
 | --- | --- |
 | [タブ](specifications/common/tabs.md) | ショートカット・フォーカス・状態保持・最後のタブを閉じる動作 |
 | [Markdown](specifications/common/markdown.md) | 表・コード・数式の描画、プレビュー、コピーボタン |
+| [Claude Code](specifications/WhubAgent/claude-code.md) | 受信・履歴の一覧と再開・要求への回答・モデルと状態表示 |
 
 ## Package・Feature
 

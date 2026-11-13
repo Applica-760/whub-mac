@@ -71,8 +71,8 @@ struct AgentBookExchangeView: View {
         book.selectedPage == book.pageCount - 1
     }
     private var canInteract: Bool { isActive && sessionActive && featureActive }
-    private var approval: AgentRequest? {
-        store.exchanges.last(where: { $0.status == .running })?.pendingRequests.first(where: \.isApproval)
+    private var request: AgentRequest? {
+        store.exchanges.last(where: { $0.status == .running })?.pendingRequests.first
     }
 
     var body: some View {
@@ -100,14 +100,14 @@ struct AgentBookExchangeView: View {
                 .overlay(alignment: .topLeading) {
                     GeometryReader { geometry in
                         if let contentBottom = book.contentBottoms.last {
-                            AgentBookApprovalEntryView(request: approval,
+                            AgentBookRequestEntryView(request: request,
                                 pageSize: book.pageSize, contentBottom: contentBottom, scale: 1,
                                 isActive: canInteract && store.isConnected && latestPageIsInteractive,
                                 sessionActivity: activity, featureActivity: featureActivity,
-                                isResponding: approval.map { store.respondingRequestIDs.contains($0.id) } ?? false,
-                                decide: { request, allow in
+                                isResponding: request.map { store.respondingRequestIDs.contains($0.id) } ?? false,
+                                respond: { request, response in
                                     guard canInteract else { return }
-                                    Task { await store.respond(to: request.id, with: .approval(allow: allow)) }
+                                    Task { await store.respond(to: request.id, with: response) }
                                 })
                                 .offset(x: book.pageOrigin(book.pageCount - 1, viewport: geometry.size).x,
                                         y: book.pageOrigin(book.pageCount - 1, viewport: geometry.size).y)
@@ -126,7 +126,7 @@ struct AgentBookExchangeView: View {
         }
         .onChange(of: store.id) { _, _ in updateBook(store.exchanges) }
         .onChange(of: agentName) { _, _ in updateBook(store.exchanges) }
-        .onChange(of: approval?.id) { previous, next in
+        .onChange(of: request?.id) { previous, next in
             guard previous != nil, next == nil, canInteract else { return }
             focus.activateInput()
         }
