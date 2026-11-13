@@ -34,7 +34,6 @@ private struct LocalDiffContentView: View {
                 ContentUnavailableView("差分を取得できません", systemImage: "exclamationmark.triangle",
                                        description: Text(error))
             } else if let diff = state.diff {
-                if state.isLoading { ProgressView().controlSize(.small) }
                 switch diff.content {
                 case let .text(before, after):
                     if diff.change == nil { Text("未コミットの差分はありません").foregroundStyle(.secondary) }
@@ -45,6 +44,15 @@ private struct LocalDiffContentView: View {
                 }
             } else {
                 ProgressView("差分を読み込み中…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if state.isLoading, state.diff != nil, state.errorMessage == nil {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(8)
+                    .accessibilityLabel("差分を更新中")
+                    .allowsHitTesting(false)
             }
         }
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) {
@@ -98,7 +106,6 @@ private struct RemoteDiffContentView: View {
                 ContentUnavailableView("差分を取得できません", systemImage: "exclamationmark.triangle",
                                        description: Text(error))
             } else if let diff = git.diffs[path] {
-                if git.isLoading { ProgressView().controlSize(.small) }
                 if diff.content.type == "text", let before = diff.content.before, let after = diff.content.after {
                     if diff.change == nil { Text("未コミットの差分はありません").foregroundStyle(.secondary) }
                     DiffView(before: before, after: after, fileURL: URL(fileURLWithPath: location.path))
@@ -108,6 +115,15 @@ private struct RemoteDiffContentView: View {
                 }
             } else {
                 ProgressView("差分を読み込み中…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if git.isLoading, git.isConnected, git.watchError == nil, git.errorMessage == nil, git.diffs[path] != nil {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(8)
+                    .accessibilityLabel("差分を更新中")
+                    .allowsHitTesting(false)
             }
         }
         .onReceive(activity?.isActive.eraseToAnyPublisher() ?? Just(isActive).eraseToAnyPublisher()) { updateUsage($0) }
