@@ -63,7 +63,7 @@ struct AgentBookResponseView: View {
                     ForEach(question.options.indices, id: \.self) { optionIndex in
                         let option = question.options[optionIndex]
                         Button {
-                            answers[id] = option.label
+                            answers[id] = question.isMultiSelect ? toggle(option.label, in: answers[id] ?? "") : option.label
                         } label: {
                             VStack(alignment: .leading) {
                                 Text(option.label)
@@ -112,6 +112,12 @@ struct AgentBookResponseView: View {
         .onChange(of: isActive) { _, active in
             approvalFocused = active && request.isApproval && request.outcome == nil
         }
+    }
+
+    private func toggle(_ label: String, in answer: String) -> String {
+        var labels = answer.components(separatedBy: ", ").filter { !$0.isEmpty }
+        if let index = labels.firstIndex(of: label) { labels.remove(at: index) } else { labels.append(label) }
+        return labels.joined(separator: ", ")
     }
 
     private func approvalDetails() -> some View {

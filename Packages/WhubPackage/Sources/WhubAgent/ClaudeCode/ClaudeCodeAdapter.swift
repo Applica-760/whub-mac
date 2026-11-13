@@ -13,6 +13,15 @@ final class ClaudeCodeAdapter: AgentAdapter {
     private var stopRequested = false
     private var needsResume = false
     private var models: [ClaudeCodeModel] = []
+    private var skills: [AgentSkill] = []
+    private var settings: [String: Any] = [:]
+    private var pendingRequests: [String: PendingRequest] = [:]
+
+    private struct PendingRequest {
+        let controlID: String
+        let input: [String: Any]
+        var request: AgentRequest
+    }
 
     init(client: ClaudeCodeClient? = nil) {
         let client = client ?? ClaudeCodeClient()
@@ -53,6 +62,7 @@ final class ClaudeCodeAdapter: AgentAdapter {
             try client.send(payload)
         } catch {
             if turn?.id == active.id {
+                for id in Array(pendingRequests.keys) { resolve(id, outcome: .unanswered) }
                 turn = nil
                 stopRequested = false
             }
@@ -78,17 +88,59 @@ final class ClaudeCodeAdapter: AgentAdapter {
         var seen = Set<String>()
         let loaded = try (client.initialization["models"] as? [[String: Any]] ?? []).map(ClaudeCodeModel.init)
             .filter { seen.insert($0.id).inserted }
+        let result = try await client.request("get_settings")
+        guard let values = result["effective"] as? [String: Any] else {
+            throw AgentError(.adapterFailed, "起動時のモデル設定を取得できませんでした。")
+        }
         models = loaded
+        if settings.isEmpty {
+            settings["model"] = values["model"] as? String ?? "default"
+            settings["effort"] = values["effortLevel"] as? String
+        }
+        publishModelOption()
         return loaded.flatMap(\.options)
     }
 
-    func loadSkills() async throws -> [AgentSkill] { throw unsupported("Skill一覧") }
+    func loadSkills() async throws -> [AgentSkill] {
+        try await connectClient()
+        let result = try await client.request("reload_skills")
+        guard let values = result["skills"] as? [[String: Any]] else {
+            throw AgentError(.adapterFailed, "Skill一覧の形式が不正です。")
+        }
+        var seen = Set<String>()
+        let loaded = try values.map { value in
+            guard let name = value["name"] as? String, !name.isEmpty else {
+                throw AgentError(.adapterFailed, "Skillの識別子を確認できませんでした。")
+            }
+            return AgentSkill(id: name, name: name, description: value["description"] as? String ?? "")
+        }.filter { seen.insert($0.id).inserted }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        skills = loaded
+        return loaded
+    }
 
     func loadStatus() async throws -> [AgentContent] { throw unsupported("状態の表示") }
 
-    func changeModel(_ option: AgentModelOption) async throws { throw unsupported("モデルの変更") }
+    func changeModel(_ option: AgentModelOption) async throws {
+        guard turn == nil, let selected = models.flatMap(\.options).first(where: { $0.id == option.id }) else {
+            throw AgentError(.invalidInput, "現在選択できるモデルとEffortを指定してください。")
+        }
+        try await connectClient()
+        _ = try await client.request("set_model", ["model": selected.modelID])
+        _ = try await client.request("apply_flag_settings", ["settings": ["effortLevel": selected.effort as Any? ?? NSNull()]])
+        settings["model"] = selected.modelID
+        settings["effort"] = selected.effort
+        publishModelOption()
+    }
 
-    func respond(to requestID: String, with response: AgentResponse) async throws { throw unsupported("要求への回答") }
+    func respond(to requestID: String, with response: AgentResponse) async throws {
+        guard !isClosed, let pending = pendingRequests[requestID] else {
+            throw AgentError(.notFound, "未回答の要求を確認できませんでした。")
+        }
+        let mapped = try ClaudeCodeMapping.response(response, to: pending.request, input: pending.input)
+        try client.respond(requestID: pending.controlID, response: mapped.result)
+        resolve(requestID, outcome: mapped.outcome)
+    }
 
     func loadHistory(cursor: String?) async throws -> AgentHistoryPage { throw unsupported("履歴の一覧") }
 
@@ -97,6 +149,7 @@ final class ClaudeCodeAdapter: AgentAdapter {
     func close() {
         guard !isClosed else { return }
         isClosed = true
+        pendingRequests.removeAll()
         turn = nil
         client.disconnect()
         emitter.finish()
@@ -118,11 +171,25 @@ final class ClaudeCodeAdapter: AgentAdapter {
     private func inputPayload(_ input: [AgentInput]) throws -> [[String: Any]] {
         guard !input.isEmpty, let directory else { throw AgentError(.adapterFailed, "入力または接続先を確認できませんでした。") }
         try validateDirectory(directory)
-        return try ClaudeCodeMapping.input(input)
+        return try ClaudeCodeMapping.input(input, skills: skills)
     }
 
     private func prepareSession() throws {
         if needsResume { throw unsupported("接続が終了した会話の再開") }
+    }
+
+    private var selectedOption: AgentModelOption? {
+        guard let model = settings["model"] as? String else { return nil }
+        let effort = settings["effort"] as? String
+        if let option = models.flatMap(\.options).first(where: { $0.modelID == model && $0.effort == effort }) {
+            return option
+        }
+        return AgentModelOption(id: AgentJSON.pretty([model, effort as Any? ?? NSNull()]), modelID: model,
+            displayName: model, description: "", effort: effort, isDefaultEffort: false)
+    }
+
+    private func publishModelOption() {
+        if let option = selectedOption { emitter.yield(.modelOptionChanged(option)) }
     }
 
     private func unsupported(_ operation: String) -> AgentError {
@@ -131,15 +198,29 @@ final class ClaudeCodeAdapter: AgentAdapter {
 
     func receive(_ message: [String: Any]) {
         guard !isClosed else { return }
-        if message["type"] as? String == "control_request", let requestID = message["request_id"] as? String {
+        if message["type"] as? String == "control_request", let controlID = message["request_id"] as? String {
+            let params = message["request"] as? [String: Any] ?? [:]
             do {
-                if (message["request"] as? [String: Any])?["subtype"] as? String == "can_use_tool" {
-                    try client.respond(requestID: requestID,
-                                       response: ["behavior": "deny", "message": "whubはこの承認要求に未対応です。"])
-                } else {
-                    try client.rejectUnsupported(requestID: requestID)
+                guard params["subtype"] as? String == "can_use_tool" else {
+                    try client.rejectUnsupported(requestID: controlID)
+                    return
+                }
+                do {
+                    guard turn != nil else { throw AgentError(.adapterFailed, "要求の対象となる実行を確認できませんでした。") }
+                    let request = try ClaudeCodeMapping.request(params, controlID: controlID)
+                    guard pendingRequests[request.id] == nil else { return }
+                    pendingRequests[request.id] = PendingRequest(controlID: controlID,
+                        input: params["input"] as? [String: Any] ?? [:], request: request)
+                    emitter.yield(.output(.request(request)))
+                } catch {
+                    try client.respond(requestID: controlID,
+                                       response: ["behavior": "deny", "message": error.localizedDescription])
                 }
             } catch { finish(.failed(error.localizedDescription)) }
+            return
+        }
+        if message["type"] as? String == "control_cancel_request", let controlID = message["request_id"] as? String {
+            resolve(ClaudeCodeMapping.requestID(controlID), outcome: .resolved)
             return
         }
         if let id = message["session_id"] as? String, !id.isEmpty, id != sessionID {
@@ -175,7 +256,14 @@ final class ClaudeCodeAdapter: AgentAdapter {
         }
     }
 
+    private func resolve(_ id: String, outcome: AgentRequestOutcome) {
+        guard var pending = pendingRequests.removeValue(forKey: id) else { return }
+        pending.request.outcome = outcome
+        emitter.yield(.output(.request(pending.request)))
+    }
+
     private func finish(_ event: AgentEvent) {
+        for id in Array(pendingRequests.keys) { resolve(id, outcome: .unanswered) }
         turn = nil
         stopRequested = false
         emitter.yield(event)

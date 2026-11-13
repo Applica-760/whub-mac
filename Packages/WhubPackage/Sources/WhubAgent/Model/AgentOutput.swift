@@ -130,6 +130,7 @@ public struct AgentQuestion: Codable, Sendable, Equatable, Identifiable {
     public let prompt: String
     public let options: [Option]
     public let isSecret: Bool
+    public var isMultiSelect = false
 
     public struct Option: Codable, Sendable, Equatable {
         public let label: String
